@@ -1,0 +1,57 @@
+---
+name: prototype-flow
+description: 从用户资料或现有 PRD 编排需求整理、拆分、高保真 Demo 和可编辑本地项目看板，维护需求到页面截图的关联、跨模块无限画布流程及版本历史；可选将本地 PRD 单向同步到飞书展示。用于完整原型项目或其持续更新，单独页面视觉修改使用 demo-design，单独文档库维护使用 prd-doc-maintainer。
+---
+
+# Prototype Flow
+
+把 **资料 → PRD → 需求 → 统一 Demo → 页面状态与截图 → 项目版本** 连成可恢复的项目流程。业务要求的权威源是本地 PRD Markdown；脚本负责持久化和一致性，不能代替资料理解、需求拆分、设计或浏览器观察。
+
+## 进入本次工作
+
+1. 识别用户要检查、讨论方案、实施、继续、保存版本还是同步飞书；沿用同一任务已有授权，按请求处理对应阶段。已有 PRD 或 Demo 可中途接入。
+2. 核对实际项目目录和适用 AGENTS.md，保留现有文件。执行本阶段工作前运行 `dependencies --stage <阶段> --project <project-dir>`：PRD 工作选 `prd`，Demo 工作选 `demo`，飞书工作选 `feishu`，完整项目选 `core`。命令复用已有 Skill，缺失时自动从公开 GitHub 固定提交拉取、校验并安装，无需重复询问是否安装。用户明确要求只读检查、讨论方案或禁止安装时追加 `--check`；宿主网络与目录权限限制仍须遵守。仅查看已有工作台或历史无需安装依赖。
+3. 读取命令返回的依赖 `path/SKILL.md` 后使用对应能力；新安装的文件在本轮直接按路径读取。已初始化时先运行 `state`，再读文档库的 `00-ai-context/DOC_MAP.md` 和相关 PRD。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
+4. 只读本阶段的参考文件：
+
+| 请求 | 按需读取 |
+| --- | --- |
+| 资料归并、编写或拆分 PRD | [需求与资料](references/requirements.md) |
+| 生成 Demo、接入既有 Demo、更新跨模块流程 | [Demo 与变化](references/demo-and-change.md) |
+| 本地工作台、数据操作、编辑冲突、版本和恢复 | [运行时与数据](references/runtime.md) |
+| 飞书初始化、绑定、单向同步或恢复 | [飞书展示](references/feishu.md) |
+| 实施验收、交接或演练 | [场景验收](references/acceptance.md) |
+
+入口命令如下，`<skill-dir>` 是本文件所在目录，`<project-dir>` 是实际目标目录。具体参数以本包的 `--help` 为准：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py --help
+python3 -B <skill-dir>/scripts/flow.py dependencies --stage core --project <project-dir>
+python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称"
+python3 -B <skill-dir>/scripts/flow.py state <project-dir>
+python3 -B <skill-dir>/scripts/flow.py serve <project-dir>
+```
+
+`serve` 输出工作台 URL、独立只读 Demo 预览信息与停止方式。工作台仅在本机运行，PRD 可所见即所得编辑；AI 生成和飞书同步由 Codex 对话发起。不要把 loopback 地址描述成他人可访问的分享链接。
+
+## 复用已有能力
+
+- **prd-doc-maintainer**：初始化或修改文档库时读取当前可用 Skill；脚本复用其 `scaffold`、`refresh --sync-related --dashboard`，必要时用其 `record-change`。依赖位置不同时通过 `init --maintainer-path` 指定。索引维护失败不等于正文丢失，报告保存与维护各自状态。
+- **demo-design**：涉及产品 Demo 设计、实现或更新时读取当前 Skill，遵循它适用的 route、tier、product_contract 和验证要求。沿用已有视觉设计，项目内共用导航、组件和业务状态。这里不复制其规范、不扩展它的 schema，也不将管理契约渲染进产品 Demo。
+- **use-feishu-cli**：只有启用飞书的项目和相应任务才读取。复用配置、身份和按需权限，按当前 CLI 内置指导执行；适配器不自动登录或申请权限。
+
+自动安装来源、目录、失败恢复和手动命令见 [依赖安装](references/dependencies.md)。安装失败或同名 Skill 不完整时保留现有目录，继续不依赖它的已授权工作，并报告返回的错误；不能将自写占位实现冒充该 Skill 的交付。这里只安装 Skill 文件；浏览器、Node、`lark-cli`、账号登录与云端权限仍按相关任务处理。
+
+## 持续遵守的项目关系
+
+- PRD 的每个需求块具有稳定 ID；改名或移动保留 ID，拆分、合并和移除使用显式操作并保存承接关系。一个需求可跨页面，一个页面可承载多需求。
+- 需求索引可重建；业务依赖、页面映射和证据是独立关联，不由刷新目录重新猜测。关联文件示例与格式见 `references/runtime.md` 及 `schemas/`。
+- 每次 Demo 任务先 `run-start` 固定输入，按输入制作。用户随后修改 PRD 时不覆盖新正文、不把旧输入 Demo 标为最新。脚本找出已声明依赖，Agent 继续判断未声明的共享规则影响。
+- 每张截图绑定实际 Demo 产物、页面、业务状态、演示数据入口与验证结果。点击后必须直达、刷新可恢复并能继续跨模块流程；声明范围必须由实际观察支持。
+- 用 `module-stage <project-dir> <module-id> --stage <stage>` 如实记录模块阶段，让看板跟随实际工作变化。已生成或测试通过不能自动成为 `confirmed`；该阶段必须通过 `--evidence-file` 提供实际用户确认记录。已确认模块的需求或已知依赖变化后自动回到待确认，保留原确认，其他手动阶段不被覆盖。字段与命令见 [运行时与数据](references/runtime.md#模块工作阶段)。
+- 编辑修订用于找回正文；项目快照冻结整套 PRD、关系、Demo、截图和证据。历史位于文档库外，查看只读，恢复形成新工作修订并保留当前飞书实时账本。
+- 飞书是共享展示副本：本地到飞书单向同步，不自动回流，不自动通知或改变分享权限。只有范围明确且已授权的同步才执行 `sync --execute`；单纯保存 PRD 只标待同步。
+
+## 完成本次请求
+
+完成所请求阶段的产物与必要检查，使用 `module-stage` 更新受影响模块的实际阶段，再交付。说明实际文件、可用入口、处理的需求或流程、证据覆盖，以及仍需业务决策或真实外部环境验证的事项。程序能通过的结构检查、观察到的浏览器行为、真实云端读回分开表述。不要把“已生成”“结构检查通过”写成“用户已确认”。

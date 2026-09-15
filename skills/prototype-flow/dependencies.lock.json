@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "repository": "lomenory/prototype-flow-skills",
+  "ref": "328086519926b818b99c74122f4bd99ce1a90034",
+  "dependencies": [
+    {
+      "name": "prd-doc-maintainer",
+      "path": "skills/prd-doc-maintainer",
+      "stages": [
+        "core",
+        "prd",
+        "demo",
+        "feishu"
+      ],
+      "requiredFiles": [
+        "SKILL.md",
+        "scripts/prd_library.py",
+        "assets/dashboard-template.html"
+      ],
+      "files": {
+        "README.md": "2d1dd4d77624c8c43811e855f8c241934f6a3b819521d1ad73302768889986db",
+        "SKILL.md": "d190a638d2d0613feb2524c13f764e4c1044368fee4545a00a49489745d41880",
+        "agents/openai.yaml": "263dafd983b16928daf27cf532a5826087345eb54e6e620070b4c2039e7de0fc",
+        "assets/dashboard-template.html": "983ef36d07d6dc58b3a73f9894aef37862153e103cb629a76e862eda75746a7e",
+        "references/metadata-guide.md": "b68494ba15e4330a0d66ddeb9f33101204ec1324d66d371551de4c611cba4d3e",
+        "scripts/prd_library.py": "0e5d942f83724925fa6dd71030e7da8d2b7d0df761180e55cfad63f30bbeb4cc"
+      }
+    },
+    {
+      "name": "demo-design",
+      "path": "skills/demo-design",
+      "stages": [
+        "core",
+        "demo"
+      ],
+      "requiredFiles": [
+        "SKILL.md",
+        "runtime-manifest.json",
+        "scripts/preview-server.py",
+        "references/routing-contract.md"
+      ],
+      "files": {
+        "SKILL.md": "f0876d4360eda48128f55b86bcde9b3dca5abc90f3cf5cde7691c436fe4a2412",
+        "assets/android_frame.jsx": "8c1c951518e5f0d39c07212d0bb9e8f1b5363b4ad4d1f903dca26d6a485e08bf",
+        "assets/ios_frame.jsx": "e19b4dd028aed54f8c20cea8b070c349e89f2ebcb9ff6b29fd37a9b2381789bd",
+        "contracts/dependencies.yaml": "da46f7a3c34c04d67efdc64d5e3429190932350d50506ee91001292af30e2f49",
+        "contracts/design-guidance.yaml": "150040a8b94239897dadca059d0bea18c66f3b65f69ed09d18729201a8118f72",
+        "contracts/design-reference.schema.json": "3a116e62d853561f44df958cf44c643f0bdac4daecd87b85cb8c9f55dd791449",
+        "contracts/experience-checks.schema.json": "e8614a354485c82a0ba67432f2931b5a89f34313796938699f50feba5656665b",
+        "contracts/product-contract.schema.json": "b566d3e80d0d98adfc8542711f1ae4c78215d7477a91d308ca51b845958922b4",
+        "design-systems/application/DESIGN.md": "226ad994e2ffeed61bec0f6701dc97c720cd83c4ee038bdc36b017dcaee9c742",
+        "design-systems/dashboard/DESIGN.md": "82a1039640cab16e9e88038938a9957e9c20b201f2e3fc5f66e49d8441ebd31d",
+        "design-systems/default/DESIGN.md": "87f2e3c27ee0c861ce742dc01539c43b7f0f86af3d063500b39049f47106333e",
+        "design-systems/enterprise/DESIGN.md": "908d9e7e01e705faeea59ed2bc3e60c7d706137dc2c445c7ba9e5f640adced3c",
+        "design-systems/expressive/DESIGN.md": "6af5ab6c9ba6c0e1b887babda6c9a1cd1564ae6cf0c8827956f9d1576a6a9693",
+        "design-systems/friendly/DESIGN.md": "3bcec16088309a56a4100b5707134c8eb69cec6068cd8791a844fa724228170e",
+        "design-systems/index.json": "a385fb18f239964559b3d9fb12e099dbacb341379b4cf6d20e14fd971e24ab13",
+        "design-systems/minimal/DESIGN.md": "863be3777753f1bb106354003a659c66441db91affb223bf8c93770e9a229785",
+        "design-systems/warm-editorial/DESIGN.md": "d98f21b693367d0afe6fbcbe58417afe810fd116dd3f610c72ed84df240bfe44",
+        "examples/design-guidance.json": "c8ce06deeaba899d17a532e911aba972d5bd4ce8c1487417964448c4e32fabfa",
+        "examples/experience-checks.json": "7e54a72d6b579484482a01af2f97ce8e43a475e83a1beffa551450c4850614bc",
+        "references/ant-design-enterprise.md": "a6340850493e815438688b32ab9399a481a09c16b98f2a9fddfef61b04562ec3",
+        "references/app-preflight.md": "e14260c6db04ebb7466e1c5085e4bf91eca7f56497b5f5f22d1e175c2c253df7",
+        "references/data-viz-preflight.md": "ba6c7e1d857cc7e87924c9238a28ca4bf53ec26f5b438b698e9fee177dadb575",
+        "references/dependencies.md": "bbf5ccad25e5e27a83631cba72a9271e96b7b0933ec23fd732d01c31145ccfdb",
+        "references/design-context.md": "d107ab1453b47b00bb0dc537694ce0ddd64091ddf85017041a781181db2ddad9",
+        "references/design-guidance.md": "9d2ca0894a2cf6cd404572257ebbbf97636d2e83029bc2ba8f536b30732de198",
+        "references/experience-checks.md": "54ac13cb6fd118b154fef1e458a34f45271b2f54b9ef2baef8506f13945c1a04",
+        "references/modes.md": "f5a32b4d9bcdc5906267ae855fccd628dc44e4e5b85c07a74c2d18f50741157f",
+        "references/product-contract-mode.md": "e1cb80c44a7dd6d7b81789e6064ba6f851ed35490b1f7a6f97482a912751072e",
+        "references/prototype-brief-gate.md": "daa1e7a53efc993a47910ef800bdcd5d91cff22d892c481dfc9c7398eb89fe61",
+        "references/quality.md": "5572e1210fb95bc662d6cad59894b3ad0b78d2c84d34673b3a12302c80f61a24",
+        "references/quick-patch.md": "9e543927f66879e1723b9f537a381770a33450bcf6ea164a6a8b40754bc0f3ca",
+        "references/routes/app.md": "4b7bbbe33c9718a7e9eb5dc573ae7f771c2b4a9257393acf6b0b362653cf44ae",
+        "references/routes/review.md": "fbe32f76fc732a0d8299da7097aa3febdfb11a4d7321ba46f79cd6c8e9943fe0",
+        "references/routes/web.md": "551b813cfdd43a63945b99fe7db87f479c555622963aa209e4fdf03ac1e2cac8",
+        "references/routing-contract.md": "5b474dad4592426cb95403344d9d32fea6564b06beae4a7e75d5d4b86c3df757",
+        "references/strict-regression.md": "d185011d5201577e43184f446ce8ea899e1d4ce84d68cfdd21843cd27041b74f",
+        "references/verification.md": "d05068a0b44d91f09865b01e381ea709d7ec40731366086602f460ac81318f50",
+        "references/web-preflight.md": "ac9d70940166b3b6f0086cd166bee9f5bae0c4e203cd2f556fc9d9f22d13327b",
+        "runtime-manifest.json": "b94925483cddc827e8d5d5049572b9cd78df01d0c564e70ee0df7f07ceaa8b5e",
+        "scripts/browser-session.py": "b04295defc571bcf690f92d14344d2f045dfdb80415f0e0145dd89b76595caa4",
+        "scripts/preview-server.py": "a9f83ebc701b49f9a167582eeae4222b2f07b5fd9b8e0a8b390a5d2589cba1ff",
+        "scripts/validate-design-guidance.py": "b58c25dd68a74021d16a394d67e50c2f6c54c7ac52fef573eb7638be8c114cf3",
+        "scripts/validate-design-reference.py": "b60d549f484d1d7833488a2d53be8e828274da05240fd6dbd58000f0e543fae3",
+        "scripts/validate-design-systems.py": "0269fbc7722bf0ab530f02138b3b48769aac4ebfceb7e27e7d77be5768d54e9d",
+        "scripts/validate-experience-checks.py": "1910c96852dab147f3ff7f726291dc1eb0e5f8a97b6737f844d88d7bdbfd4d18",
+        "scripts/validate-portability.py": "41e98c0f1003273595a0ec992c630620a52b1955674e13bae0ab27ce39c550ed",
+        "scripts/validate-product-contract.py": "4c8b35811c8a173e4fb5b184e3cc77b34b8554289368208631719803de4e4b52",
+        "scripts/verify.py": "29a9746e6bf0996e51b5c863cd13c4bb1b915c385e826c68d6f1eec9ecdf315a",
+        "scripts/visual-diff.py": "78aa3391a6f0e8d3366cc2b1688d0f8b2e333939cd30ee308e70129c1361a2eb"
+      }
+    },
+    {
+      "name": "use-feishu-cli",
+      "path": "skills/use-feishu-cli",
+      "stages": [
+        "feishu"
+      ],
+      "requiredFiles": [
+        "SKILL.md",
+        "references/capability-map.md"
+      ],
+      "files": {
+        "SKILL.md": "f83188f0dd8e8173d463011931b2fc0888158359cf740ce98419ab26c6f0acc4",
+        "agents/openai.yaml": "bf243d5e7eae9346e230eb1987b8015cef755a9ee93d5d9d3864b11ab80cfc2c",
+        "references/capability-map.md": "18429d7f83831a966d48e45817c42985eee7a5b1764ba6dd8d40c0cbb5078793"
+      }
+    }
+  ]
+}

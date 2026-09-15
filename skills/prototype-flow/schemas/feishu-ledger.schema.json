@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prototype-flow.local/schemas/feishu-ledger.schema.json",
+  "title": "飞书实时单向同步账本",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "direction",
+    "config",
+    "bindings",
+    "plans"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "direction": {
+      "const": "local-to-feishu"
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "parentToken": {
+          "type": "string"
+        },
+        "navigationTitle": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "documentId",
+          "remoteId",
+          "url",
+          "status"
+        ],
+        "properties": {
+          "documentId": {
+            "type": "string"
+          },
+          "remoteId": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baselineHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "remoteRevision": {
+            "type": "integer"
+          },
+          "localHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "localRevision": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "publishing",
+              "synced",
+              "conflict",
+              "failed",
+              "ambiguous_creation",
+              "local_missing"
+            ]
+          },
+          "boundAt": {
+            "type": "string"
+          },
+          "syncedAt": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "requirementBlocks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "blockId",
+                "url"
+              ],
+              "properties": {
+                "blockId": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "sha256",
+                "token"
+              ],
+              "properties": {
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "token": {
+                  "type": "string"
+                },
+                "sourcePath": {
+                  "type": "string"
+                },
+                "blockId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "plans": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "documentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

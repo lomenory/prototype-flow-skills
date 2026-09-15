@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prototype-flow.local/schemas/artifact.schema.json",
+  "title": "完整 Demo 产物注册输入",
+  "type": "object",
+  "required": [
+    "id",
+    "path",
+    "entryHtml",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
+    },
+    "title": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^demos/"
+    },
+    "entryHtml": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
+    },
+    "inputRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requirementHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "minProperties": 1
+    },
+    "documentHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "status": {
+      "enum": [
+        "candidate",
+        "verified",
+        "current"
+      ]
+    },
+    "evidence": {
+      "type": "object"
+    },
+    "fileHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "runId"
+      ]
+    },
+    {
+      "required": [
+        "inputRevision",
+        "requirementHashes"
+      ]
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "verified",
+              "current"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "evidence"
+        ],
+        "properties": {
+          "evidence": {
+            "type": "object",
+            "minProperties": 1
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

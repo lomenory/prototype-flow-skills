@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prototype Flow"
+  short_description: "串联资料、可编辑 PRD、需求拆分、统一 Demo、项目看板及版本历史"
+  default_prompt: "使用 $prototype-flow 将当前项目资料整理成可追溯 PRD，并按我的本次请求推进需求、Demo 和项目看板。"
