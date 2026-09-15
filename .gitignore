@@ -1,11 +1,10 @@
-# 公开仓库只接收说明和四个分发 Skill
+# 公开仓库只接收说明、主 Skill 和两个按需依赖
 /*
 !/.gitignore
 !/README.md
 !/skills/
 /skills/*
 !/skills/prototype-flow/
-!/skills/prd-doc-maintainer/
 !/skills/demo-design/
 !/skills/use-feishu-cli/
 

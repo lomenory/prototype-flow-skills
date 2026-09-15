@@ -18,8 +18,6 @@
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
 | 同步飞书展示 | 本地 PRD 单向同步到已授权的飞书目标 | prototype-flow + [use-feishu-cli](skills/use-feishu-cli/SKILL.md) |
 
-仓库另保留 [PRD Doc Maintainer](skills/prd-doc-maintainer/SKILL.md)，供独立文档库维护使用；它不属于 Prototype Flow 的运行依赖。
-
 2026-09-15 更新：内建文档维护、一次入库 `intake`、默认摘要输出及 `validate --stage prd` 已发布。详见[实现提交 df8d8e7](https://github.com/lomenory/prototype-flow-skills/commit/df8d8e79961bb5f74d9830cea0c07056649817ba)。
 
 ## 安装主 Skill
@@ -128,6 +126,8 @@ python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
 
 ## 分发内容
 
+本仓库仅分发 `prototype-flow` 主 Skill，以及 Demo 和飞书阶段按需使用的 `demo-design`、`use-feishu-cli`。
+
 主 Skill 包含 `SKILL.md`、界面元数据、依赖锁文件、Python 运行时、阶段参考、数据 schema，以及预构建工作台和第三方许可证。
 
 公开仓库不包含开发工作台的 React 源码、`node_modules`、开发测试、业务项目、订单示例、演练截图、开发日志、缓存或账号配置。依赖 Skill 内用于运行和理解规范的模板与小型 JSON 示例保留。
@@ -140,7 +140,7 @@ python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
 
 首批分发快照整理于 2026-09-15：
 
-- `prd-doc-maintainer` 和 `use-feishu-cli`：保留作者维护的现有 Skill 文件。
+- `use-feishu-cli`：保留作者维护的现有 Skill 文件。
 - `demo-design`：仅分发经过 Core 验证的 Runtime/Contract v9，契约哈希 `e0a96def6e9c`；文件哈希和原始来源提交记录在 `runtime-manifest.json` 中。
 
 维护时只发布已经验证的 Skill 运行目录；不把开发仓库的 Git 历史或工作目录整体同步到这里。更新依赖时先验证新的完整快照，再更新主 Skill 的 `dependencies.lock.json` 中的提交与文件哈希。仅更新主 Skill 时保留依赖锁；已安装版本不会自动追踪分支最新内容。
