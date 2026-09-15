@@ -38,6 +38,8 @@
       ]
     },
     "maintainerPath": {
+      "description": "旧项目兼容字段；当前文档维护已内建，不读取或执行此路径。",
+      "deprecated": true,
       "type": [
         "string",
         "null"

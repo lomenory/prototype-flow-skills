@@ -193,11 +193,15 @@ def unpack_verified(archive, entry, target):
 def ensure_dependencies(stage='core', project=None, dest=None, check=False, lock_path=LOCK_PATH):
     lock = load_lock(lock_path)
     selected = selected_dependencies(lock, stage)
-    roots = skill_roots(project, dest)
-    states = [inspect_dependency(entry, roots) for entry in selected]
     destination = Path(dest).expanduser().resolve() if dest else default_destination().resolve()
     result = {'ok': False, 'stage': stage, 'destination': str(destination),
-              'repository': lock['repository'], 'ref': lock['ref'], 'dependencies': states}
+              'repository': lock['repository'], 'ref': lock['ref'], 'dependencies': []}
+    if not selected:
+        result['ok'] = True
+        return result
+    roots = skill_roots(project, dest)
+    states = [inspect_dependency(entry, roots) for entry in selected]
+    result['dependencies'] = states
     if check or any(item['status'] == 'invalid' for item in states):
         result['ok'] = all(item['status'] == 'available' for item in states)
         if any(item['status'] == 'invalid' for item in states):

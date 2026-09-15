@@ -14,8 +14,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
-import sys
 import tempfile
 import threading
 import uuid
@@ -153,6 +151,26 @@ def requirement_block(data, body):
     return '<!-- pf:req ' + canonical(data) + ' -->\n' + body.strip() + '\n<!-- /pf:req -->\n'
 
 
+def new_requirement_blocks(parts, module_id, source_ids=None, depends_on=None, supersedes=None):
+    ids, blocks = [], []
+    if not isinstance(parts, list):
+        raise FlowError('Requirements must be a list')
+    for part in parts:
+        if (not isinstance(part, dict) or not isinstance(part.get('title'), str)
+                or not part['title'].strip() or not isinstance(part.get('content', ''), str)):
+            raise FlowError('Each new part requires title and content')
+        rid = uid('REQ-' + module_id[:60])
+        ids.append(rid)
+        metadata = {'id': rid, 'priority': part.get('priority', 'P1'), 'status': 'draft',
+                    'sourceIds': part.get('sourceIds', source_ids or []),
+                    'dependsOn': part.get('dependsOn', depends_on or []), 'supersedes': supersedes or []}
+        body = part.get('content', '').strip()
+        if not re.match(r'^#{1,6}\s', body):
+            body = '### ' + part['title'].strip() + '\n\n' + body
+        blocks.append(requirement_block(metadata, body))
+    return ids, blocks
+
+
 class ProjectStore:
     def __init__(self, root):
         self.root = Path(root).expanduser().resolve()
@@ -213,6 +231,8 @@ class ProjectStore:
         path = Path(path)
         # Validate again immediately before replacement, including parents.
         path = self._safe(path.relative_to(self.root))
+        if path.is_file() and path.read_bytes() == data:
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix='.pf-write-', dir=str(path.parent))
         try:
@@ -242,36 +262,16 @@ class ProjectStore:
         self._write('project.json', project)
         return project['revision']
 
-    def _maintain(self, scaffold=False):
-        project = self._project()
-        configured = project.get('maintainerPath')
-        if configured:
-            candidate = Path(configured).expanduser()
-        else:
-            from pf_dependencies import find_skill
-            candidate = find_skill('prd-doc-maintainer', self.root)
-        if candidate is not None and candidate.is_dir():
-            candidate = candidate / 'scripts/prd_library.py'
-        if candidate is None or not candidate.is_file():
-            result = {'status': 'pending', 'message': 'prd-doc-maintainer is unavailable; Markdown is saved.'}
-        else:
-            library = self._safe(project['libraryRoot'])
-            command = [sys.executable, '-B', str(candidate), 'scaffold' if scaffold else 'refresh', str(library)]
-            if not scaffold:
-                command += ['--sync-related', '--dashboard']
-            try:
-                # The maintainer scans the complete library; reject unsafe links first.
-                self._inventory(library)
-                completed = subprocess.run(command, capture_output=True, text=True, timeout=60)
-                result = {'status': 'ok' if completed.returncode == 0 else 'pending',
-                          'message': (completed.stderr or completed.stdout).strip()[-2000:],
-                          'exitCode': completed.returncode}
-            except (OSError, FlowError, subprocess.TimeoutExpired) as exc:
-                result = {'status': 'pending', 'message': str(exc)}
+    def _maintain(self):
+        from pf_library import maintain
+        try:
+            result = maintain(self)
+        except (OSError, FlowError, ValueError) as exc:
+            result = {'status': 'pending', 'engine': 'builtin', 'message': str(exc)}
         self._write('maintenance.json', result)
         return result
 
-    def init(self, name, mode='local', library_root='prd-library', maintainer_path=None):
+    def init(self, name, mode='local', library_root='prd-library', maintainer_path=None, create_overview=True):
         if mode not in ('local', 'feishu'):
             raise FlowError('mode must be local or feishu')
         with self._transaction():
@@ -288,14 +288,16 @@ class ProjectStore:
             self._write('sources.json', {'schemaVersion': 1, 'items': []})
             self._write('relations.json', {'schemaVersion': 1, 'flows': [], 'bindings': [], 'supersessions': []})
             self._write('artifacts.json', {'schemaVersion': 1, 'items': [], 'currentArtifactId': None})
-            self._maintain(scaffold=True)
-            for name_ in ('01-active', '03-research', '05-prototypes'):
+            # Legacy maintainer_path is accepted but never executed.
+            for name_ in ('00-ai-context', '01-active', '03-research', '05-prototypes'):
                 self._safe(library.relative_to(self.root) / name_).mkdir(parents=True, exist_ok=True)
             self._adopt_documents()
-            if not self._project()['modules']:
+            if create_overview and not self._project()['modules']:
                 self.add_module('项目总览', 'OVERVIEW')
-            self.refresh()
-            return self.state()
+            else:
+                self._reindex()
+                self._maintain()
+            return self._state()
 
     def _adopt_documents(self):
         project = self._project()
@@ -373,7 +375,6 @@ class ProjectStore:
         titles = {d['id']: d['title'] for d in documents}
         for module in project['modules']:
             module['title'] = titles[module['documentId']]
-        self._write('project.json', project)
         changed = {rid for rid in set(old_reqs) | set(new_reqs)
                    if old_reqs.get(rid, {}).get('hash') != new_reqs.get(rid, {}).get('hash')}
         for document in documents:
@@ -419,7 +420,8 @@ class ProjectStore:
         self._write('project.json', project)
         prior_impact = self._read('impact.json', {'requirementIds': []})
         pending = sorted(set(prior_impact.get('requirementIds', [])) | impacted)
-        self._write('impact.json', {'requirementIds': pending, 'updatedAt': now()})
+        if pending != prior_impact.get('requirementIds') or not self._safe('.prototype-flow/impact.json').exists():
+            self._write('impact.json', {'requirementIds': pending, 'updatedAt': now()})
         self._write('requirement-index.json', {'schemaVersion': 1, 'items': requirements,
                     'documents': [dict((k, v) for k, v in d.items() if k != 'content') |
                                   {'outsideHash': digest(REQ.sub('', business_text(d['content'])))} for d in documents]})
@@ -430,7 +432,6 @@ class ProjectStore:
             self._adopt_documents()
             self._reindex()
             self._maintain()
-            self._reindex()
             return self._state()
 
     def content_root(self, version=None):
@@ -442,13 +443,31 @@ class ProjectStore:
             raise FlowError('Unknown project version', 404)
         return self._safe('versions/' + version + '/project', must_exist=True)
 
-    def state(self, version=None):
+    def state(self, version=None, summary=False):
         with self._transaction():
             if not version or version == 'working':
                 self._reindex()
             else:
                 self._verify_snapshot(version)
-            return self._state(version)
+            return self._summary(version) if summary else self._state(version)
+
+    def _summary(self, version=None):
+        """CLI lookup without repeating text or inspecting every Demo artifact."""
+        base = self.content_root(version)
+        project = self._project(base)
+        index = self._read('requirement-index.json', {'documents': [], 'items': []}, base=base)
+        modules = [{key: module[key] for key in ('id', 'title', 'documentId', 'documentPath', 'stage')
+                    if key in module} for module in project['modules']]
+        documents = [{key: document[key] for key in ('id', 'title', 'moduleId', 'path', 'revision')}
+                     for document in index['documents']]
+        return {'project': {key: project[key] for key in ('id', 'name', 'revision', 'mode', 'libraryRoot')},
+                'modules': modules, 'documents': documents,
+                'counts': {'modules': len(modules), 'documents': len(documents),
+                           'requirements': len(index['items']),
+                           'sources': len(self._read('sources.json', {'items': []}, base=base)['items']),
+                           'artifacts': len(self._read('artifacts.json', {'items': []}, base=base)['items'])},
+                'maintenanceStatus': self._read('maintenance.json', {}, base=base),
+                'historical': base != self.root, 'versionId': version if base != self.root else None}
 
     def _state(self, version=None):
         base = self.content_root(version)
@@ -529,7 +548,6 @@ class ProjectStore:
             self._write_bytes(self._safe(current['path']), content.encode())
             _, _, impacted = self._reindex()
             maintenance = self._maintain()
-            self._reindex()
             saved = self.document(document_id)
             self._save_revision(saved)
             return {'document': saved, 'impactedRequirementIds': impacted, 'maintenanceStatus': maintenance}
@@ -555,7 +573,6 @@ class ProjectStore:
             self._write('project.json', project)
             self._reindex()
             self._maintain()
-            self._reindex()
             document = self.document(document_id)
             self._save_revision(document)
             return document
@@ -576,7 +593,102 @@ class ProjectStore:
             sources['items'].append(source)
             self._write('sources.json', sources)
             self._bump()
+            self._maintain()
             return source
+
+    def intake(self, payload):
+        """Create one complete PRD and its source/requirements with one maintenance pass."""
+        if not isinstance(payload, dict):
+            raise FlowError('Intake must be an object')
+        unknown = set(payload) - {'title', 'content', 'moduleId', 'source', 'requirements'}
+        if unknown:
+            raise FlowError('Unknown intake fields', details=sorted(unknown))
+        title, content = payload.get('title'), payload.get('content', '')
+        if not isinstance(title, str) or not title.strip():
+            raise FlowError('Module title is required')
+        if not isinstance(content, str) or len(content.encode()) > 8 * 1024 * 1024:
+            raise FlowError('Document must be UTF-8 text under 8 MiB')
+        if '<!-- pf:req' in content or '<!-- /pf:req' in content or GENERATED.search(content):
+            raise FlowError('Intake content is shared prose; put requirement blocks in requirements')
+        with self._transaction():
+            project = self._project()
+            self._scan()  # Reject an inconsistent existing project before writing.
+            module_id = valid_id(payload.get('moduleId') or uid('MODULE'))
+            if any(module['id'] == module_id for module in project['modules']):
+                raise FlowError('Module already exists; use document/save to update it', 409)
+            document_id = uid('DOC')
+            relative = project['libraryRoot'] + '/01-active/' + module_id + '.md'
+            if self._safe(relative).exists():
+                raise FlowError('Module path already exists', 409)
+            sources = self._read('sources.json', {'schemaVersion': 1, 'items': []})
+            source, source_content = None, None
+            data = payload.get('source')
+            if data is not None:
+                if (not isinstance(data, dict) or set(data) - {'id', 'label', 'kind', 'locator', 'content'}
+                        or any(not isinstance(data.get(key), str) or not data[key].strip()
+                               for key in ('label', 'locator'))):
+                    raise FlowError('Source requires label, locator and supported source fields')
+                source_content = data.get('content')
+                if source_content is not None and (not isinstance(source_content, str)
+                        or len(source_content.encode()) > 8 * 1024 * 1024):
+                    raise FlowError('Source content must be extracted UTF-8 text under 8 MiB')
+                source_id = valid_id(data.get('id') or uid('SRC'))
+                if any(item['id'] == source_id for item in sources['items']):
+                    raise FlowError('Source ID already exists', 409)
+                source = {'id': source_id, 'label': data['label'], 'kind': data.get('kind', 'document'),
+                          'locator': data['locator'], 'createdAt': now(),
+                          'status': 'captured' if source_content is not None else 'unread'}
+                if source_content is not None:
+                    source_path = project['libraryRoot'] + '/03-research/' + source_id + '.md'
+                    if self._safe(source_path).exists():
+                        raise FlowError('Source path already exists', 409)
+                    source.update(path=source_path, hash=digest(source_content))
+                sources['items'].append(source)
+            requirement_ids, blocks = new_requirement_blocks(payload.get('requirements', []), module_id,
+                                                              [source['id']] if source else [])
+            _, raw, body = split_frontmatter(content)
+            if not re.search(r'^#\s+', body, re.M):
+                body = '# ' + title.strip() + '\n\n' + body
+                content = '---\n' + raw + '\n---\n\n' + body if raw else body
+            content = set_metadata(content, {'documentId': document_id, 'moduleId': module_id,
+                                   'title': title.strip(), 'status': 'draft', 'version': '0.1.0', 'updated': now()[:10]})
+            if blocks:
+                content = content.rstrip() + '\n\n' + '\n\n'.join(blocks) + '\n'
+            if len(content.encode()) > 8 * 1024 * 1024:
+                raise FlowError('Document must be UTF-8 text under 8 MiB')
+            parse_requirements(content, document_id, module_id)
+            module = {'id': module_id, 'title': title.strip(), 'documentId': document_id,
+                      'documentPath': relative, 'stage': 'draft'}
+            project['modules'].append(module)
+            writes = {self._safe(relative): content.encode(),
+                      self._safe('.prototype-flow/project.json'): (json.dumps(project, ensure_ascii=False, indent=2) + '\n').encode()}
+            if source:
+                writes[self._safe('.prototype-flow/sources.json')] = (json.dumps(sources, ensure_ascii=False, indent=2) + '\n').encode()
+                if source_content is not None:
+                    writes[self._safe(source['path'])] = source_content.encode()
+            # Roll back our writes on I/O or indexing failure; unrelated project files stay untouched.
+            tracked = set(writes) | {self._safe('.prototype-flow/' + name) for name in
+                                    ('project.json', 'requirement-index.json', 'impact.json')}
+            originals = {path: path.read_bytes() if path.exists() else None for path in tracked}
+            try:
+                for path, data in writes.items():
+                    self._write_bytes(path, data)
+                self._reindex()
+            except Exception:
+                for path, data in originals.items():
+                    if data is None:
+                        if path.exists():
+                            path.unlink()
+                    else:
+                        self._write_bytes(path, data)
+                raise
+            maintenance = self._maintain()
+            document = self.document(document_id)
+            self._save_revision(document)
+            validation = self.validate(stage='prd', document_ids={document_id})
+            return {'document': document, 'module': module, 'requirementIds': requirement_ids,
+                    'sourceId': source['id'] if source else None, 'maintenanceStatus': maintenance,
+                    'validation': validation}
 
     def set_module_stage(self, module_id, stage, evidence=None):
         """Record workflow progress; user confirmation is explicit, never inferred."""
@@ -610,6 +722,7 @@ class ProjectStore:
             module.update(stage=stage, stageEvidence=record, stageUpdatedAt=timestamp)
             project.update(revision=project['revision'] + 1, updatedAt=timestamp)
             self._write('project.json', project)
+            self._maintain()
             return copy.deepcopy(module)
 
     def update_relations(self, data):
@@ -741,7 +854,7 @@ class ProjectStore:
             self._bump()
             return artifact
 
-    def transform_requirements(self, operation, ids, parts=None, target_module_id=None, base_revision=None):
+    def transform_requirements(self, operation, ids, parts=None, target_module_id=None, base_revision=None, summary=False):
         with self._transaction():
             self._reindex()
             if base_revision is not None and base_revision != self._project()['revision']:
@@ -778,20 +891,9 @@ class ProjectStore:
             new_ids = []
             additions = []
             if operation in ('add', 'split', 'merge'):
-                for part in parts:
-                    if not isinstance(part, dict) or not part.get('title') or not isinstance(part.get('content', ''), str):
-                        raise FlowError('Each new part requires title and content')
-                    new_id = uid('REQ-' + target_module_id[:60])
-                    valid_id(new_id)
-                    new_ids.append(new_id)
-                    metadata = {'id': new_id, 'priority': part.get('priority', 'P1'), 'status': 'draft',
-                                'sourceIds': part.get('sourceIds', sorted({s for r in ids for s in by_req[r]['sourceIds']})),
-                                'dependsOn': part.get('dependsOn', sorted({s for r in ids for s in by_req[r]['dependsOn']} - set(ids))),
-                                'supersedes': ids}
-                    body = part.get('content', '').strip()
-                    if not re.match(r'^#{1,6}\s', body):
-                        body = '### ' + part['title'] + '\n\n' + body
-                    additions.append(requirement_block(metadata, body))
+                new_ids, additions = new_requirement_blocks(parts, target_module_id,
+                    sorted({source for rid in ids for source in by_req[rid]['sourceIds']}),
+                    sorted({dependency for rid in ids for dependency in by_req[rid]['dependsOn']} - set(ids)), ids)
             elif operation == 'move':
                 new_ids = list(ids)
                 additions = [blocks[r] for r in ids]
@@ -842,7 +944,12 @@ class ProjectStore:
                 raise
             self._reindex()
             self._maintain()
-            self._reindex()
+            if summary:
+                result = self._summary()
+                result.update(operation=operation, newRequirementIds=new_ids,
+                              removedRequirementIds=ids if operation in ('split', 'merge', 'remove') else [],
+                              changedRequirementIds=sorted(set(ids + new_ids)))
+                return result
             return self._state()
 
     def upload_asset(self, document_id, filename, data_bytes):
@@ -998,6 +1105,20 @@ class ProjectStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
 
+    def _document_references(self, documents):
+        paths = set()
+        for document in documents:
+            content = GENERATED.sub('', document['content'])
+            content = re.sub(r'(?ms)^(`{3,}|~{3,})[^\n]*\n.*?^\1[^\n]*$', '', content)
+            content = re.sub(r'`[^`\n]+`', '', content)
+            for match in re.finditer(r'!?\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["\'][^\n]*["\'])?\)', content):
+                parsed = urlsplit(match.group(1) or match.group(2))
+                if parsed.scheme or parsed.netloc or not parsed.path:
+                    continue
+                relative = Path(os.path.normpath(str(Path(document['path']).parent / unquote(parsed.path))))
+                paths.add(self._safe(relative).relative_to(self.root).as_posix())
+        return paths
+
     def _referenced_files(self):
         """Local captured sources, screenshots and Markdown image dependencies."""
         paths = set()
@@ -1108,10 +1229,11 @@ class ProjectStore:
             self._write('project.json', historical_project)
             # feishu.json, feishu-plans/ and runs/ intentionally remain untouched.
             self._maintain()
-            self._reindex()
             return self._state()
 
-    def validate(self):
+    def validate(self, stage='all', document_ids=None):
+        if stage not in ('all', 'prd'):
+            raise FlowError('Validation stage must be all or prd')
         with self._transaction():
             errors, warnings = [], []
             try:
@@ -1120,7 +1242,8 @@ class ProjectStore:
                 sources = {s['id'] for s in self._read('sources.json', {'items': []})['items']}
                 relations = self._read('relations.json')
                 retired = {rid for x in relations['supersessions'] for rid in x.get('from', [])}
-                for req in requirements:
+                selected = [req for req in requirements if document_ids is None or req['documentId'] in document_ids]
+                for req in selected:
                     missing_sources = set(req['sourceIds']) - sources
                     if missing_sources:
                         warnings.append({'code': 'source-missing', 'id': req['id'], 'references': sorted(missing_sources)})
@@ -1130,34 +1253,46 @@ class ProjectStore:
                                          'id': req['id'], 'references': sorted(missing)})
                 artifacts = self._read('artifacts.json')['items']
                 artifact_ids = {a['id'] for a in artifacts}
-                if not requirements:
+                if not selected:
                     warnings.append({'code': 'no-requirements', 'message': 'PRD 尚未完成需求拆分'})
-                if not artifacts:
-                    warnings.append({'code': 'no-demo', 'message': '尚未登记 Demo 产物'})
-                for relative in self._referenced_files():
-                    if not self._safe(relative).is_file():
-                        warnings.append({'code': 'referenced-file-missing', 'path': relative})
-                for artifact in artifacts:
-                    path = self._safe(artifact['path'])
-                    if not path.is_dir():
-                        errors.append({'code': 'artifact-missing', 'id': artifact['id']})
-                    elif self._inventory(path) != artifact['fileHashes']:
-                        errors.append({'code': 'artifact-mutated', 'id': artifact['id']})
-                    if not artifact.get('evidence'):
-                        warnings.append({'code': 'artifact-unverified', 'id': artifact['id']})
-                for group in ('flows', 'bindings'):
-                    for item in relations[group]:
-                        if set(item.get('requirementIds', [])) - ids:
-                            errors.append({'code': 'relation-requirement-missing', 'id': item['id']})
-                        if item.get('status') == 'needs-review':
-                            warnings.append({'code': 'relation-needs-review', 'id': item['id']})
-                        if group == 'bindings':
-                            if item.get('artifactId') not in artifact_ids:
-                                errors.append({'code': 'binding-artifact-missing', 'id': item['id']})
-                            if item.get('screenshot') and not self._safe(item['screenshot']).is_file():
-                                warnings.append({'code': 'screenshot-missing', 'id': item['id']})
-                            if not item.get('verified'):
-                                warnings.append({'code': 'entry-unverified', 'id': item['id']})
+                if stage == 'prd':
+                    checked_docs = [doc for doc in documents if document_ids is None or doc['id'] in document_ids]
+                    paths = set(self._document_references(checked_docs))
+                    selected_sources = {sid for req in selected for sid in req['sourceIds']}
+                    for source in self._read('sources.json', {'items': []})['items']:
+                        if document_ids is None or source['id'] in selected_sources:
+                            if source.get('path'):
+                                paths.add(source['path'])
+                    for relative in sorted(paths):
+                        if not self._safe(relative).is_file():
+                            warnings.append({'code': 'referenced-file-missing', 'path': relative})
+                else:
+                    if not artifacts:
+                        warnings.append({'code': 'no-demo', 'message': '尚未登记 Demo 产物'})
+                    for relative in self._referenced_files():
+                        if not self._safe(relative).is_file():
+                            warnings.append({'code': 'referenced-file-missing', 'path': relative})
+                    for artifact in artifacts:
+                        path = self._safe(artifact['path'])
+                        if not path.is_dir():
+                            errors.append({'code': 'artifact-missing', 'id': artifact['id']})
+                        elif self._inventory(path) != artifact['fileHashes']:
+                            errors.append({'code': 'artifact-mutated', 'id': artifact['id']})
+                        if not artifact.get('evidence'):
+                            warnings.append({'code': 'artifact-unverified', 'id': artifact['id']})
+                    for group in ('flows', 'bindings'):
+                        for item in relations[group]:
+                            if set(item.get('requirementIds', [])) - ids:
+                                errors.append({'code': 'relation-requirement-missing', 'id': item['id']})
+                            if item.get('status') == 'needs-review':
+                                warnings.append({'code': 'relation-needs-review', 'id': item['id']})
+                            if group == 'bindings':
+                                if item.get('artifactId') not in artifact_ids:
+                                    errors.append({'code': 'binding-artifact-missing', 'id': item['id']})
+                                if item.get('screenshot') and not self._safe(item['screenshot']).is_file():
+                                    warnings.append({'code': 'screenshot-missing', 'id': item['id']})
+                                if not item.get('verified'):
+                                    warnings.append({'code': 'entry-unverified', 'id': item['id']})
                 if self._read('maintenance.json', {}).get('status') != 'ok':
                     warnings.append({'code': 'maintenance-pending', 'message': '文档已保存，文档库维护未完成'})
             except (FlowError, OSError, ValueError, KeyError) as exc:

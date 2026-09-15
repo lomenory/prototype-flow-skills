@@ -4,29 +4,6 @@
   "ref": "328086519926b818b99c74122f4bd99ce1a90034",
   "dependencies": [
     {
-      "name": "prd-doc-maintainer",
-      "path": "skills/prd-doc-maintainer",
-      "stages": [
-        "core",
-        "prd",
-        "demo",
-        "feishu"
-      ],
-      "requiredFiles": [
-        "SKILL.md",
-        "scripts/prd_library.py",
-        "assets/dashboard-template.html"
-      ],
-      "files": {
-        "README.md": "2d1dd4d77624c8c43811e855f8c241934f6a3b819521d1ad73302768889986db",
-        "SKILL.md": "d190a638d2d0613feb2524c13f764e4c1044368fee4545a00a49489745d41880",
-        "agents/openai.yaml": "263dafd983b16928daf27cf532a5826087345eb54e6e620070b4c2039e7de0fc",
-        "assets/dashboard-template.html": "983ef36d07d6dc58b3a73f9894aef37862153e103cb629a76e862eda75746a7e",
-        "references/metadata-guide.md": "b68494ba15e4330a0d66ddeb9f33101204ec1324d66d371551de4c611cba4d3e",
-        "scripts/prd_library.py": "0e5d942f83724925fa6dd71030e7da8d2b7d0df761180e55cfad63f30bbeb4cc"
-      }
-    },
-    {
       "name": "demo-design",
       "path": "skills/demo-design",
       "stages": [

@@ -1,16 +1,16 @@
 # 依赖安装
 
-主 Skill 的入口在进入对应阶段时调用 `flow.py dependencies`，自动补齐缺失 Skill。Python 数据操作和 HTTP 服务不会自行联网安装；仅查看已有项目不需要下载依赖。
+PRD 整理、保存、导航和本地工作台由内建运行时完成，无需外部 Skill。进入 Demo 或飞书阶段时调用 `flow.py dependencies`，按需补齐缺失 Skill；Python 数据操作和 HTTP 服务不会自行联网安装。
 
 ## 阶段
 
 | `--stage` | 需要的 Skill |
 | --- | --- |
-| `core`（默认） | `prd-doc-maintainer`、`demo-design` |
-| `prd` | `prd-doc-maintainer` |
-| `demo` | `prd-doc-maintainer`、`demo-design` |
-| `feishu` | `prd-doc-maintainer`、`use-feishu-cli` |
-| `all` | 以上全部 |
+| `core`（默认） | `demo-design` |
+| `prd` | 无；保留此阶段供已有调用兼容 |
+| `demo` | `demo-design` |
+| `feishu` | `use-feishu-cli` |
+| `all` | `demo-design`、`use-feishu-cli` |
 
 ```bash
 python3 -B <skill-dir>/scripts/flow.py dependencies --stage core --project <project-dir>
@@ -26,7 +26,7 @@ python3 -B <skill-dir>/scripts/flow.py dependencies --stage all --check
 - `dependencies.lock.json` 固定完整 Git commit SHA、仓库子目录和每个文件的 SHA-256；不追踪 `main` 或自动升级依赖。
 - 支持 `.agents/skills`、`.claude/skills`、`.cursor/skills`、`.codex/skills`。默认从项目向上查到 Git 根，优先当前主 Skill 所在宿主的目录，再查其余目录；之后查主 Skill 同级、默认安装目录、`$CODEX_HOME/skills`（若设置）、用户目录及历史 `/etc/codex/skills`。已有 Skill 目录可为符号链接。此顺序是本 CLI 的依赖解析规则，不替代各宿主自身的发现规则。
 - 缺失项的安装目录优先级：`--dest` → `PROTOTYPE_FLOW_SKILLS_DIR` → 位于上述标准目录内的主 Skill 同级目录 → `$CODEX_HOME/skills`（历史兼容）→ `~/.agents/skills`。主 Skill 在 `.claude/skills` 或 `.cursor/skills` 时，不会被残留的 `CODEX_HOME` 改变安装位置。从开发仓库或其他非标准位置运行时，可显式指定目标。
-- `--dest <skills-root>` 或环境变量 `PROTOTYPE_FLOW_SKILLS_DIR` 指定唯一查找与安装目录，不再混用其他位置。后者也用于运行时 PRD 维护器查找，需在后续命令中保持一致；仅本次使用 `--dest` 时，可通过 `init --maintainer-path <skills-root>/prd-doc-maintainer` 保存路径。CLI 参数优先于环境变量。
+- `--dest <skills-root>` 或环境变量 `PROTOTYPE_FLOW_SKILLS_DIR` 指定唯一查找与安装目录，不再混用其他位置；后续依赖命令保持相同目录。CLI 参数优先于环境变量。
 
 拉取需要 Python 3.9+、Git 和可访问 GitHub 的网络，运行环境沿用主项目的 macOS/Linux 支持范围。公开仓库下载无需 GitHub 登录；Git 仍遵守使用者现有的代理和凭据配置。下载的脚本不会在安装中执行，子模块和 Git hooks 不会运行。所有缺失项先在临时目录校验，再安装到目标目录；已有同名目录不会被覆盖或自动修复。
 

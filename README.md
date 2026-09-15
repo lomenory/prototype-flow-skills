@@ -6,8 +6,8 @@ Prototype Flow 的公开分发仓库，用于分享可直接安装的主 Skill �
 
 | Skill | 用途 | 加载时机 |
 | --- | --- | --- |
-| [prototype-flow](skills/prototype-flow/SKILL.md) | 主入口：资料 → PRD → 需求 → Demo → 本地工作台与版本 | 完整项目或继续更新 |
-| [prd-doc-maintainer](skills/prd-doc-maintainer/SKILL.md) | PRD 文档库、索引、关联和 dashboard | PRD 及完整项目 |
+| [prototype-flow](skills/prototype-flow/SKILL.md) | 主入口：资料 → PRD → 需求 → Demo → 本地工作台与版本 | 单份需求入库、完整项目或继续更新 |
+| [prd-doc-maintainer](skills/prd-doc-maintainer/SKILL.md) | PRD 文档库、索引、关联和 dashboard | 独立文档库维护；主 Skill 不再依赖它 |
 | [demo-design](skills/demo-design/SKILL.md) | HTML 高保真 Demo 与交互验证 | 生成或更新 Demo |
 | [use-feishu-cli](skills/use-feishu-cli/SKILL.md) | 飞书官方 CLI 操作指导 | 飞书相关任务 |
 
@@ -53,7 +53,7 @@ Codex 用户也可以继续发送：
 
 ### 按阶段准备依赖
 
-主 Skill 在进入相应阶段时自动补齐缺失 Skill：PRD 阶段使用 `prd-doc-maintainer`，Demo 阶段追加 `demo-design`，飞书阶段按需使用 `use-feishu-cli`。下载固定到 Git 提交，逐文件校验后安装；已有 Skill 会被复用，不会被自动覆盖或升级。只查看已有工作台和历史无需下载依赖。
+PRD 整理、入库和本地工作台使用内建运行时，无需外部 Skill。主 Skill 进入 Demo 阶段时使用 `demo-design`，飞书阶段使用 `use-feishu-cli`。下载固定到 Git 提交，逐文件校验后安装；已有 Skill 会被复用，不会被自动覆盖或升级。只查看已有工作台和历史无需下载依赖。
 
 新 Skill 在本轮按返回的文件路径读取使用。依赖中的 Codex/Browser 工具名通过主 Skill 的能力映射接入当前宿主，验收与权限要求保持不变；独立使用依赖 Skill 时，应检查其自身说明。
 
@@ -73,12 +73,19 @@ Codex 用户也可以继续发送：
 ```bash
 git clone https://github.com/lomenory/prototype-flow-skills.git
 cd prototype-flow-skills
-python3 -B skills/prototype-flow/scripts/flow.py dependencies --stage core
 python3 -B skills/prototype-flow/scripts/flow.py init ../my-prototype --name "我的原型项目"
 python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
 ```
 
 打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。CLI 负责初始化、保存、关联和版本；资料分析、PRD 写作与 Demo 生成由当前 Agent 按主 Skill 说明完成。本机工作台地址仅当前电脑可用。
+
+## 轻量需求入库
+
+新项目可以使用 `init <project-dir> --name "项目名称" --empty` 建立空项目，再执行 `intake <project-dir> --file <payload.json>`，一次保存来源、完整 PRD 和需求块，统一维护导航并进行 PRD 检查。输入格式见 [需求与资料](skills/prototype-flow/references/requirements.md#一次入库)。
+
+CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时使用 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。入库不自动生成 Demo、启动工作台或保存项目快照。
+
+内建维护生成一份 `DOC_MAP.md` 导航，保留旧项目的文档身份、关联块和历史兼容；不再自动生成独立 dashboard 或回写全库关联。
 
 ## 分发内容
 

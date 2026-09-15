@@ -1,6 +1,6 @@
 ---
 name: prototype-flow
-description: 从用户资料或现有 PRD 编排需求整理、拆分、高保真 Demo 和可编辑本地项目看板，维护需求到页面截图的关联、跨模块无限画布流程及版本历史；可选将本地 PRD 单向同步到飞书展示。用于完整原型项目或其持续更新，单独页面视觉修改使用 demo-design，单独文档库维护使用 prd-doc-maintainer。
+description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进需求拆分、高保真 Demo 和可编辑本地项目看板，维护需求到页面截图的关联、跨模块流程及版本历史；可选单向同步到飞书展示。按请求只执行所需阶段，单独页面视觉修改使用 demo-design。
 ---
 
 # Prototype Flow
@@ -16,8 +16,8 @@ description: 从用户资料或现有 PRD 编排需求整理、拆分、高保�
 ## 进入本次工作
 
 1. 识别用户要检查、讨论方案、实施、继续、保存版本还是同步飞书；沿用同一任务已有授权，按请求处理对应阶段。已有 PRD 或 Demo 可中途接入。
-2. 核对实际项目目录和当前宿主适用的项目规则（如 AGENTS.md、CLAUDE.md 或 Cursor 规则），保留现有文件，不假定宿主自动互读这些规则。执行本阶段工作前运行 `dependencies --stage <阶段> --project <project-dir>`：PRD 工作选 `prd`，Demo 工作选 `demo`，飞书工作选 `feishu`，完整项目选 `core`。命令复用已有 Skill，缺失时自动从公开 GitHub 固定提交拉取、校验并安装，无需重复询问是否安装。用户明确要求只读检查、讨论方案或禁止安装时追加 `--check`；宿主网络与目录权限限制仍须遵守。仅查看已有工作台或历史无需安装依赖。
-3. 读取命令返回的依赖 `path/SKILL.md` 后使用对应能力；新安装的文件在本轮直接按路径读取。已初始化时先运行 `state`，再读文档库的 `00-ai-context/DOC_MAP.md` 和相关 PRD。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
+2. 核对实际项目目录和当前宿主适用的项目规则（如 AGENTS.md、CLAUDE.md 或 Cursor 规则），保留现有文件，不假定宿主自动互读这些规则。PRD 整理、保存及本地工作台使用内建运行时，无需准备外部 Skill。Demo 工作运行 `dependencies --stage demo --project <project-dir>`，飞书工作选 `feishu`，完整项目选 `core`；读取返回的依赖 `path/SKILL.md`。命令复用已有 Skill，缺失时按固定提交校验安装；只读或禁止安装的任务追加 `--check`，遵守宿主权限。
+3. 已初始化时用 `state` 摘要定位模块，再用 `document` 读取相关 PRD；也可直接从 `00-ai-context/DOC_MAP.md` 定位，不串行重复阅读全库和多份导航。仅在确需全部状态时使用 `state --full`。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
 4. 只读本阶段的参考文件：
 
 | 请求 | 按需读取 |
@@ -32,17 +32,15 @@ description: 从用户资料或现有 PRD 编排需求整理、拆分、高保�
 
 ```bash
 python3 -B <skill-dir>/scripts/flow.py --help
-python3 -B <skill-dir>/scripts/flow.py dependencies --stage core --project <project-dir>
 python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称"
 python3 -B <skill-dir>/scripts/flow.py state <project-dir>
-python3 -B <skill-dir>/scripts/flow.py serve <project-dir>
 ```
 
-`serve` 输出工作台 URL、独立只读 Demo 预览信息与停止方式。工作台仅在本机运行，PRD 可所见即所得编辑；AI 生成和飞书同步由当前 Agent 对话发起。不要把 loopback 地址描述成他人可访问的分享链接。
+需要查看工作台时运行 `serve <project-dir>`，返回本机工作台和独立只读 Demo 预览信息。AI 生成和飞书同步由当前 Agent 对话发起；loopback 地址仅供当前电脑使用。
 
 ## 复用已有能力
 
-- **prd-doc-maintainer**：初始化或修改文档库时读取当前可用 Skill；脚本复用其 `scaffold`、`refresh --sync-related --dashboard`，必要时用其 `record-change`。依赖位置不同时通过 `init --maintainer-path` 指定。索引维护失败不等于正文丢失，报告保存与维护各自状态。
+- **内建文档维护**：初始化必要目录，维护稳定身份、需求索引和 `DOC_MAP.md` 导航；批量写入后统一收尾。业务关系来自显式登记，旧关联块和 dashboard 保留，不自动推断或回写。正文保存与导航维护分别报告，无需再次运行独立文档维护 Skill。
 - **demo-design**：涉及产品 Demo 设计、实现或更新时读取当前 Skill，遵循它适用的 route、tier、product_contract 和验证要求。沿用已有视觉设计，项目内共用导航、组件和业务状态。这里不复制其规范、不扩展它的 schema，也不将管理契约渲染进产品 Demo。
 - **use-feishu-cli**：只有启用飞书的项目和相应任务才读取。复用配置、身份和按需权限，按当前 CLI 内置指导执行；适配器不自动登录或申请权限。
 
@@ -60,4 +58,4 @@ python3 -B <skill-dir>/scripts/flow.py serve <project-dir>
 
 ## 完成本次请求
 
-完成所请求阶段的产物与必要检查，使用 `module-stage` 更新受影响模块的实际阶段，再交付。说明实际文件、可用入口、处理的需求或流程、证据覆盖，以及仍需业务决策或真实外部环境验证的事项。程序能通过的结构检查、观察到的浏览器行为、真实云端读回分开表述。不要把“已生成”“结构检查通过”写成“用户已确认”。
+完成所请求阶段的产物与必要检查，如实更新受影响模块的阶段；批量入库已设置阶段时无需重复操作。普通新资料入库到 PRD、需求及来源保存和检查通过结束，不自动启动工作台、制作 Demo、截图或保存项目快照。说明实际文件、处理范围和待决项；结构检查、浏览器观察和真实云端读回分开表述，不把生成或测试通过写成用户已确认。

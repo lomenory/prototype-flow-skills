@@ -4,7 +4,7 @@
 
 ## 固定输入并生成
 
-1. 从项目状态选择本次需求，检查来源、验收和已知依赖；读取已有 `DESIGN.md`、设计参考及同项目 Demo。已有统一视觉框架时继续沿用。
+1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；需要旧产物或运行记录时使用 `state <project-dir> --full`。读取已有 `DESIGN.md`、设计参考及同项目 Demo，沿用已有视觉框架。
 2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希和项目修订。新 Demo 放入 `demos/<new-artifact-id>/`，保留上一套可演示产物。
 3. 按 demo-design 适用 route/tier 完成设计、产品契约、实现和真实验证。独立模块共用导航、公共组件、数据对象身份和业务状态；模块 A 的操作必须能在模块 B 连续体现。
 4. 注册完整产物时使用 `runId`，或显式提供输入修订、需求哈希与文档哈希。`candidate` 表示候选；只有实际证据支持才用 `verified` 或 `current`。

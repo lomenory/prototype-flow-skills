@@ -7,23 +7,24 @@
 在项目实际根目录初始化：
 
 ```bash
-python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称" --library-root prd-library --maintainer-path <prd-doc-maintainer-dir>
-python3 -B <skill-dir>/scripts/flow.py serve <project-dir>
+python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称" --library-root prd-library
 ```
 
-已有文档库可把 `--library-root` 指向项目内现有目录；先检查目录与文档再执行，初始化会给接入 PRD 补稳定文档身份。文档库不能就是项目根目录，不能包含 `versions/`。重复 init 返回既有项目，不重置内容。飞书模式 `--mode feishu` 不自动登录、绑定或写入云端。
+已有文档库可把 `--library-root` 指向项目内现有目录；先检查目录与文档再执行，初始化会给接入 PRD 补稳定文档身份。单份新需求入库可用 `--empty` 初始化，不建立占位总览模块。文档库不能就是项目根目录，不能包含 `versions/`。重复 init 返回既有项目，不重置内容。飞书模式 `--mode feishu` 不自动登录、绑定或写入云端。
 
 典型项目布局：
 
 ```text
 project/
-├── prd-library/               当前 PRD 及 maintainer 约定结构
+├── prd-library/               当前 PRD、来源资料与 DOC_MAP 导航
 ├── .prototype-flow/          当前项目清单、索引、关系、任务及同步账本
 ├── demos/<artifact-id>/      独立完整 Demo 和资源
 └── versions/<version-id>/    不可变项目快照
 ```
 
-产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，不将写入接口交给 Demo 或来源文档。不要把本地服务器绑定至公网或向他人分享 API 令牌。
+需要打开工作台时运行 `serve <project-dir>`。产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，不将写入接口交给 Demo 或来源文档。不要把本地服务器绑定至公网或向他人分享 API 令牌。
+
+目录与导航由内建运行时维护，无需外部文档维护 Skill。`00-ai-context/DOC_MAP.md` 是统一导航；旧工具生成的 `INDEX.md` 转为导航指针，用户自写 INDEX 保留。已有 `AI_GUIDE.md` 仅替换已知过期维护指引，保留自定义补充，不创建新指南。旧 dashboard 和 `prdlib:related` 正文块不删除、不再生成或回写；历史快照不参与当前文档库维护。
 
 ## 数据权威及核心结构
 
@@ -72,13 +73,19 @@ Python 对应 `ProjectStore.set_module_stage(module_id, stage, evidence=None)`�
 
 ## 保存与变更
 
+CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身份、修订和结果；需要原完整返回时追加 `--full`。工作台仍使用完整数据接口，不受 CLI 输出精简影响。通过摘要或 `DOC_MAP.md` 选定相关文档后按需读取，无需逐层加载多份全库导航。
+
+新建单份 PRD 使用 `intake <project-dir> --file <payload.json>`：一次保存新模块、来源、公共正文和需求块，设为 `draft`，收尾一次并返回维护及结构检查结果。候选格式见 [需求与资料](requirements.md#一次入库)。该命令不更新已有模块；更新正文或拆合已有需求继续使用下面的操作。
+
+`intake` 自带本次 PRD 的结构检查。单独补检文档使用 `validate <project-dir> --stage prd`，检查文档、需求 ID、来源与引用；默认 `validate <project-dir>` 保留全项目检查，包括 Demo 关联、资源和版本。按本次范围选择，纯 PRD 入库不因尚无页面截图而进入 Demo 工作。
+
 `document <root> <id>` 返回当前完整内容及修订。候选正文保存到项目临时文件，再执行：
 
 ```bash
 python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <candidate.md> --base-revision <loaded-revision>
 ```
 
-冲突时重新读当前正文，与本地未保存草稿比较后形成合并候选；不要把最新 revision 简单填到旧内容上强行覆盖。工作台保留草稿与外部变化提示。业务正文保存成功后，即使 maintainer 失败也保留正文，维护结果独立报告。
+冲突时重新读当前正文，与本地未保存草稿比较后形成合并候选；不要把最新 revision 简单填到旧内容上强行覆盖。工作台保留草稿与外部变化提示。业务正文保存成功后，即使导航维护失败也保留正文，维护结果独立报告；修复后运行 `refresh`，无需再次保存正文。
 
 `requirement` 显式执行 add/split/merge/move/remove；用 `--parts-file` 提供新需求数组，每项至少有 `title` 和 `content`，可含 `priority/sourceIds/dependsOn`。提供 `--base-revision` 时使用整数项目修订。关系变更以整个 `relations.json` 候选写入，先读取现有值避免删除别人的关联。
 
@@ -96,7 +103,7 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 `restore <root> <version-id>` 会先保存当前工作的安全版本，再从历史形成新工作修订。历史自身不可编辑；运行时校验其完整性。当前飞书绑定与同步基线保持不变，之后若要改变云端必须另行执行已授权同步。
 
-已有 Demo、截图、依赖和未完成任务均通过项目数据恢复。恢复任务时优先查看 `state` 的 runs、当前修订、产物输入与差异，再继续未完成工作，不依赖完整聊天记录。
+已有 Demo、截图、依赖和未完成任务均通过项目数据恢复。恢复 Demo 或中断任务时用 `state <project-dir> --full` 读取 runs、固定输入与产物信息，再按需比较差异；普通文档定位使用摘要即可，不依赖完整聊天记录。
 
 ## 用户流程画布
 

@@ -23,7 +23,7 @@ python3 -B skills/prototype-flow/scripts/install.py --dest .agents/skills
 
 原生 Skill 自动发现由宿主实现。Claude Code 支持 `.claude/skills`，Cursor 支持 `.cursor/skills` 和 `.agents/skills`，Codex 使用 `.agents/skills`。通用 Agent 可直接按绝对路径读取入口与引用，不要求斜杠命令、选择器或插件。目录依据：[Claude Code](https://code.claude.com/docs/en/skills)、[Cursor](https://cursor.com/docs/skills)、[OpenAI Docs](https://learn.chatgpt.com/docs/build-skills)；格式依据：[Agent Skills](https://agentskills.io/specification)。
 
-依赖会按 [依赖安装](dependencies.md) 在相应阶段准备。自定义目录需要在后续命令中保持 `PROTOTYPE_FLOW_SKILLS_DIR=<skills-root>`，或用 `init --maintainer-path <skills-root>/prd-doc-maintainer` 固定 PRD 维护器位置。运行时能查到文件不代表宿主选择器会自动列出它；本轮仍应读取命令返回的实际路径。
+PRD 与本地工作台无需外部 Skill；Demo 和飞书依赖按 [依赖安装](dependencies.md) 在相应阶段准备。自定义目录需要在后续依赖命令中保持 `PROTOTYPE_FLOW_SKILLS_DIR=<skills-root>`。运行时能查到文件不代表宿主选择器会自动列出它；本轮仍应读取命令返回的实际路径。
 
 ## 能力与依赖适配
 
@@ -37,7 +37,6 @@ python3 -B skills/prototype-flow/scripts/install.py --dest .agents/skills
 
 当前锁定的依赖版本仍有宿主名称。本主 Skill 编排它们时按以下规则适配，不改写安装文件或锁文件：
 
-- `prd-doc-maintainer` 中的 Codex 表示当前 Agent。使用返回目录内的 `scripts/prd_library.py`，Python 命令采用本机可用的 Python 3；CLI 已通过 `sys.executable` 复用当前解释器。
 - `demo-design` 中的 Codex 内置 Browser、`codex_builtin_browser` 是浏览器能力角色。在 Claude Code/Cursor/其他宿主中选择现有且获准使用的浏览器工具；只有当前会话实际提供 `browser:control-in-app-browser` 时才读取该 Skill。保持 loopback HTTP、目标视口、命名交互、关键截图和证据要求，报告中写真实工具名称。不能因为换宿主绕过 URL/沙箱策略，也不能将静态检查当作交互验证。
 - `demo-design` 的桌面持久终端对应能维持服务并在结束时停止它的终端；若宿主不支持，报告相应限制。默认交互验证与显式请求的 `strict_regression` 继续分开，不为兼容自动安装浏览器或扩大回归范围。
 - `use-feishu-cli` 中的重启与沙箱提示作用于当前宿主。按实际文件/网络权限处理，身份、同步范围与读回要求保持原义。

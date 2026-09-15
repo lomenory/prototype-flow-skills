@@ -22,6 +22,94 @@ def read_json(path):
     return json.loads(Path(path).read_text('utf-8'))
 
 
+def selected(value, *keys):
+    return {key: value[key] for key in keys if key in value}
+
+
+def document_summary(document):
+    result = selected(document, 'id', 'path', 'title', 'moduleId', 'revision', 'status', 'readOnly')
+    if 'content' in document:
+        result['contentBytes'] = len(document['content'].encode('utf-8'))
+    return result
+
+
+def module_summary(module):
+    return selected(module, 'id', 'title', 'documentId', 'documentPath', 'stage', 'stageUpdatedAt')
+
+
+def state_summary(state):
+    """Keep local CLI writes small; the workbench still receives complete state."""
+    result = selected(state, 'historical', 'versionId', 'maintenanceStatus',
+                      'changedRequirementIds', 'newRequirementIds', 'removedRequirementIds', 'operation')
+    result['project'] = selected(state['project'], 'id', 'name', 'revision', 'libraryRoot', 'mode',
+                                 'restoredFrom', 'restoreBackup')
+    result['modules'] = [module_summary(module) for module in state['project'].get('modules', [])]
+    result['documents'] = [selected(document, 'id', 'title', 'moduleId', 'path', 'revision')
+                           for document in state['documents']]
+    result['counts'] = {
+        'modules': len(state['project'].get('modules', [])),
+        'documents': len(state['documents']), 'requirements': len(state['requirements']),
+        'sources': len(state.get('sources', {}).get('items', [])),
+        'artifacts': len(state.get('artifacts', {}).get('items', [])),
+    }
+    return result
+
+
+def compact_result(command, value):
+    if command in ('init', 'refresh', 'restore'):
+        return state_summary(value)
+    if command in ('save', 'intake'):
+        result = selected(value, 'impactedRequirementIds', 'requirementIds', 'sourceId',
+                          'maintenanceStatus', 'validation')
+        result['document'] = document_summary(value['document'])
+        if 'module' in value:
+            result['module'] = module_summary(value['module'])
+        if 'requirementIds' in value:
+            result['counts'] = {'requirements': len(value['requirementIds'])}
+        return result
+    if command == 'module':
+        return document_summary(value)
+    if command == 'module-stage':
+        return module_summary(value)
+    if command == 'relations':
+        return {'counts': {key: len(value.get(key, [])) for key in ('flows', 'bindings', 'supersessions')},
+                'ids': {key: [item['id'] for item in value.get(key, [])]
+                        for key in ('flows', 'bindings', 'supersessions')}}
+    if command == 'artifact':
+        result = selected(value, 'id', 'title', 'path', 'entryHtml', 'status', 'runId', 'inputRevision')
+        result['counts'] = {'requirements': len(value.get('requirementHashes', {})),
+                            'documents': len(value.get('documentHashes', {})),
+                            'files': len(value.get('fileHashes', {}))}
+        return result
+    if command == 'snapshot':
+        result = selected(value, 'id', 'name', 'description', 'createdAt', 'inputRevision', 'validation')
+        result['path'] = 'versions/' + value['id']
+        result['counts'] = {'modules': len(value.get('modules', [])), 'files': len(value.get('files', {}))}
+        return result
+    if command in ('run-start', 'run-finish'):
+        result = selected(value, 'id', 'stage', 'status', 'inputRevision', 'inputPath', 'requirementIds',
+                          'createdAt', 'finishedAt', 'error')
+        result['counts'] = {'documents': len(value.get('documents', [])),
+                            'outputs': len(value.get('outputs', []))}
+        return result
+    return value
+
+
+def error_summary(value):
+    """Keep conflict identities and baselines without echoing both PRD bodies."""
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            if key in ('content', 'draft') and isinstance(item, str):
+                result[key + 'Bytes'] = len(item.encode('utf-8'))
+            else:
+                result[key] = error_summary(item)
+        return result
+    if isinstance(value, list):
+        return [error_summary(item) for item in value]
+    return value
+
+
 def parser():
     p = argparse.ArgumentParser(description='Prototype Flow：本地 PRD、Demo 关联、版本和飞书单向同步')
     sub = p.add_subparsers(dest='command', required=True)
@@ -35,17 +123,21 @@ def parser():
     def command(name, description):
         cmd = sub.add_parser(name, help=description, description=description)
         cmd.add_argument('root', help='项目根目录')
+        cmd.add_argument('--full', action='store_true', help='输出完整结果；默认省略正文和项目明细，document 始终保留全文')
         return cmd
 
     cmd = command('init', '初始化或接入项目，不自动连接飞书')
     cmd.add_argument('--name', required=True)
     cmd.add_argument('--mode', choices=['local', 'feishu'], default='local')
     cmd.add_argument('--library-root', default='prd-library')
-    cmd.add_argument('--maintainer-path', help='现有 prd-doc-maintainer Skill 路径或脚本路径')
+    cmd.add_argument('--maintainer-path', help='兼容旧配置参数；当前使用内置文档库维护')
+    cmd.add_argument('--empty', action='store_true', help='新项目不创建占位总览，供随后 intake 一次入库')
+    cmd = command('intake', '一次保存新资料、完整 PRD 和批量需求，并维护和校验')
+    cmd.add_argument('--file', required=True, help='包含 title、content、requirements 和可选 source 的 JSON')
     cmd = command('serve', '启动本机工作台与独立只读 Demo 预览；Ctrl+C 停止')
     cmd.add_argument('--port', type=int, default=0)
     cmd.add_argument('--preview-port', type=int, default=0)
-    cmd = command('state', '读取项目状态；支持历史版本')
+    cmd = command('state', '读取项目摘要；--full 包含完整正文，支持历史版本')
     cmd.add_argument('--version')
     cmd = command('document', '读取完整 PRD 及保存基线')
     cmd.add_argument('id')
@@ -86,7 +178,9 @@ def parser():
     cmd.add_argument('--to', dest='to_version', default='working')
     cmd = command('restore', '基于历史创建工作修订，保留当前飞书同步记录')
     cmd.add_argument('version')
-    command('validate', '检查稳定 ID、关联、资源和版本一致性')
+    cmd = command('validate', '检查稳定 ID、关联、资源和版本一致性')
+    cmd.add_argument('--stage', choices=['all', 'prd'], default='all',
+                     help='prd 仅检查 PRD 来源、引用和稳定 ID；默认 all 保留完整检查')
     command('refresh', '发现外部修改并刷新文档库和需求索引')
     cmd = command('run-start', '固定一次 AI 工作的输入修订和需求范围')
     cmd.add_argument('--stage', required=True)
@@ -102,6 +196,7 @@ def parser():
     for name in ('configure', 'bind', 'prepare', 'sync', 'status'):
         cmd = fsub.add_parser(name)
         cmd.add_argument('root')
+        cmd.add_argument('--full', action='store_true', help='错误时保留完整调试明细')
         cmd.add_argument('--identity', choices=['user', 'bot'], default='user')
         if name == 'configure':
             cmd.add_argument('--parent-token')
@@ -130,7 +225,10 @@ def main(argv=None):
         store = ProjectStore(Path(args.root).expanduser().resolve())
         command = args.command
         if command == 'init':
-            result = store.init(args.name, args.mode, args.library_root, args.maintainer_path)
+            result = store.init(args.name, args.mode, args.library_root, args.maintainer_path,
+                                create_overview=not args.empty)
+        elif command == 'intake':
+            result = store.intake(read_json(args.file))
         elif command == 'serve':
             from pf_server import WorkbenchServer
             store.state()  # Fail early if the project was not initialized.
@@ -146,7 +244,7 @@ def main(argv=None):
                 server.close()
             return 0
         elif command == 'state':
-            result = store.state(args.version)
+            result = store.state(args.version, summary=not args.full)
         elif command == 'document':
             result = store.document(args.id, args.version)
         elif command == 'save':
@@ -165,7 +263,7 @@ def main(argv=None):
         elif command == 'requirement':
             result = store.transform_requirements(args.operation, args.ids,
                 read_json(args.parts_file) if args.parts_file else None,
-                args.target_module, args.base_revision)
+                args.target_module, args.base_revision, summary=not args.full)
         elif command == 'snapshot':
             result = store.snapshot(args.name, args.description)
         elif command == 'versions':
@@ -175,7 +273,7 @@ def main(argv=None):
         elif command == 'restore':
             result = store.restore(args.version)
         elif command == 'validate':
-            result = store.validate()
+            result = store.validate(stage=args.stage)
             output(result)
             return 0 if result.get('ok') else 1
         elif command == 'refresh':
@@ -201,10 +299,12 @@ def main(argv=None):
                 result = sync.status()
         else:
             raise FlowError('未知操作')
-        output(result)
+        output(result if args.full else compact_result(command, result))
         return 0
     except (FlowError, ValueError, FileNotFoundError, PermissionError) as exc:
-        output({'error': str(exc), 'details': getattr(exc, 'details', None)})
+        details = getattr(exc, 'details', None)
+        output({'error': str(exc), 'status': getattr(exc, 'status', 400),
+                'details': details if getattr(args, 'full', False) else error_summary(details)})
         return 1
 
 
