@@ -13,17 +13,49 @@ Prototype Flow 的公开分发仓库，用于分享可直接安装的主 Skill �
 
 ## 安装主 Skill
 
-把以下内容发给 Codex：
+主 Skill 使用通用 `SKILL.md` 入口和 Python CLI，可由 Codex、Claude Code、Cursor，或能读取本地文件并执行命令的 Agent 使用。`agents/openai.yaml` 仅提供可选的 Codex 展示元数据。
+
+### Claude Code、Cursor 和通用 Agent
+
+先取得完整仓库：
+
+```bash
+git clone https://github.com/lomenory/prototype-flow-skills.git
+cd prototype-flow-skills
+```
+
+选择一个目标安装主 Skill：
+
+```bash
+# Claude Code：个人目录
+python3 -B skills/prototype-flow/scripts/install.py --dest ~/.claude/skills
+# Cursor：个人目录
+python3 -B skills/prototype-flow/scripts/install.py --dest ~/.cursor/skills
+# Codex 或使用共享目录的 Agent：个人目录
+python3 -B skills/prototype-flow/scripts/install.py --dest ~/.agents/skills
+```
+
+仅在某个项目使用时，把目标换成该项目的 `.claude/skills`、`.cursor/skills` 或 `.agents/skills`。其他位置用 `--dest <skills-root>`。安装脚本只复制主 Skill；相同副本复用，不同的同名目录保留并报冲突，`--check` 只读比较。也可让 Agent 直接读取克隆仓库内的入口。
+
+安装后按返回的实际路径发起任务，无需依赖选择器语法：
+
+> 读取 `<已安装的主-Skill-目录>/SKILL.md`，将我提供的资料整理到 projects/my-prototype，建立 PRD 和需求关联，再打开本地工作台；本次先不生成 Demo。
+
+目录、宿主工具映射和支持边界见 [Agent 兼容说明](skills/prototype-flow/references/agent-compatibility.md)。自动发现取决于宿主；CLI 能找到文件不代表每个宿主都会在选择器中列出它。
+
+### Codex 已有安装入口
+
+Codex 用户也可以继续发送：
 
 > 使用 skill-installer 安装 https://github.com/lomenory/prototype-flow-skills/tree/main/skills/prototype-flow
 
-安装后发起实际任务，例如：
+安装后可用 `$prototype-flow` 发起任务。主 Skill 可以单独安装，无需克隆整个仓库。
 
-> 使用 $prototype-flow，将我提供的资料整理到 projects/my-prototype，建立 PRD 和需求关联，再打开本地工作台；本次先不生成 Demo。
+### 按阶段准备依赖
 
 主 Skill 在进入相应阶段时自动补齐缺失 Skill：PRD 阶段使用 `prd-doc-maintainer`，Demo 阶段追加 `demo-design`，飞书阶段按需使用 `use-feishu-cli`。下载固定到 Git 提交，逐文件校验后安装；已有 Skill 会被复用，不会被自动覆盖或升级。只查看已有工作台和历史无需下载依赖。
 
-新 Skill 在本轮可按返回的文件路径读取使用；若下一轮仍未出现在选择器，再刷新或重启 Codex。主 Skill 可以单独安装，使用者无需克隆整个仓库。也可以用 Skill Installer 单独安装表格中的其他 Skill。
+新 Skill 在本轮按返回的文件路径读取使用。依赖中的 Codex/Browser 工具名通过主 Skill 的能力映射接入当前宿主，验收与权限要求保持不变；独立使用依赖 Skill 时，应检查其自身说明。
 
 ## 运行条件
 
@@ -32,7 +64,7 @@ Prototype Flow 的公开分发仓库，用于分享可直接安装的主 Skill �
 - 现代浏览器；预构建工作台已包含在主 Skill 中，日常使用无需 Node、npm 或前端构建。
 - 飞书功能另需 `lark-cli` 和使用者自己的登录身份，按需配置。
 
-安装器只安装 Skill 文件，不会安装外部工具或配置账号；宿主的网络和目录权限仍适用。依赖默认安装到 `~/.agents/skills`；设置 `CODEX_HOME` 时使用 `$CODEX_HOME/skills`，兼容已有 `~/.codex/skills`。更多选项见 [依赖安装说明](skills/prototype-flow/references/dependencies.md)。
+安装器只安装 Skill 文件，不会安装外部工具或配置账号；宿主的网络和目录权限仍适用。缺失依赖优先安装到主 Skill 所在的标准宿主目录，自定义位置可使用 `--dest` 或 `PROTOTYPE_FLOW_SKILLS_DIR`。继续兼容 `CODEX_HOME` 与历史 Codex 目录；具体优先级见 [依赖安装说明](skills/prototype-flow/references/dependencies.md)。
 
 ## 从仓库直接试用
 
@@ -46,13 +78,17 @@ python3 -B skills/prototype-flow/scripts/flow.py init ../my-prototype --name "�
 python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
 ```
 
-打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。CLI 负责初始化、保存、关联和版本；资料分析、PRD 写作与 Demo 生成通过 Codex 中的主 Skill 完成。本机工作台地址仅当前电脑可用。
+打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。CLI 负责初始化、保存、关联和版本；资料分析、PRD 写作与 Demo 生成由当前 Agent 按主 Skill 说明完成。本机工作台地址仅当前电脑可用。
 
 ## 分发内容
 
 主 Skill 包含 `SKILL.md`、界面元数据、依赖锁文件、Python 运行时、阶段参考、数据 schema，以及预构建工作台和第三方许可证。
 
 公开仓库不包含开发工作台的 React 源码、`node_modules`、开发测试、业务项目、订单示例、演练截图、开发日志、缓存或账号配置。依赖 Skill 内用于运行和理解规范的模板与小型 JSON 示例保留。
+
+## 兼容验证范围
+
+已验证主 Skill 的标准及自定义目录解析、完整包安装、依赖校验、PRD 初始化与索引维护、结构检查和版本保存；工作台沿用已通过测试的构建。Claude Code/Cursor 的原生发现、实际对话决策和 Demo 浏览器操作仍需对应宿主的实测，CLI 演练不替代这些证据。
 
 ## 快照维护
 

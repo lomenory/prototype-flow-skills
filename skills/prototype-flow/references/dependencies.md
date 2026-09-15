@@ -24,15 +24,15 @@ python3 -B <skill-dir>/scripts/flow.py dependencies --stage all --check
 
 - 来源：[lomenory/prototype-flow-skills](https://github.com/lomenory/prototype-flow-skills)。公开仓库包含可独立安装的主 Skill 和依赖 Skill，与开发仓库分开维护；不包含前端开发工程、开发测试或业务项目数据。
 - `dependencies.lock.json` 固定完整 Git commit SHA、仓库子目录和每个文件的 SHA-256；不追踪 `main` 或自动升级依赖。
-- 按项目向上至 Git 根目录查找 `.agents/skills`、`.codex/skills`，再查主 Skill 的同级目录、用户目录和 `/etc/codex/skills`。支持已有 Skill 目录的符号链接。
-- 缺失项默认安装到 `~/.agents/skills`；设置 `CODEX_HOME` 时安装到 `$CODEX_HOME/skills`。继续识别历史 `~/.codex/skills`。
-- `--dest <skills-root>` 指定唯一查找与安装目录，适合隔离演练或自定义位置。后续使用自定义目录里的 PRD Skill 时，通过 `init --maintainer-path <skills-root>/prd-doc-maintainer` 保存路径。
+- 支持 `.agents/skills`、`.claude/skills`、`.cursor/skills`、`.codex/skills`。默认从项目向上查到 Git 根，优先当前主 Skill 所在宿主的目录，再查其余目录；之后查主 Skill 同级、默认安装目录、`$CODEX_HOME/skills`（若设置）、用户目录及历史 `/etc/codex/skills`。已有 Skill 目录可为符号链接。此顺序是本 CLI 的依赖解析规则，不替代各宿主自身的发现规则。
+- 缺失项的安装目录优先级：`--dest` → `PROTOTYPE_FLOW_SKILLS_DIR` → 位于上述标准目录内的主 Skill 同级目录 → `$CODEX_HOME/skills`（历史兼容）→ `~/.agents/skills`。主 Skill 在 `.claude/skills` 或 `.cursor/skills` 时，不会被残留的 `CODEX_HOME` 改变安装位置。从开发仓库或其他非标准位置运行时，可显式指定目标。
+- `--dest <skills-root>` 或环境变量 `PROTOTYPE_FLOW_SKILLS_DIR` 指定唯一查找与安装目录，不再混用其他位置。后者也用于运行时 PRD 维护器查找，需在后续命令中保持一致；仅本次使用 `--dest` 时，可通过 `init --maintainer-path <skills-root>/prd-doc-maintainer` 保存路径。CLI 参数优先于环境变量。
 
 拉取需要 Python 3.9+、Git 和可访问 GitHub 的网络，运行环境沿用主项目的 macOS/Linux 支持范围。公开仓库下载无需 GitHub 登录；Git 仍遵守使用者现有的代理和凭据配置。下载的脚本不会在安装中执行，子模块和 Git hooks 不会运行。所有缺失项先在临时目录校验，再安装到目标目录；已有同名目录不会被覆盖或自动修复。
 
 ## 在当前任务中使用
 
-成功后直接读取返回的 `<path>/SKILL.md`，本轮即可继续对应工作。宿主通常会自动发现新 Skill；若下一轮选择器仍未显示，再刷新或重启 Codex。目录与发现规则依据 [OpenAI Docs](https://learn.chatgpt.com/docs/build-skills)。
+成功后直接读取返回的 `<path>/SKILL.md`，本轮即可继续对应工作。自动发现与刷新方式取决于当前宿主，不依赖 Codex 的选择器或 `skill-installer`。安装入口、官方目录依据和依赖工具名的映射见 [Agent 兼容](agent-compatibility.md)。
 
 若被宿主沙箱拦截，说明实际受阻的网络或目标目录并请求对应权限；不得更换工具绕过限制。网络失败可修复网络后重跑；已有同名目录不完整时先说明缺失文件，保留原目录，按用户明确选择修复或换安装目录。已成功安装的完整依赖会被复用。
 

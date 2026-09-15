@@ -7,10 +7,16 @@ description: 从用户资料或现有 PRD 编排需求整理、拆分、高保�
 
 把 **资料 → PRD → 需求 → 统一 Demo → 页面状态与截图 → 项目版本** 连成可恢复的项目流程。业务要求的权威源是本地 PRD Markdown；脚本负责持久化和一致性，不能代替资料理解、需求拆分、设计或浏览器观察。
 
+## 宿主兼容
+
+本入口与 Python CLI 可由 Codex、Claude Code、Cursor 或能读取本地 `SKILL.md` 并执行命令的 Agent 使用。脚本路径相对本文件所在目录解析，不依赖 `$skill-name` 语法、特定安装器或 MCP 工具名；`agents/openai.yaml` 仅是可选的 Codex 展示元数据。首次接入其他宿主、选择安装目录或处理依赖中的宿主工具名时，读取 [Agent 兼容](references/agent-compatibility.md)。
+
+在本流程调用依赖 Skill 时，依赖文档中的 Codex 指当前执行 Agent，内置 Browser/`codex_builtin_browser` 指当前宿主获准使用的浏览器操作能力。保持依赖的流程、验收与权限要求，按实际工具记录证据；缺少能力时只降级对应阶段，不虚构工具或验证结果。
+
 ## 进入本次工作
 
 1. 识别用户要检查、讨论方案、实施、继续、保存版本还是同步飞书；沿用同一任务已有授权，按请求处理对应阶段。已有 PRD 或 Demo 可中途接入。
-2. 核对实际项目目录和适用 AGENTS.md，保留现有文件。执行本阶段工作前运行 `dependencies --stage <阶段> --project <project-dir>`：PRD 工作选 `prd`，Demo 工作选 `demo`，飞书工作选 `feishu`，完整项目选 `core`。命令复用已有 Skill，缺失时自动从公开 GitHub 固定提交拉取、校验并安装，无需重复询问是否安装。用户明确要求只读检查、讨论方案或禁止安装时追加 `--check`；宿主网络与目录权限限制仍须遵守。仅查看已有工作台或历史无需安装依赖。
+2. 核对实际项目目录和当前宿主适用的项目规则（如 AGENTS.md、CLAUDE.md 或 Cursor 规则），保留现有文件，不假定宿主自动互读这些规则。执行本阶段工作前运行 `dependencies --stage <阶段> --project <project-dir>`：PRD 工作选 `prd`，Demo 工作选 `demo`，飞书工作选 `feishu`，完整项目选 `core`。命令复用已有 Skill，缺失时自动从公开 GitHub 固定提交拉取、校验并安装，无需重复询问是否安装。用户明确要求只读检查、讨论方案或禁止安装时追加 `--check`；宿主网络与目录权限限制仍须遵守。仅查看已有工作台或历史无需安装依赖。
 3. 读取命令返回的依赖 `path/SKILL.md` 后使用对应能力；新安装的文件在本轮直接按路径读取。已初始化时先运行 `state`，再读文档库的 `00-ai-context/DOC_MAP.md` 和相关 PRD。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
 4. 只读本阶段的参考文件：
 
@@ -32,7 +38,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 python3 -B <skill-dir>/scripts/flow.py serve <project-dir>
 ```
 
-`serve` 输出工作台 URL、独立只读 Demo 预览信息与停止方式。工作台仅在本机运行，PRD 可所见即所得编辑；AI 生成和飞书同步由 Codex 对话发起。不要把 loopback 地址描述成他人可访问的分享链接。
+`serve` 输出工作台 URL、独立只读 Demo 预览信息与停止方式。工作台仅在本机运行，PRD 可所见即所得编辑；AI 生成和飞书同步由当前 Agent 对话发起。不要把 loopback 地址描述成他人可访问的分享链接。
 
 ## 复用已有能力
 

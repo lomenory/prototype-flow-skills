@@ -9,13 +9,21 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
+# Python resolves the script directory in sys.path; argv preserves a symlinked entry.
+INVOCATION_ROOT = Path(__file__).absolute().parents[1]
+ENTRY_SCRIPT = Path(sys.argv[0]).absolute()
+if ENTRY_SCRIPT.name == 'flow.py' and ENTRY_SCRIPT.resolve().parent == SKILL_ROOT / 'scripts':
+    INVOCATION_ROOT = ENTRY_SCRIPT.parent.parent
 LOCK_PATH = SKILL_ROOT / 'dependencies.lock.json'
 STAGES = ('core', 'prd', 'demo', 'feishu', 'all')
+SKILL_DIRECTORIES = ('.agents/skills', '.claude/skills', '.cursor/skills', '.codex/skills')
+SKILLS_DIR_ENV = 'PROTOTYPE_FLOW_SKILLS_DIR'
 
 
 class DependencyError(ValueError):
@@ -23,23 +31,39 @@ class DependencyError(ValueError):
 
 
 def default_destination():
+    explicit = os.environ.get(SKILLS_DIR_ENV)
+    if explicit:
+        return Path(explicit).expanduser()
+    for root in (INVOCATION_ROOT.parent, SKILL_ROOT.parent):
+        if any(root.parts[-2:] == Path(name).parts for name in SKILL_DIRECTORIES):
+            return root
     configured = os.environ.get('CODEX_HOME')
     return Path(configured).expanduser() / 'skills' if configured else Path.home() / '.agents/skills'
 
 
 def skill_roots(project=None, dest=None):
-    """An explicit destination isolates resolution (also useful for clean installs)."""
-    if dest is not None:
-        return [Path(dest).expanduser().resolve()]
+    """Explicit CLI/environment roots isolate both installation and runtime lookup."""
+    explicit = dest if dest is not None else os.environ.get(SKILLS_DIR_ENV)
+    if explicit is not None and str(explicit):
+        return [Path(explicit).expanduser().resolve()]
     roots = []
+    directories = list(SKILL_DIRECTORIES)
+    destination = default_destination()
+    for name in directories[:]:
+        if destination.parts[-2:] == Path(name).parts:
+            directories.remove(name)
+            directories.insert(0, name)
+            break
     current = Path(project or Path.cwd()).expanduser().resolve()
     for parent in (current, *current.parents):
-        roots.extend([parent / '.agents/skills', parent / '.codex/skills'])
+        roots.extend(parent / name for name in directories)
         if (parent / '.git').exists():
             break
-    roots.extend([SKILL_ROOT.parent, default_destination(),
-                  Path.home() / '.agents/skills', Path.home() / '.codex/skills',
-                  Path('/etc/codex/skills')])
+    roots.extend([INVOCATION_ROOT.parent, SKILL_ROOT.parent, destination])
+    if os.environ.get('CODEX_HOME'):
+        roots.append(Path(os.environ['CODEX_HOME']).expanduser() / 'skills')
+    roots.extend(Path.home() / name for name in directories)
+    roots.append(Path('/etc/codex/skills'))
     return list(dict.fromkeys(roots))
 
 

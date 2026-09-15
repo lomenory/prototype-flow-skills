@@ -29,7 +29,7 @@ def parser():
     deps = sub.add_parser('dependencies', help='检查依赖并从 GitHub 安装缺失的 Skill')
     deps.add_argument('--stage', choices=['core', 'prd', 'demo', 'feishu', 'all'], default='core')
     deps.add_argument('--project', help='目标项目目录，用于查找项目内已有 Skill')
-    deps.add_argument('--dest', help='指定唯一查找和安装目录；默认复用已安装 Skill')
+    deps.add_argument('--dest', help='指定唯一查找和安装目录；也可设置 PROTOTYPE_FLOW_SKILLS_DIR')
     deps.add_argument('--check', action='store_true', help='只检查，不访问网络或写入文件')
 
     def command(name, description):
