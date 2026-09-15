@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.com/codex/demo-design/design-reference.schema.json",
+  "title": "Demo Design External Reference",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "deliveryRoute", "acquisition", "sources", "componentMappings", "referenceScreenshots"],
+  "properties": {
+    "schemaVersion": {"enum": [1, 2]},
+    "deliveryRoute": {"enum": ["web_hi_fi", "app_flow"]},
+    "acquisition": {"$ref": "#/$defs/acquisition"},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "componentMappings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/componentMapping"}
+    },
+    "referenceScreenshots": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/referenceScreenshot"}
+    }
+  },
+  "$defs": {
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "deviceScaleFactor"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "deviceScaleFactor": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "acquisition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "completedNodeIds", "pendingNodeIds", "notes"],
+      "properties": {
+        "status": {"enum": ["complete", "partial", "blocked"]},
+        "completedNodeIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "pendingNodeIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label", "locator", "precision"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^DSRC-[A-Z0-9_-]+$"},
+        "kind": {"enum": ["figma", "screenshot", "url", "repository"]},
+        "label": {"type": "string", "minLength": 1},
+        "locator": {"type": "string", "minLength": 1},
+        "precision": {"enum": ["exact", "approximate", "assumption"]},
+        "fileKey": {"type": "string", "minLength": 1},
+        "page": {"type": "string", "minLength": 1},
+        "frame": {"type": "string", "minLength": 1},
+        "nodeId": {"type": "string", "minLength": 1},
+        "viewport": {"$ref": "#/$defs/viewport"}
+      }
+    },
+    "componentMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "sourceComponent", "implementationSelector", "fidelity"],
+      "properties": {
+        "sourceId": {"type": "string", "pattern": "^DSRC-"},
+        "sourceComponent": {"type": "string", "minLength": 1},
+        "sourceVariant": {"type": "string", "minLength": 1},
+        "implementationSelector": {"type": "string", "minLength": 1},
+        "implementationStateId": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "fidelity": {"enum": ["exact", "approximate", "assumption"]}
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "regionSelector": {"type": "string", "minLength": 1},
+        "maskSelectors": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "referenceScreenshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "path", "viewport"],
+      "properties": {
+        "sourceId": {"type": "string", "pattern": "^DSRC-"},
+        "path": {"type": "string", "pattern": "^[^/].*\\.png$"},
+        "viewport": {"$ref": "#/$defs/viewport"},
+        "stateId": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "comparison": {"$ref": "#/$defs/comparison"}
+      }
+    }
+  }
+}

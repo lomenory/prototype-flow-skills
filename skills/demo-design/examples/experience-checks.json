@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "deliveryRoute": "web_hi_fi",
+  "pathCoverage": {
+    "required": ["primary", "error", "recovery"],
+    "notApplicable": [
+      {"type": "cancel", "reason": "保存动作即时完成，没有 pending 取消阶段"}
+    ]
+  },
+  "reset": {
+    "strategy": "function",
+    "functionName": "__DEMO_RESET__",
+    "betweenScenarios": true,
+    "persistence": "none",
+    "scope": ["dom", "url", "scroll", "focus", "timers", "storage"],
+    "expectations": [
+      {"kind": "visible", "selector": "[data-state-id=STATE-READY]"}
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "EXP-PRIMARY-SAVE",
+      "title": "完成保存",
+      "pathType": "primary",
+      "requirementIds": ["SCN-SAVE", "STATE-SAVED"],
+      "steps": [
+        {
+          "id": "STEP-SAVE",
+          "action": {"type": "click", "actionId": "save"},
+          "verifiesRequirementIds": ["SCN-SAVE", "STATE-SAVED"],
+          "expectations": [
+            {"kind": "state", "id": "STATE-SAVED", "timeoutMs": 2000}
+          ],
+          "screenshot": {"label": "saved", "stateId": "STATE-SAVED"}
+        }
+      ],
+      "expectedOutcome": "保存结果可确认"
+    },
+    {
+      "id": "EXP-ERROR-SAVE",
+      "title": "保存失败可理解",
+      "pathType": "error",
+      "steps": [
+        {
+          "id": "STEP-FAIL-SAVE",
+          "action": {"type": "click", "actionId": "fail-save"},
+          "expectations": [
+            {"kind": "state", "id": "STATE-SAVE-ERROR", "timeoutMs": 2000},
+            {"kind": "visible", "selector": "[data-action-id=retry-save]"}
+          ],
+          "screenshot": {"label": "save-error", "stateId": "STATE-SAVE-ERROR"}
+        }
+      ],
+      "expectedOutcome": "失败原因和重试动作可见"
+    },
+    {
+      "id": "EXP-RECOVER-SAVE",
+      "title": "失败后重试成功",
+      "pathType": "recovery",
+      "steps": [
+        {
+          "id": "STEP-RECOVERY-FAIL-FIRST",
+          "action": {"type": "click", "actionId": "fail-save"},
+          "expectations": [
+            {"kind": "state", "id": "STATE-SAVE-ERROR", "timeoutMs": 2000},
+            {"kind": "visible", "selector": "[data-action-id=retry-save]"}
+          ],
+          "screenshot": {"label": "recovery-start", "stateId": "STATE-SAVE-ERROR"}
+        },
+        {
+          "id": "STEP-RETRY-SAVE",
+          "action": {"type": "click", "actionId": "retry-save"},
+          "expectations": [
+            {"kind": "state", "id": "STATE-SAVED", "timeoutMs": 2000}
+          ],
+          "screenshot": {"label": "save-recovered", "stateId": "STATE-SAVED"}
+        }
+      ],
+      "expectedOutcome": "重试后回到成功状态"
+    }
+  ]
+}

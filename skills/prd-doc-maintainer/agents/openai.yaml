@@ -1,0 +1,4 @@
+interface:
+  display_name: "PRD Doc Maintainer"
+  short_description: "整理归档索引并维护 PRD 文档库"
+  default_prompt: "Use $prd-doc-maintainer to scaffold or maintain a PRD document library with archive, index, related-doc sync, changelog, and static dashboard support."

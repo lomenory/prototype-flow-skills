@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 3,
+  "deliveryRoute": "web_hi_fi",
+  "intent": {
+    "primaryUser": {
+      "value": "运营人员",
+      "sourceStatus": "exact"
+    },
+    "primaryTask": {
+      "value": "定位并处理异常订单",
+      "sourceStatus": "exact"
+    },
+    "successOutcome": {
+      "value": "处理结果明确可确认",
+      "sourceStatus": "approximate"
+    },
+    "contentPriority": [
+      "异常状态",
+      "影响范围",
+      "处理动作"
+    ]
+  },
+  "direction": {
+    "designBasis": {
+      "type": "core",
+      "systemId": "application"
+    },
+    "visualDials": {
+      "variance": "restrained",
+      "density": "dense",
+      "motion": "restrained"
+    },
+    "rationale": "任务完成速度与状态清晰度优先",
+    "layoutStrategy": "固定筛选区、结果区与上下文详情",
+    "hierarchyStrategy": "异常和处理动作先于辅助指标",
+    "responsiveStrategy": "仅面向 1440×900；未明确要求其他 Viewport，不提供移动端或断点适配",
+    "componentStrategy": "使用带标签表单、表格状态和明确反馈"
+  },
+  "visualAnchors": [
+    {
+      "id": "VANCHOR-PRIMARY-WORKBENCH",
+      "selector": "main",
+      "role": "主要任务工作区",
+      "priority": "blocking",
+      "checks": ["unique", "visible", "no_clipping", "hierarchy", "rhythm"]
+    },
+    {
+      "id": "VANCHOR-PRIMARY-ACTION",
+      "selector": "[data-action-id=resolve-order]",
+      "role": "主要处理动作",
+      "priority": "important",
+      "checks": ["unique", "visible", "state_distinct"]
+    }
+  ],
+  "states": [
+    {
+      "id": "loading",
+      "required": true,
+      "realization": "结果区保留结构并显示加载说明"
+    },
+    {
+      "id": "error",
+      "required": true,
+      "realization": "在结果区说明失败原因并提供重试"
+    },
+    {
+      "id": "success",
+      "required": true,
+      "realization": "处理后就地显示成功反馈和新状态"
+    }
+  ],
+  "constraints": {
+    "must": [
+      "保留筛选状态"
+    ],
+    "avoid": [
+      "用颜色作为唯一异常标识"
+    ],
+    "accessibility": [
+      "键盘可完成主要任务"
+    ]
+  },
+  "decisions": [
+    {
+      "level": "contextual",
+      "decision": "桌面使用主从布局",
+      "rationale": "支持扫描与连续处理"
+    },
+    {
+      "level": "advisory",
+      "decision": "用克制的状态强调代替装饰图表",
+      "rationale": "减少与主要任务无关的视觉噪声"
+    }
+  ],
+  "hardRules": [
+    {
+      "id": "GUIDE-FORM-LABELS",
+      "applicability": "required",
+      "reason": "页面包含表单控件"
+    },
+    {
+      "id": "GUIDE-FOCUS-VISIBILITY",
+      "applicability": "required",
+      "reason": "页面包含键盘可聚焦控件"
+    },
+    {
+      "id": "GUIDE-TARGET-SIZE",
+      "applicability": "required",
+      "reason": "页面包含交互控件"
+    },
+    {
+      "id": "GUIDE-HORIZONTAL-OVERFLOW",
+      "applicability": "required",
+      "reason": "所有目标 Viewport 必须避免意外横向溢出"
+    },
+    {
+      "id": "GUIDE-IMAGE-ALTERNATIVES",
+      "applicability": "not_applicable",
+      "reason": "页面没有 img 元素"
+    },
+    {
+      "id": "GUIDE-REDUCED-MOTION",
+      "applicability": "not_applicable",
+      "reason": "页面没有 CSS Animation"
+    },
+    {
+      "id": "GUIDE-CRITICAL-STATES",
+      "applicability": "required",
+      "reason": "页面包含加载、失败与成功状态"
+    },
+    {
+      "id": "GUIDE-COLOR-INDEPENDENCE",
+      "applicability": "required",
+      "reason": "异常状态使用颜色传达含义",
+      "declaration": "异常状态同时提供文字标签和图形标记，颜色只作为增强"
+    },
+    {
+      "id": "GUIDE-VISUAL-ANCHORS",
+      "applicability": "required",
+      "reason": "Tier 3 必须验证主要任务区和主要动作的渲染结果"
+    }
+  ],
+  "decisionSummary": [
+    "主要任务是定位并处理异常订单",
+    "异常状态和处理动作拥有最高层级",
+    "桌面使用主从布局支持连续处理",
+    "本次只面向 1440×900，不扩展到其他 Viewport",
+    "状态不只依赖颜色表达"
+  ],
+  "productContractRefs": [
+    "SCN-HANDLE-EXCEPTION",
+    "STATE-ORDER-RESOLVED",
+    "UI-RESOLVE-ACTION"
+  ]
+}

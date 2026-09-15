@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "systems": [
+    {"id": "default", "category": "general", "keywords": ["neutral", "reliable", "fallback"], "routes": ["web_hi_fi"], "modes": [], "density": "medium", "temperature": "neutral", "core": true, "path": "design-systems/default/DESIGN.md"},
+    {"id": "application", "category": "product", "keywords": ["tool", "workflow", "product"], "routes": ["web_hi_fi", "app_flow"], "modes": [], "density": "medium", "temperature": "neutral", "core": true, "path": "design-systems/application/DESIGN.md"},
+    {"id": "friendly", "category": "consumer", "keywords": ["onboarding", "consumer", "warm"], "routes": ["app_flow", "web_hi_fi"], "modes": [], "density": "medium", "temperature": "warm", "core": true, "path": "design-systems/friendly/DESIGN.md"},
+    {"id": "enterprise", "category": "business", "keywords": ["B2B", "admin", "complex", "form"], "routes": ["web_hi_fi"], "modes": ["data_viz"], "density": "high", "temperature": "neutral", "core": true, "path": "design-systems/enterprise/DESIGN.md"},
+    {"id": "dashboard", "category": "data", "keywords": ["analytics", "metrics", "operations"], "routes": ["web_hi_fi"], "modes": ["data_viz"], "density": "high", "temperature": "cool", "core": true, "path": "design-systems/dashboard/DESIGN.md"},
+    {"id": "minimal", "category": "minimal", "keywords": ["quiet", "focus", "premium"], "routes": ["web_hi_fi"], "modes": [], "density": "low", "temperature": "neutral", "core": true, "path": "design-systems/minimal/DESIGN.md"},
+    {"id": "warm-editorial", "category": "editorial", "keywords": ["story", "serif", "human"], "routes": ["web_hi_fi"], "modes": [], "density": "medium", "temperature": "warm", "core": true, "path": "design-systems/warm-editorial/DESIGN.md"},
+    {"id": "expressive", "category": "expressive", "keywords": ["campaign", "bold", "contrast"], "routes": ["web_hi_fi"], "modes": [], "density": "medium", "temperature": "warm", "core": true, "path": "design-systems/expressive/DESIGN.md"}
+  ]
+}

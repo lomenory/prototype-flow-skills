@@ -1,0 +1,119 @@
+{
+  "version": 3,
+  "artifact_name": "design-guidance.json",
+  "applicable_routes": ["web_hi_fi", "app_flow"],
+  "source_statuses": ["exact", "approximate", "assumption"],
+  "rule_applicabilities": ["required", "not_applicable"],
+  "intent": {
+    "required_fields": ["primaryUser", "primaryTask", "successOutcome", "contentPriority"],
+    "source_tracked_fields": ["primaryUser", "primaryTask", "successOutcome"]
+  },
+  "direction": {
+    "required_fields": [
+      "designBasis",
+      "visualDials",
+      "rationale",
+      "layoutStrategy",
+      "hierarchyStrategy",
+      "responsiveStrategy",
+      "componentStrategy"
+    ],
+    "design_basis": {
+      "types": ["core", "external", "existing"],
+      "core_required_fields": ["type", "systemId"],
+      "external_required_fields": ["type", "sourceIds"],
+      "existing_required_fields": ["type", "designDocument"]
+    },
+    "visual_dials": {
+      "variance": ["restrained", "balanced", "expressive"],
+      "density": ["spacious", "balanced", "dense"],
+      "motion": ["none", "restrained", "expressive"]
+    },
+    "field_semantics": {
+      "responsiveStrategy": {
+        "default_scope": "single_target",
+        "additional_targets": "explicit_only",
+        "compatibility_note": "Field name is retained for schema compatibility; a single target is a valid strategy."
+      }
+    }
+  },
+  "visual_anchors": {
+    "id_pattern": "^VANCHOR-[A-Z0-9_-]+$",
+    "required_fields": ["id", "selector", "role", "priority", "checks"],
+    "priorities": ["blocking", "important", "supporting"],
+    "checks": ["visible", "unique", "no_clipping", "hierarchy", "rhythm", "state_distinct"]
+  },
+  "state_ids": [
+    "default",
+    "hover",
+    "focus",
+    "pressed",
+    "disabled",
+    "loading",
+    "empty",
+    "error",
+    "success"
+  ],
+  "decision_levels": ["contextual", "advisory"],
+  "hard_rules": {
+    "GUIDE-FORM-LABELS": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "form controls exist",
+      "evidence_type": "browser",
+      "allow_not_applicable": true
+    },
+    "GUIDE-FOCUS-VISIBILITY": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "keyboard-focusable controls exist",
+      "evidence_type": "browser",
+      "allow_not_applicable": true
+    },
+    "GUIDE-TARGET-SIZE": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "interactive controls exist",
+      "evidence_type": "browser",
+      "allow_not_applicable": true,
+      "minimum_css_pixels": {
+        "web_hi_fi": 24,
+        "app_flow": 44
+      }
+    },
+    "GUIDE-HORIZONTAL-OVERFLOW": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "always",
+      "evidence_type": "browser",
+      "allow_not_applicable": false
+    },
+    "GUIDE-IMAGE-ALTERNATIVES": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "img elements exist",
+      "evidence_type": "browser",
+      "allow_not_applicable": true
+    },
+    "GUIDE-REDUCED-MOTION": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "CSS animations exist",
+      "evidence_type": "browser",
+      "allow_not_applicable": true
+    },
+    "GUIDE-CRITICAL-STATES": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "async, destructive, form, or data states exist",
+      "evidence_type": "experience",
+      "allow_not_applicable": true
+    },
+    "GUIDE-COLOR-INDEPENDENCE": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "color communicates status or meaning",
+      "evidence_type": "authored",
+      "allow_not_applicable": true
+    },
+    "GUIDE-VISUAL-ANCHORS": {
+      "routes": ["web_hi_fi", "app_flow"],
+      "applies_when": "schemaVersion 3 visual anchors exist",
+      "evidence_type": "browser",
+      "allow_not_applicable": false,
+      "since_schema_version": 3
+    }
+  }
+}

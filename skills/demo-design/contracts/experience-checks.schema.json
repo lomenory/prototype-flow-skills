@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.com/codex/demo-design/experience-checks.schema.json",
+  "title": "Demo Design Experience Checks",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "deliveryRoute", "pathCoverage", "reset", "scenarios"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "deliveryRoute": {"enum": ["web_hi_fi", "app_flow"]},
+    "pathCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "notApplicable"],
+      "properties": {
+        "required": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["primary", "error", "cancel", "recovery"]}
+        },
+        "notApplicable": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/notApplicablePath"}
+        }
+      }
+    },
+    "reset": {"$ref": "#/$defs/reset"},
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/scenario"}
+    }
+  },
+  "$defs": {
+    "notApplicablePath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "reason"],
+      "properties": {
+        "type": {"enum": ["primary", "error", "cancel", "recovery"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "reset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "betweenScenarios", "persistence", "scope", "expectations"],
+      "properties": {
+        "strategy": {"enum": ["function", "reload", "none"]},
+        "functionName": {"const": "__DEMO_RESET__"},
+        "betweenScenarios": {"type": "boolean"},
+        "persistence": {"enum": ["none", "session", "local", "documented"]},
+        "scope": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["dom", "url", "scroll", "focus", "timers", "storage"]}
+        },
+        "fixture": {"type": "object"},
+        "expectations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/expectation"}
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "pathType", "steps", "expectedOutcome"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^EXP-[A-Z0-9_-]+$"},
+        "title": {"type": "string", "minLength": 1},
+        "pathType": {"enum": ["primary", "error", "cancel", "recovery"]},
+        "requirementIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(SCN|STATE|RULE|PERM)-[A-Z0-9_-]+$"}
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/step"}
+        },
+        "expectedOutcome": {"type": "string", "minLength": 1}
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action", "expectations", "screenshot"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^STEP-[A-Z0-9_-]+$"},
+        "action": {"$ref": "#/$defs/action"},
+        "verifiesRequirementIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(SCN|STATE|RULE|PERM)-[A-Z0-9_-]+$"}
+        },
+        "expectations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/expectation"}
+        },
+        "screenshot": {"$ref": "#/$defs/screenshot"}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["click", "fill", "select", "toggle", "press", "focus", "blur", "submit", "back", "escape", "reload", "waitFor", "assert"]},
+        "actionId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "selector": {"type": "string", "minLength": 1},
+        "value": {},
+        "key": {"type": "string", "minLength": 1},
+        "timeoutMs": {"type": "integer", "minimum": 0, "maximum": 30000}
+      }
+    },
+    "expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["screen", "state", "feedback", "visible", "hidden", "enabled", "disabled", "text", "value", "count", "focused", "accessibleName", "role", "checked", "pressed", "expanded", "invalid", "liveRegion", "url"]},
+        "id": {"type": "string", "minLength": 1},
+        "selector": {"type": "string", "minLength": 1},
+        "value": {},
+        "count": {"type": "integer", "minimum": 0},
+        "exact": {"type": "boolean"},
+        "timeoutMs": {"type": "integer", "minimum": 0, "maximum": 30000},
+        "pollMs": {"type": "integer", "minimum": 10, "maximum": 1000}
+      }
+    },
+    "screenshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": {
+        "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "selector": {"type": "string", "minLength": 1},
+        "stateId": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "fullPage": {"type": "boolean"}
+      }
+    }
+  }
+}

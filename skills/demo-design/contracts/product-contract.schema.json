@@ -1,0 +1,402 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.com/codex/demo-design/product-contract.schema.json",
+  "title": "Demo Design Product Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "product",
+    "route",
+    "readiness",
+    "sources",
+    "requirements",
+    "realization",
+    "acceptance"
+  ],
+  "properties": {
+    "schemaVersion": {"enum": [1, 2, 3]},
+    "product": {"type": "string", "minLength": 1},
+    "route": {
+      "enum": ["web_hi_fi", "app_flow", "design_review"]
+    },
+    "readiness": {"enum": ["ready", "blocked"]},
+    "revision": {"$ref": "#/$defs/revision"},
+    "changeSet": {"$ref": "#/$defs/changeSet"},
+    "interaction": {"$ref": "#/$defs/interaction"},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actors", "scenarios", "fields", "states", "permissions", "rules", "openQuestions"],
+      "properties": {
+        "actors": {"type": "array", "items": {"$ref": "#/$defs/actor"}},
+        "scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
+        "fields": {"type": "array", "items": {"$ref": "#/$defs/field"}},
+        "states": {"type": "array", "items": {"$ref": "#/$defs/state"}},
+        "permissions": {"type": "array", "items": {"$ref": "#/$defs/permission"}},
+        "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}},
+        "openQuestions": {"type": "array", "items": {"$ref": "#/$defs/question"}}
+      }
+    },
+    "realization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["screens", "bindings"],
+      "properties": {
+        "screens": {"type": "array", "items": {"$ref": "#/$defs/screen"}},
+        "bindings": {"type": "array", "items": {"$ref": "#/$defs/binding"}}
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarios"],
+      "properties": {
+        "scenarios": {"type": "array", "items": {"$ref": "#/$defs/acceptanceScenario"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schemaVersion": {"enum": [2, 3]}}},
+      "then": {"required": ["revision", "changeSet"]}
+    },
+    {
+      "if": {"properties": {"schemaVersion": {"const": 3}}},
+      "then": {"required": ["interaction"]}
+    }
+  ],
+  "$defs": {
+    "status": {"enum": ["confirmed", "assumption", "open_question"]},
+    "sourceRef": {"type": "string", "pattern": "^SRC-[A-Z0-9_-]+$"},
+    "trace": {
+      "type": "object",
+      "required": ["critical", "status", "sourceRef"],
+      "properties": {
+        "critical": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/status"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^SRC-[A-Z0-9_-]+$"},
+        "kind": {"enum": ["document", "conversation", "repository", "assumption"]},
+        "label": {"type": "string", "minLength": 1},
+        "locator": {"type": "string"}
+      }
+    },
+    "revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sequence", "summary"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^REV-[A-Z0-9_-]+$"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "summary": {"type": "string", "minLength": 1}
+      }
+    },
+    "changeSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supersedesRequirementIds", "removedRequirementIds", "decisionSummary"],
+      "properties": {
+        "supersedesRequirementIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(SCN|FIELD|STATE|PERM|RULE)-[A-Z0-9_-]+$"}
+        },
+        "removedRequirementIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(SCN|FIELD|STATE|PERM|RULE)-[A-Z0-9_-]+$"}
+        },
+        "decisionSummary": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "interaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transitions", "reset"],
+      "properties": {
+        "transitions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/transition"}
+        },
+        "reset": {"$ref": "#/$defs/interactionReset"}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fromStateId", "toStateId", "trigger", "phase", "guardRequirementIds", "effectRequirementIds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^TRANS-[A-Z0-9_-]+$"},
+        "fromStateId": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "toStateId": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "trigger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {"enum": ["action", "system_event"]},
+            "actionId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+            "event": {"type": "string", "minLength": 1}
+          }
+        },
+        "phase": {"enum": ["pending", "success", "failure", "cancel", "recovery"]},
+        "guardRequirementIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(RULE|PERM)-[A-Z0-9_-]+$"}
+        },
+        "effectRequirementIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(SCN|STATE|RULE|PERM)-[A-Z0-9_-]+$"}
+        }
+      }
+    },
+    "interactionReset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "persistence", "scope"],
+      "properties": {
+        "strategy": {"enum": ["function", "reload", "none"]},
+        "functionName": {"const": "__DEMO_RESET__"},
+        "persistence": {"enum": ["none", "session", "local", "documented"]},
+        "scope": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["dom", "url", "scroll", "focus", "timers", "storage"]}
+        }
+      }
+    },
+    "actor": {
+      "allOf": [
+        {"$ref": "#/$defs/trace"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "critical", "status", "sourceRef"],
+          "properties": {
+            "id": {"type": "string", "pattern": "^ACT-[A-Z0-9_-]+$"},
+            "name": {"type": "string", "minLength": 1},
+            "critical": {"type": "boolean"},
+            "status": {"$ref": "#/$defs/status"},
+            "sourceRef": {"$ref": "#/$defs/sourceRef"}
+          }
+        }
+      ]
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "actorIds", "preconditions", "outcome", "interactive", "critical", "status", "sourceRef"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^SCN-[A-Z0-9_-]+$"},
+        "title": {"type": "string", "minLength": 1},
+        "actorIds": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^ACT-"}},
+        "preconditions": {"type": "array", "items": {"type": "string"}},
+        "outcome": {"type": "string", "minLength": 1},
+        "interactive": {"type": "boolean"},
+        "critical": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/status"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "valueType", "required", "editableBy", "validation", "sensitive", "critical", "status", "sourceRef"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^FIELD-[A-Z0-9_-]+$"},
+        "name": {"type": "string", "minLength": 1},
+        "valueType": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "editableBy": {"type": "array", "items": {"type": "string", "pattern": "^ACT-"}},
+        "validation": {"type": "array", "items": {"type": "string"}},
+        "sensitive": {"type": "boolean"},
+        "critical": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/status"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subject", "name", "entryConditions", "allowedActions", "exitConditions", "critical", "status", "sourceRef"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "subject": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "entryConditions": {"type": "array", "items": {"type": "string"}},
+        "allowedActions": {"type": "array", "items": {"type": "string"}},
+        "exitConditions": {"type": "array", "items": {"type": "string"}},
+        "critical": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/status"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "permission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "actorId", "resource", "action", "scope", "effect", "deniedBehavior", "critical", "status", "sourceRef"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^PERM-[A-Z0-9_-]+$"},
+        "actorId": {"type": "string", "pattern": "^ACT-"},
+        "resource": {"type": "string", "minLength": 1},
+        "action": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "minLength": 1},
+        "effect": {"enum": ["allow", "deny"]},
+        "deniedBehavior": {"enum": ["hidden", "disabled", "message", "request_access"]},
+        "critical": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/status"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "critical", "status", "sourceRef"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^RULE-[A-Z0-9_-]+$"},
+        "statement": {"type": "string", "minLength": 1},
+        "critical": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/status"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "blocking", "status", "sourceRef"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^QUESTION-[A-Z0-9_-]+$"},
+        "question": {"type": "string", "minLength": 1},
+        "blocking": {"type": "boolean"},
+        "status": {"const": "open_question"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"}
+      }
+    },
+    "screen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^SCREEN-[A-Z0-9_-]+$"},
+        "title": {"type": "string", "minLength": 1}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "screenId", "component", "kind", "requirementIds"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^UI-[A-Z0-9_-]+$"},
+        "screenId": {"type": "string", "pattern": "^SCREEN-"},
+        "component": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["functional", "supporting_ui"]},
+        "requirementIds": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "supportingReason": {"type": "string"},
+        "actionId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "functional"}}},
+          "then": {"properties": {"requirementIds": {"minItems": 1}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "supporting_ui"}}},
+          "then": {"required": ["supportingReason"]}
+        }
+      ]
+    },
+    "acceptanceStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actionId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "actionType": {"enum": ["click", "fill", "select", "toggle", "press", "focus", "blur", "submit", "back", "escape", "reload", "waitFor", "assert"]},
+        "value": {},
+        "key": {"type": "string", "minLength": 1},
+        "verifiesRequirementIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(SCN|FIELD|STATE|PERM|RULE)-[A-Z0-9_-]+$"}
+        },
+        "expect": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "screenId": {"type": "string", "pattern": "^SCREEN-"},
+            "stateId": {"type": "string", "pattern": "^STATE-"},
+            "feedback": {"type": "string", "minLength": 1}
+          }
+        },
+        "expectations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/expectation"}
+        },
+        "screenshot": {"$ref": "#/$defs/stepScreenshot"}
+      }
+    },
+    "expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["screen", "state", "feedback", "visible", "hidden", "enabled", "disabled", "text", "value", "count", "focused", "accessibleName", "role", "checked", "pressed", "expanded", "invalid", "liveRegion", "url"]},
+        "id": {"type": "string", "minLength": 1},
+        "selector": {"type": "string", "minLength": 1},
+        "value": {},
+        "count": {"type": "integer", "minimum": 0},
+        "exact": {"type": "boolean"},
+        "timeoutMs": {"type": "integer", "minimum": 0, "maximum": 30000},
+        "pollMs": {"type": "integer", "minimum": 10, "maximum": 1000}
+      }
+    },
+    "stepScreenshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": {
+        "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "selector": {"type": "string", "minLength": 1},
+        "stateId": {"type": "string", "pattern": "^STATE-[A-Z0-9_-]+$"},
+        "fullPage": {"type": "boolean"}
+      }
+    },
+    "acceptanceScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "requirementIds", "steps", "expectedOutcome"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^TEST-[A-Z0-9_-]+$"},
+        "title": {"type": "string", "minLength": 1},
+        "requirementIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "fixture": {"type": "object"},
+        "beforeExpectations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/expectation"}},
+        "steps": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/acceptanceStep"}},
+        "afterExpectations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/expectation"}},
+        "expectedOutcome": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

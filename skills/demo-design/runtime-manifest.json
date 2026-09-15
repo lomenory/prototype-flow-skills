@@ -1,0 +1,245 @@
+{
+  "runtime_version": 9,
+  "contract_version": 9,
+  "contract_hash": "e0a96def6e9c",
+  "source_commit": "b95393d647ab97c28dded999ccb166de076483aa",
+  "capabilities": {
+    "request_intents": [
+      "inspect_only",
+      "propose_only",
+      "execute_now",
+      "resume_approved",
+      "publish"
+    ],
+    "delivery_routes": [
+      "web_hi_fi",
+      "app_flow",
+      "design_review"
+    ],
+    "modes": [
+      "data_viz",
+      "product_contract"
+    ],
+    "facets": [
+      "design_context_dependency",
+      "ant_design_enterprise"
+    ],
+    "execution_tiers": [
+      "tier_0_text_copy_only",
+      "tier_1_local_ui_patch",
+      "tier_2_layout_or_interaction",
+      "tier_3_full_delivery"
+    ],
+    "verification_profiles": [
+      "static_only",
+      "interactive_demo",
+      "strict_regression"
+    ]
+  },
+  "core_design_systems": [
+    "default",
+    "application",
+    "friendly",
+    "enterprise",
+    "dashboard",
+    "minimal",
+    "warm-editorial",
+    "expressive"
+  ],
+  "max_bytes": 2097152,
+  "files": {
+    "SKILL.md": {
+      "sha256": "f0876d4360eda48128f55b86bcde9b3dca5abc90f3cf5cde7691c436fe4a2412",
+      "bytes": 6997
+    },
+    "assets/android_frame.jsx": {
+      "sha256": "8c1c951518e5f0d39c07212d0bb9e8f1b5363b4ad4d1f903dca26d6a485e08bf",
+      "bytes": 4506
+    },
+    "assets/ios_frame.jsx": {
+      "sha256": "e19b4dd028aed54f8c20cea8b070c349e89f2ebcb9ff6b29fd37a9b2381789bd",
+      "bytes": 4753
+    },
+    "contracts/dependencies.yaml": {
+      "sha256": "da46f7a3c34c04d67efdc64d5e3429190932350d50506ee91001292af30e2f49",
+      "bytes": 1218
+    },
+    "contracts/design-guidance.yaml": {
+      "sha256": "150040a8b94239897dadca059d0bea18c66f3b65f69ed09d18729201a8118f72",
+      "bytes": 3823
+    },
+    "contracts/design-reference.schema.json": {
+      "sha256": "3a116e62d853561f44df958cf44c643f0bdac4daecd87b85cb8c9f55dd791449",
+      "bytes": 4046
+    },
+    "contracts/experience-checks.schema.json": {
+      "sha256": "e8614a354485c82a0ba67432f2931b5a89f34313796938699f50feba5656665b",
+      "bytes": 5279
+    },
+    "contracts/product-contract.schema.json": {
+      "sha256": "b566d3e80d0d98adfc8542711f1ae4c78215d7477a91d308ca51b845958922b4",
+      "bytes": 15630
+    },
+    "design-systems/application/DESIGN.md": {
+      "sha256": "226ad994e2ffeed61bec0f6701dc97c720cd83c4ee038bdc36b017dcaee9c742",
+      "bytes": 5634
+    },
+    "design-systems/dashboard/DESIGN.md": {
+      "sha256": "82a1039640cab16e9e88038938a9957e9c20b201f2e3fc5f66e49d8441ebd31d",
+      "bytes": 5986
+    },
+    "design-systems/default/DESIGN.md": {
+      "sha256": "87f2e3c27ee0c861ce742dc01539c43b7f0f86af3d063500b39049f47106333e",
+      "bytes": 4711
+    },
+    "design-systems/enterprise/DESIGN.md": {
+      "sha256": "908d9e7e01e705faeea59ed2bc3e60c7d706137dc2c445c7ba9e5f640adced3c",
+      "bytes": 4501
+    },
+    "design-systems/expressive/DESIGN.md": {
+      "sha256": "6af5ab6c9ba6c0e1b887babda6c9a1cd1564ae6cf0c8827956f9d1576a6a9693",
+      "bytes": 4361
+    },
+    "design-systems/friendly/DESIGN.md": {
+      "sha256": "3bcec16088309a56a4100b5707134c8eb69cec6068cd8791a844fa724228170e",
+      "bytes": 4384
+    },
+    "design-systems/index.json": {
+      "sha256": "a385fb18f239964559b3d9fb12e099dbacb341379b4cf6d20e14fd971e24ab13",
+      "bytes": 1992
+    },
+    "design-systems/minimal/DESIGN.md": {
+      "sha256": "863be3777753f1bb106354003a659c66441db91affb223bf8c93770e9a229785",
+      "bytes": 4115
+    },
+    "design-systems/warm-editorial/DESIGN.md": {
+      "sha256": "d98f21b693367d0afe6fbcbe58417afe810fd116dd3f610c72ed84df240bfe44",
+      "bytes": 4418
+    },
+    "examples/design-guidance.json": {
+      "sha256": "c8ce06deeaba899d17a532e911aba972d5bd4ce8c1487417964448c4e32fabfa",
+      "bytes": 4286
+    },
+    "examples/experience-checks.json": {
+      "sha256": "7e54a72d6b579484482a01af2f97ce8e43a475e83a1beffa551450c4850614bc",
+      "bytes": 2663
+    },
+    "references/ant-design-enterprise.md": {
+      "sha256": "a6340850493e815438688b32ab9399a481a09c16b98f2a9fddfef61b04562ec3",
+      "bytes": 8517
+    },
+    "references/app-preflight.md": {
+      "sha256": "e14260c6db04ebb7466e1c5085e4bf91eca7f56497b5f5f22d1e175c2c253df7",
+      "bytes": 3134
+    },
+    "references/data-viz-preflight.md": {
+      "sha256": "ba6c7e1d857cc7e87924c9238a28ca4bf53ec26f5b438b698e9fee177dadb575",
+      "bytes": 2470
+    },
+    "references/dependencies.md": {
+      "sha256": "bbf5ccad25e5e27a83631cba72a9271e96b7b0933ec23fd732d01c31145ccfdb",
+      "bytes": 1134
+    },
+    "references/design-context.md": {
+      "sha256": "d107ab1453b47b00bb0dc537694ce0ddd64091ddf85017041a781181db2ddad9",
+      "bytes": 6771
+    },
+    "references/design-guidance.md": {
+      "sha256": "9d2ca0894a2cf6cd404572257ebbbf97636d2e83029bc2ba8f536b30732de198",
+      "bytes": 6239
+    },
+    "references/experience-checks.md": {
+      "sha256": "54ac13cb6fd118b154fef1e458a34f45271b2f54b9ef2baef8506f13945c1a04",
+      "bytes": 2313
+    },
+    "references/modes.md": {
+      "sha256": "f5a32b4d9bcdc5906267ae855fccd628dc44e4e5b85c07a74c2d18f50741157f",
+      "bytes": 774
+    },
+    "references/product-contract-mode.md": {
+      "sha256": "e1cb80c44a7dd6d7b81789e6064ba6f851ed35490b1f7a6f97482a912751072e",
+      "bytes": 6458
+    },
+    "references/prototype-brief-gate.md": {
+      "sha256": "daa1e7a53efc993a47910ef800bdcd5d91cff22d892c481dfc9c7398eb89fe61",
+      "bytes": 6244
+    },
+    "references/quality.md": {
+      "sha256": "5572e1210fb95bc662d6cad59894b3ad0b78d2c84d34673b3a12302c80f61a24",
+      "bytes": 4953
+    },
+    "references/quick-patch.md": {
+      "sha256": "9e543927f66879e1723b9f537a381770a33450bcf6ea164a6a8b40754bc0f3ca",
+      "bytes": 2559
+    },
+    "references/routes/app.md": {
+      "sha256": "4b7bbbe33c9718a7e9eb5dc573ae7f771c2b4a9257393acf6b0b362653cf44ae",
+      "bytes": 2904
+    },
+    "references/routes/review.md": {
+      "sha256": "fbe32f76fc732a0d8299da7097aa3febdfb11a4d7321ba46f79cd6c8e9943fe0",
+      "bytes": 1155
+    },
+    "references/routes/web.md": {
+      "sha256": "551b813cfdd43a63945b99fe7db87f479c555622963aa209e4fdf03ac1e2cac8",
+      "bytes": 2615
+    },
+    "references/routing-contract.md": {
+      "sha256": "5b474dad4592426cb95403344d9d32fea6564b06beae4a7e75d5d4b86c3df757",
+      "bytes": 9998
+    },
+    "references/strict-regression.md": {
+      "sha256": "d185011d5201577e43184f446ce8ea899e1d4ce84d68cfdd21843cd27041b74f",
+      "bytes": 5088
+    },
+    "references/verification.md": {
+      "sha256": "d05068a0b44d91f09865b01e381ea709d7ec40731366086602f460ac81318f50",
+      "bytes": 9418
+    },
+    "references/web-preflight.md": {
+      "sha256": "ac9d70940166b3b6f0086cd166bee9f5bae0c4e203cd2f556fc9d9f22d13327b",
+      "bytes": 7272
+    },
+    "scripts/browser-session.py": {
+      "sha256": "b04295defc571bcf690f92d14344d2f045dfdb80415f0e0145dd89b76595caa4",
+      "bytes": 12975
+    },
+    "scripts/preview-server.py": {
+      "sha256": "a9f83ebc701b49f9a167582eeae4222b2f07b5fd9b8e0a8b390a5d2589cba1ff",
+      "bytes": 4264
+    },
+    "scripts/validate-design-guidance.py": {
+      "sha256": "b58c25dd68a74021d16a394d67e50c2f6c54c7ac52fef573eb7638be8c114cf3",
+      "bytes": 21362
+    },
+    "scripts/validate-design-reference.py": {
+      "sha256": "b60d549f484d1d7833488a2d53be8e828274da05240fd6dbd58000f0e543fae3",
+      "bytes": 17911
+    },
+    "scripts/validate-design-systems.py": {
+      "sha256": "0269fbc7722bf0ab530f02138b3b48769aac4ebfceb7e27e7d77be5768d54e9d",
+      "bytes": 11644
+    },
+    "scripts/validate-experience-checks.py": {
+      "sha256": "1910c96852dab147f3ff7f726291dc1eb0e5f8a97b6737f844d88d7bdbfd4d18",
+      "bytes": 18513
+    },
+    "scripts/validate-portability.py": {
+      "sha256": "41e98c0f1003273595a0ec992c630620a52b1955674e13bae0ab27ce39c550ed",
+      "bytes": 8829
+    },
+    "scripts/validate-product-contract.py": {
+      "sha256": "4c8b35811c8a173e4fb5b184e3cc77b34b8554289368208631719803de4e4b52",
+      "bytes": 40675
+    },
+    "scripts/verify.py": {
+      "sha256": "29a9746e6bf0996e51b5c863cd13c4bb1b915c385e826c68d6f1eec9ecdf315a",
+      "bytes": 135905
+    },
+    "scripts/visual-diff.py": {
+      "sha256": "78aa3391a6f0e8d3366cc2b1688d0f8b2e333939cd30ee308e70129c1361a2eb",
+      "bytes": 10954
+    }
+  },
+  "total_bytes": 466351
+}

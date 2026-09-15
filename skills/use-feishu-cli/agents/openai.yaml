@@ -1,0 +1,4 @@
+interface:
+  display_name: "飞书 CLI 操作助手"
+  short_description: "安全查询、创建和维护飞书中的消息、文档、日历及工作数据"
+  default_prompt: "使用 $use-feishu-cli 帮我安全地查询并操作飞书中的消息、文档、日历或其他工作数据。"
