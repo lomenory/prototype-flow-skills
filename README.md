@@ -1,15 +1,26 @@
-# Prototype Flow Skills
+# Prototype Flow
 
-Prototype Flow 的公开分发仓库，用于分享可直接安装的主 Skill 和依赖 Skill。主 Skill 把资料、PRD、需求、Demo、页面截图和版本历史连接到一个可编辑的本地工作台。
+将新资料整理成 PRD 并存入项目，也可以继续推进需求拆分、高保真 Demo、页面截图关联和版本管理。按本次请求执行所需阶段，单份需求入库可以独立完成。
 
-每个 `skills/<name>/` 都是完整的 Skill 目录。此仓库有独立的 Git 历史和发布流程，与开发仓库隔离。
+**PRD 维护已内建。** 项目初始化、资料入库、需求索引、文档导航和本地工作台只需安装 `prototype-flow`；生成 Demo 或同步飞书时再使用相应的外部 Skill。
 
-| Skill | 用途 | 加载时机 |
+这是可直接安装的公开分发仓库，每个 `skills/<name>/` 都是完整的 Skill 目录。开发源码、测试和业务示例由独立开发仓库维护。
+
+## 能做什么
+
+| 任务 | 完成内容 | 所需 Skill |
 | --- | --- | --- |
-| [prototype-flow](skills/prototype-flow/SKILL.md) | 主入口：资料 → PRD → 需求 → Demo → 本地工作台与版本 | 单份需求入库、完整项目或继续更新 |
-| [prd-doc-maintainer](skills/prd-doc-maintainer/SKILL.md) | PRD 文档库、索引、关联和 dashboard | 独立文档库维护；主 Skill 不再依赖它 |
-| [demo-design](skills/demo-design/SKILL.md) | HTML 高保真 Demo 与交互验证 | 生成或更新 Demo |
-| [use-feishu-cli](skills/use-feishu-cli/SKILL.md) | 飞书官方 CLI 操作指导 | 飞书相关任务 |
+| 初始化项目 | 项目身份、PRD 目录、索引与导航，可接入已有文档库 | [prototype-flow](skills/prototype-flow/SKILL.md) |
+| 新资料整理入库 | 来源记录、PRD Markdown、稳定需求 ID 和 PRD 检查 | prototype-flow |
+| 持续整理需求 | 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
+| 查看和管理项目 | 可编辑本地工作台、跨模块流程画布、已有页面和截图关联 | prototype-flow |
+| 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
+| 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
+| 同步飞书展示 | 本地 PRD 单向同步到已授权的飞书目标 | prototype-flow + [use-feishu-cli](skills/use-feishu-cli/SKILL.md) |
+
+仓库另保留 [PRD Doc Maintainer](skills/prd-doc-maintainer/SKILL.md)，供独立文档库维护使用；它不属于 Prototype Flow 的运行依赖。
+
+2026-09-15 更新：内建文档维护、一次入库 `intake`、默认摘要输出及 `validate --stage prd` 已发布。详见[实现提交 df8d8e7](https://github.com/lomenory/prototype-flow-skills/commit/df8d8e79961bb5f74d9830cea0c07056649817ba)。
 
 ## 安装主 Skill
 
@@ -66,18 +77,36 @@ PRD 整理、入库和本地工作台使用内建运行时，无需外部 Skill�
 
 安装器只安装 Skill 文件，不会安装外部工具或配置账号；宿主的网络和目录权限仍适用。缺失依赖优先安装到主 Skill 所在的标准宿主目录，自定义位置可使用 `--dest` 或 `PROTOTYPE_FLOW_SKILLS_DIR`。继续兼容 `CODEX_HOME` 与历史 Codex 目录；具体优先级见 [依赖安装说明](skills/prototype-flow/references/dependencies.md)。
 
-## 从仓库直接试用
+## 初始化项目
 
-也可以在克隆仓库后，通过 CLI 初始化独立项目并启动工作台：
+安装后可直接让 Agent 执行：
+
+> 读取 `<已安装的主-Skill-目录>/SKILL.md`，在 projects/my-prototype 初始化“我的原型项目”。先建立空项目，后续我会提供资料。
+
+也可以通过 CLI 初始化。以下命令从克隆仓库的根目录执行：
 
 ```bash
-git clone https://github.com/lomenory/prototype-flow-skills.git
-cd prototype-flow-skills
-python3 -B skills/prototype-flow/scripts/flow.py init ../my-prototype --name "我的原型项目"
-python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
+python3 -B skills/prototype-flow/scripts/flow.py init ../my-prototype --name "我的原型项目" --empty
 ```
 
-打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。CLI 负责初始化、保存、关联和版本；资料分析、PRD 写作与 Demo 生成由当前 Agent 按主 Skill 说明完成。本机工作台地址仅当前电脑可用。
+新建空项目包含：
+
+```text
+my-prototype/
+├── .prototype-flow/          项目身份、需求索引、来源、关系与产物登记
+└── prd-library/
+    ├── 00-ai-context/
+    │   └── DOC_MAP.md        自动维护的文档导航
+    ├── 01-active/            当前 PRD
+    ├── 03-research/          来源资料
+    └── 05-prototypes/        文档引用的图片与设计导出
+```
+
+- 去掉 `--empty` 时，在没有接入模块的情况下建立“项目总览”占位 PRD；其业务内容由后续资料补齐。
+- 接入项目内已有文档库时指定 `--library-root <相对目录>`，先检查文档，再补齐稳定身份和索引。重复 `init` 返回已有项目状态，保留现有内容。
+- 初始化完成后即可保存 PRD；Demo 产物、项目快照和飞书绑定在对应阶段建立。项目规则文件由使用者按需配置。
+
+CLI 负责保存和一致性；资料理解、PRD 撰写和 Demo 设计由当前 Agent 按技能说明完成。更多参数见 [运行时说明](skills/prototype-flow/references/runtime.md#接入项目)。
 
 ## 轻量需求入库
 
@@ -86,6 +115,16 @@ python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
 CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时使用 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。入库不自动生成 Demo、启动工作台或保存项目快照。
 
 内建维护生成一份 `DOC_MAP.md` 导航，保留旧项目的文档身份、关联块和历史兼容；不再自动生成独立 dashboard 或回写全库关联。
+
+## 打开本地工作台
+
+需要查看项目时执行：
+
+```bash
+python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
+```
+
+打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。预构建工作台可编辑 PRD、查看模块阶段、已有 Demo 与页面截图、跨模块流程和版本历史。本机地址仅当前电脑可用；生成 Demo、保存版本或同步飞书仍按具体任务执行。
 
 ## 分发内容
 
