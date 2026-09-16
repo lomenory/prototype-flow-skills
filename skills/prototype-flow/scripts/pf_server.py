@@ -132,6 +132,35 @@ class WorkbenchServer:
                 binding['screenshotUrl'] = '/content?' + urlencode(query)
         return state
 
+    def demo_entry(self, version=None, binding_id=None, artifact_id=None):
+        """Check a registered entry before embedding; never accept a client URL."""
+        state = self.store.state(version=version)
+        binding = None
+        if binding_id:
+            binding = next((b for b in rows(state.get('relations', {}), 'bindings') if b['id'] == binding_id), None)
+            if not binding:
+                raise FlowError('该版本没有这个页面状态', 404)
+            artifact_id = binding.get('artifactId')
+        artifact = next((a for a in rows(state.get('artifacts')) if a['id'] == artifact_id), None)
+        if not artifact:
+            raise FlowError('该版本没有这个 Demo', 404)
+        if artifact.get('syncStatus') == 'invalid' or artifact.get('integrityStatus') not in (None, 'intact'):
+            raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
+        url = self.demo_url(artifact, version, binding.get('route') if binding else None)
+        if not url:
+            raise FlowError('页面状态的演示入口无效', 400)
+        root = self.store.content_root(version=version)
+        artifact_root = (root / artifact['path']).resolve()
+        try:
+            artifact_root.relative_to(root.resolve())
+        except ValueError:
+            raise FlowError('Demo 路径超出项目范围', 403)
+        relative = '/'.join(unquote(urlsplit(url).path).split('/')[4:])
+        file = safe_file(artifact_root, relative)
+        if file.suffix.lower() not in ('.html', '.htm'):
+            raise FlowError('页面状态未指向 HTML 演示入口', 400)
+        return {'url': url}
+
     def _base_handler(self):
         class Handler(BaseHTTPRequestHandler):
             server_version = 'PrototypeFlow/1.0'
@@ -214,6 +243,8 @@ class WorkbenchServer:
                         self.authenticate()
                         if path == '/api/state':
                             return self.json(owner.enriched_state(version))
+                        if path == '/api/demo-entry':
+                            return self.json(owner.demo_entry(version, query.get('binding', [None])[0], query.get('artifact', [None])[0]))
                         if path.startswith('/api/modules/') and path.endswith('/package'):
                             parts = path.split('/')
                             if len(parts) != 5:
@@ -247,7 +278,7 @@ class WorkbenchServer:
                         html = file.read_text('utf-8')
                         html = inject_session_token(html, owner.token)
                         data = html.encode('utf-8')
-                        policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+                        policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; frame-src " + owner.preview_origin
                         self.respond_headers(200, 'text/html; charset=utf-8', len(data), policy)
                         return self.wfile.write(data)
                     return self.send_file(safe_file(owner.assets, path.lstrip('/')))
@@ -298,7 +329,7 @@ class WorkbenchServer:
                         raise FlowError('Demo 路径超出项目范围', 403)
                     relative = '/'.join(parts[4:]) or artifact.get('entryHtml', 'index.html')
                     # No workbench token/API is exposed on this origin.
-                    policy = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:; object-src 'none'; frame-ancestors 'none'"
+                    policy = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:; object-src 'none'; frame-ancestors " + owner.origin
                     return self.send_file(safe_file(artifact_root, relative), policy)
                 except Exception as exc:
                     self.failure(exc)
