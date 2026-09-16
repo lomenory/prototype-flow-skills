@@ -34,7 +34,7 @@ project/
 - `relations.json`：人工语义关联；格式见 `schemas/relations.schema.json`。刷新需求不重新推断依赖。
 - `artifacts.json`：完整产物与输入依据。单项注册格式见 `schemas/artifact.schema.json`。
 - `sources.json`：来源登记和已提取内容；文档依据引用来源 ID，不把登记当作已完成分析。
-- `runs/`：固定一次任务输入和实际进度；`run-start` / `run-finish` 管理。
+- `runs/`：固定一次任务输入和实际进度；`run-start` / `run-finish` 管理，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
 - `feishu.json` 和 `feishu-plans/`：实时同步账本和固定计划，恢复历史时保留。
 
 schema 是集成格式说明，Python 运行时还有路径、引用、哈希及版本一致性校验；只验证 JSON schema 不代表项目可用。
@@ -75,6 +75,8 @@ Python 对应 `ProjectStore.set_module_stage(module_id, stage, evidence=None)`�
 
 CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身份、修订和结果；需要原完整返回时追加 `--full`。工作台仍使用完整数据接口，不受 CLI 输出精简影响。通过摘要或 `DOC_MAP.md` 选定相关文档后按需读取，无需逐层加载多份全库导航。
 
+`state`、`document`、`compare` 和 `validate` 不创建或写回项目文件。`state` 的项目及模块状态按当前文件计算；`storedRevision` 是已落盘修订，`refreshRequired:true` 表示返回的变化尚未持久化。只读检查到此报告；获准维护后执行 `refresh` 才更新索引、项目修订和确认阶段。工作台 GET 查询同样只读。
+
 新建单份 PRD 使用 `intake <project-dir> --file <payload.json>`：一次保存新模块、来源、公共正文和需求块，设为 `draft`，收尾一次并返回维护及结构检查结果。候选格式见 [需求与资料](requirements.md#一次入库)。该命令不更新已有模块；更新正文或拆合已有需求继续使用下面的操作。
 
 `intake` 自带本次 PRD 的结构检查。单独补检文档使用 `validate <project-dir> --stage prd`，检查文档、需求 ID、来源与引用；默认 `validate <project-dir>` 保留全项目检查，包括 Demo 关联、资源和版本。按本次范围选择，纯 PRD 入库不因尚无页面截图而进入 Demo 工作。
@@ -99,11 +101,11 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 ## 版本与恢复
 
-`snapshot --name` 固定当前 PRD、关系、完整 Demo、图片及验证状态。版本允许未完成项，但如实记录缺失/未验证；保留文件清单及校验值。`compare --from <version-id> --to working` 比较需求、正文与截图；工作台可读历史版本。
+`snapshot --name` 固定当前 PRD、关系、完整 Demo、图片及验证状态，也保存任务记录、所有任务的固定输入和 `outputs.paths` 声明的部分成果。输出副本放在历史的 `.prototype-flow/run-outputs/`，缺失输出保留警告。版本允许未完成项，但如实记录缺失/未验证；保留文件清单及校验值。`compare --from <version-id> --to working` 比较需求、正文与截图；工作台可读历史版本。
 
-`restore <root> <version-id>` 会先保存当前工作的安全版本，再从历史形成新工作修订。历史自身不可编辑；运行时校验其完整性。当前飞书绑定与同步基线保持不变，之后若要改变云端必须另行执行已授权同步。
+`restore <root> <version-id>` 先严格校验目标历史，再保存恢复前备份并形成新工作修订。恢复前备份允许当前 Demo 或固定输入损坏/缺失，保存实际可读字节、原登记记录及损坏说明，不要求先修好当前 Demo；普通快照仍拒绝篡改。备份标记 `recoveryBackup`，含损坏产物的备份仅供找回文件，不能作为完整恢复目标。历史自身不可编辑；当前飞书绑定、同步基线和实时任务保持不变。
 
-已有 Demo、截图、依赖和未完成任务均通过项目数据恢复。恢复 Demo 或中断任务时用 `state <project-dir> --full` 读取 runs、固定输入与产物信息，再按需比较差异；普通文档定位使用摘要即可，不依赖完整聊天记录。
+恢复 Demo 或中断任务时用 `state <project-dir> --full` 读取实时任务；查看历史任务加 `--version <version-id>`。`run-resume <project-dir> <run-id> --version <version-id>` 从历史固定输入和输出创建新任务，返回 `resumedFrom` 与 `recoveredOutputs`，不覆盖实时任务或原输出。省略版本则从当前任务续作。新任务输入仍可能落后于当前 PRD，登记产物时继续计算过期状态。旧版本若没有保存任务记录，会明确报缺失，不虚构恢复上下文。
 
 ## 用户流程画布
 

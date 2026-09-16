@@ -179,17 +179,19 @@ class ProjectStore:
         self._depth = 0
 
     @contextlib.contextmanager
-    def _transaction(self):
+    def _transaction(self, read_only=False):
         with self._lock:
-            self.root.mkdir(parents=True, exist_ok=True)
-            self.meta.mkdir(exist_ok=True)
+            if not read_only:
+                self.root.mkdir(parents=True, exist_ok=True)
+                self.meta.mkdir(exist_ok=True)
             self._safe('.prototype-flow')
             outer = self._depth == 0
             handle = None
             if outer:
                 lockpath = self._safe('.prototype-flow/store.lock')
-                handle = lockpath.open('a+b')
-                fcntl.flock(handle, fcntl.LOCK_EX)
+                if not read_only or lockpath.exists():
+                    handle = lockpath.open('rb' if read_only else 'a+b')
+                    fcntl.flock(handle, fcntl.LOCK_SH if read_only else fcntl.LOCK_EX)
             self._depth += 1
             try:
                 yield
@@ -354,7 +356,8 @@ class ProjectStore:
                               'readOnly': base != self.root})
         return documents, requirements
 
-    def _reindex(self):
+    def _index_changes(self):
+        """Calculate the current view without writing indexes or confirmation history."""
         documents, requirements = self._scan()
         previous = self._read('requirement-index.json', {'items': [], 'documents': []})
         old_docs = {d['id']: d for d in previous.get('documents', [])}
@@ -369,9 +372,12 @@ class ProjectStore:
         if set(new_reqs) & retired:
             raise FlowError('Retired requirement IDs cannot be reused', 409,
                             {'requirementIds': sorted(set(new_reqs) & retired)})
-        if any(old_docs.get(d['id'], {}).get('fullHash') != d['fullHash'] for d in documents) or len(documents) != len(old_docs):
-            self._bump()
         project = self._project()
+        changed_documents = (any(old_docs.get(d['id'], {}).get('fullHash') != d['fullHash']
+                                 for d in documents) or len(documents) != len(old_docs))
+        stored_revision = project['revision']
+        if changed_documents:
+            project.update(revision=stored_revision + 1, updatedAt=now())
         titles = {d['id']: d['title'] for d in documents}
         for module in project['modules']:
             module['title'] = titles[module['documentId']]
@@ -417,15 +423,23 @@ class ProjectStore:
                 module.setdefault('stageHistory', []).append({'from': 'confirmed', 'to': 'review',
                     'changedAt': timestamp, 'reason': 'business-change', 'evidence': copy.deepcopy(evidence)})
                 module.update(stage='review', stageEvidence=evidence, stageUpdatedAt=timestamp)
-        self._write('project.json', project)
         prior_impact = self._read('impact.json', {'requirementIds': []})
         pending = sorted(set(prior_impact.get('requirementIds', [])) | impacted)
-        if pending != prior_impact.get('requirementIds') or not self._safe('.prototype-flow/impact.json').exists():
-            self._write('impact.json', {'requirementIds': pending, 'updatedAt': now()})
+        return {'project': project, 'documents': documents, 'requirements': requirements,
+                'impactedRequirementIds': sorted(impacted), 'pendingRequirementIds': pending,
+                'refreshRequired': changed_documents, 'storedRevision': stored_revision}
+
+    def _reindex(self):
+        view = self._index_changes()
+        documents, requirements = view['documents'], view['requirements']
+        self._write('project.json', view['project'])
+        prior = self._read('impact.json', {})
+        if prior.get('requirementIds') != view['pendingRequirementIds']:
+            self._write('impact.json', {'requirementIds': view['pendingRequirementIds'], 'updatedAt': now()})
         self._write('requirement-index.json', {'schemaVersion': 1, 'items': requirements,
                     'documents': [dict((k, v) for k, v in d.items() if k != 'content') |
                                   {'outsideHash': digest(REQ.sub('', business_text(d['content'])))} for d in documents]})
-        return documents, requirements, sorted(impacted)
+        return documents, requirements, view['impactedRequirementIds']
 
     def refresh(self):
         with self._transaction():
@@ -444,18 +458,24 @@ class ProjectStore:
         return self._safe('versions/' + version + '/project', must_exist=True)
 
     def state(self, version=None, summary=False):
-        with self._transaction():
+        with self._transaction(read_only=True):
+            view = None
             if not version or version == 'working':
-                self._reindex()
+                view = self._index_changes()
             else:
                 self._verify_snapshot(version)
-            return self._summary(version) if summary else self._state(version)
+            result = self._summary(version, view) if summary else self._state(version, view)
+            if view:
+                result.update(refreshRequired=view['refreshRequired'], storedRevision=view['storedRevision'],
+                              changedRequirementIds=view['impactedRequirementIds'])
+            return result
 
-    def _summary(self, version=None):
+    def _summary(self, version=None, view=None):
         """CLI lookup without repeating text or inspecting every Demo artifact."""
         base = self.content_root(version)
-        project = self._project(base)
-        index = self._read('requirement-index.json', {'documents': [], 'items': []}, base=base)
+        project = view['project'] if view else self._project(base)
+        index = ({'documents': view['documents'], 'items': view['requirements']} if view else
+                 self._read('requirement-index.json', {'documents': [], 'items': []}, base=base))
         modules = [{key: module[key] for key in ('id', 'title', 'documentId', 'documentPath', 'stage')
                     if key in module} for module in project['modules']]
         documents = [{key: document[key] for key in ('id', 'title', 'moduleId', 'path', 'revision')}
@@ -469,13 +489,14 @@ class ProjectStore:
                 'maintenanceStatus': self._read('maintenance.json', {}, base=base),
                 'historical': base != self.root, 'versionId': version if base != self.root else None}
 
-    def _state(self, version=None):
+    def _state(self, version=None, view=None):
         base = self.content_root(version)
-        documents, requirements = self._scan(base)
+        documents, requirements = (view['documents'], view['requirements']) if view else self._scan(base)
         artifacts = self._read('artifacts.json', {'items': []}, base=base)
         current_hashes = {r['id']: r['hash'] for r in requirements}
         current_documents = {d['id']: d['businessHash'] for d in documents}
-        pending = set(self._read('impact.json', {'requirementIds': []}, base=base).get('requirementIds', []))
+        pending = set(view['pendingRequirementIds'] if view else
+                      self._read('impact.json', {'requirementIds': []}, base=base).get('requirementIds', []))
         for artifact in artifacts['items']:
             artifact['staleRequirementIds'] = sorted(r for r, h in artifact.get('requirementHashes', {}).items() if current_hashes.get(r) != h)
             artifact['staleDocumentIds'] = sorted(d for d, h in artifact.get('documentHashes', {}).items() if current_documents.get(d) != h)
@@ -492,8 +513,8 @@ class ProjectStore:
             for path in sorted(runs_dir.glob('*.json')):
                 self._safe(path.relative_to(base), base=base)
                 runs.append(json.loads(path.read_text(encoding='utf-8')))
-        return {'project': self._project(base), 'documents': documents, 'requirements': requirements,
-                'relations': self._read('relations.json', base=base), 'artifacts': artifacts,
+        return {'project': view['project'] if view else self._project(base), 'documents': documents, 'requirements': requirements,
+                'relations': self._evaluated_relations(base), 'artifacts': artifacts,
                 'sources': self._read('sources.json', {'items': []}, base=base),
                 'versions': self.versions(), 'feishu': self._read('feishu.json', {}, base=base),
                 'runs': runs, 'maintenanceStatus': self._read('maintenance.json', {}, base=base),
@@ -501,7 +522,7 @@ class ProjectStore:
 
     def document(self, document_id, version=None):
         valid_id(document_id)
-        with self._transaction():
+        with self._transaction(read_only=True):
             if version and version != 'working':
                 self._verify_snapshot(version)
             for document in self._scan(self.content_root(version))[0]:
@@ -725,6 +746,59 @@ class ProjectStore:
             self._maintain()
             return copy.deepcopy(module)
 
+    def _flow_step_errors(self, relations, requirement_ids):
+        """The same reference checks serve both writes and project validation."""
+        bindings = {b['id']: b for b in relations.get('bindings', [])}
+        errors = []
+        for flow in relations.get('flows', []):
+            steps = flow.get('steps', [])
+            if not isinstance(steps, list):
+                errors.append({'code': 'flow-steps-invalid', 'id': flow['id']})
+                continue
+            for index, step in enumerate(steps):
+                problem = None
+                if not isinstance(step, dict):
+                    problem = 'flow-step-invalid'
+                elif any(key in step and (not isinstance(step[key], str) or not step[key])
+                         for key in ('bindingId', 'requirementId', 'artifactId', 'screenId', 'stateId')):
+                    problem = 'flow-step-invalid'
+                elif step.get('bindingId') and step['bindingId'] not in bindings:
+                    problem = 'flow-step-binding-missing'
+                elif step.get('requirementId') and step['requirementId'] not in requirement_ids:
+                    problem = 'flow-step-requirement-missing'
+                elif any(key in step for key in ('artifactId', 'screenId', 'stateId')) and not any(
+                        all(step.get(key) == b.get(key) and step.get(key)
+                            for key in ('artifactId', 'screenId', 'stateId')) for b in bindings.values()):
+                    problem = 'flow-step-state-missing'
+                elif not any(step.get(key) for key in ('bindingId', 'requirementId', 'stateId')):
+                    problem = 'flow-step-target-missing'
+                if problem:
+                    errors.append({'code': problem, 'id': flow['id'], 'step': index})
+        return errors
+
+    def _binding_fingerprint(self, binding, base=None):
+        base = base or self.root
+        fields = ('artifactId', 'screenId', 'stateId', 'route', 'fixtureId', 'screenshot', 'requirementIds')
+        value = {key: binding.get(key) for key in fields}
+        artifact = next((a for a in self._read('artifacts.json', {'items': []}, base=base)['items']
+                         if a['id'] == binding.get('artifactId')), None)
+        if not artifact or not binding.get('screenshot'):
+            return None
+        path = self._safe(binding['screenshot'], base=base)
+        if not path.is_file():
+            return None
+        value['screenshotHash'] = digest(path.read_bytes())
+        value['artifactFiles'] = artifact.get('fileHashes')
+        return digest(canonical(value))
+
+    def _evaluated_relations(self, base=None):
+        relations = self._read('relations.json', base=base)
+        for binding in relations.get('bindings', []):
+            if binding.get('verified') and (not binding.get('verificationHash') or
+                    binding['verificationHash'] != self._binding_fingerprint(binding, base)):
+                binding.update(verified=False, status='needs-review', verificationStatus='changed-or-unbound')
+        return relations
+
     def update_relations(self, data):
         with self._transaction():
             if not isinstance(data, dict):
@@ -738,6 +812,7 @@ class ProjectStore:
                     raise FlowError(key + ' must be a list')
             requirements = {r['id'] for r in self._scan()[1]}
             artifacts = {a['id'] for a in self._read('artifacts.json')['items']}
+            previous_bindings = {b['id']: b for b in current.get('bindings', [])}
             for group in ('flows', 'bindings'):
                 ids = set()
                 for item in data[group]:
@@ -757,6 +832,23 @@ class ProjectStore:
                             self._safe(item['screenshot'])
                         if item.get('verified') and not item.get('evidence'):
                             raise FlowError('Verified binding requires actual evidence')
+                        reverify = item.pop('reverify', False)
+                        previous = previous_bindings.get(item['id'])
+                        if item.get('verified'):
+                            fingerprint = self._binding_fingerprint(item)
+                            if not fingerprint:
+                                raise FlowError('Verified binding requires an existing screenshot')
+                            if previous and not reverify:
+                                item['verificationHash'] = previous.get('verificationHash')
+                                if item['verificationHash'] != fingerprint:
+                                    item.update(verified=False, status='needs-review', verificationStatus='changed-or-unbound')
+                            else:
+                                item.update(verificationHash=fingerprint, verificationStatus='verified')
+                                if item.get('status') == 'needs-review':
+                                    item.pop('status')
+            step_errors = self._flow_step_errors(data, requirements)
+            if step_errors:
+                raise FlowError('Invalid flow step references', details=step_errors)
             # Supersession history is append-only through explicit transformations.
             if data['supersessions'] != current.get('supersessions', []):
                 raise FlowError('Supersession history is managed by requirement transformations')
@@ -806,7 +898,8 @@ class ProjectStore:
                     raise FlowError('Unknown generation run')
                 data['inputRevision'] = run['inputRevision']
                 data['requirementHashes'] = run['requirementHashes']
-                data['documentHashes'] = {d['id']: d['businessHash'] for d in run['documents']}
+                data['requirementIds'] = run['requirementIds']
+                data['documentHashes'] = run.get('documentHashes', {d['id']: d['businessHash'] for d in run['documents']})
                 data['inputDocuments'] = copy.deepcopy(run['documents'])
                 data['inputPath'] = run.get('inputPath')
                 data['inputFileHashes'] = run.get('inputFileHashes', {})
@@ -846,7 +939,7 @@ class ProjectStore:
                 compatible = compatible and all(current_docs.get(d) == h for d, h in artifact['documentHashes'].items())
                 if compatible:
                     artifacts['currentArtifactId'] = artifact_id
-                    resolved = set(artifact['requirementHashes'])
+                    resolved = set(artifact.get('requirementIds', artifact['requirementHashes']))
                     impact = self._read('impact.json', {'requirementIds': []})
                     impact['requirementIds'] = sorted(set(impact['requirementIds']) - resolved)
                     self._write('impact.json', impact)
@@ -918,6 +1011,12 @@ class ProjectStore:
                             relation['status'] = 'needs-review'
                             if group == 'bindings':
                                 relation['verified'] = False
+                        if group == 'flows':
+                            for step in relation.get('steps', []):
+                                binding = next((b for b in relations['bindings'] if b['id'] == step.get('bindingId')), {})
+                                if step.get('requirementId') in ids or binding.get('status') == 'needs-review':
+                                    step.update(status='needs-review', candidateRequirementIds=new_ids)
+                                    relation['status'] = 'needs-review'
                 # Dependencies retain the retired ID until their meaning is reviewed.
             # Validate the entire candidate set before the first file write.
             seen = set()
@@ -972,7 +1071,7 @@ class ProjectStore:
                 self._write_bytes(target, data_bytes)
             return {'path': relative, 'markdownPath': os.path.relpath(target, self._safe(document['path']).parent).replace(os.sep, '/')}
 
-    def start_run(self, stage, requirement_ids=None):
+    def start_run(self, stage, requirement_ids=None, shared_document_ids=None):
         with self._transaction():
             self._reindex()
             documents, requirements = self._scan()
@@ -980,9 +1079,35 @@ class ProjectStore:
             selected = list(hashes) if requirement_ids is None else requirement_ids
             if not isinstance(selected, list) or set(selected) - set(hashes):
                 raise FlowError('Run references unknown requirements')
+            shared_document_ids = shared_document_ids or []
+            if set(shared_document_ids) - {d['id'] for d in documents}:
+                raise FlowError('Run references unknown shared documents')
+            relations = self._read('relations.json')
+            inputs = set(selected)
+            while True:
+                previous = set(inputs)
+                for req in requirements:
+                    if req['id'] in inputs:
+                        inputs.update(req.get('dependsOn', []))
+                for relation in relations.get('flows', []) + relations.get('bindings', []):
+                    refs = set(relation.get('requirementIds', []))
+                    refs.update(s['requirementId'] for s in relation.get('steps', []) if s.get('requirementId'))
+                    for step in relation.get('steps', []):
+                        refs.update(rid for binding in relations.get('bindings', [])
+                                    if binding['id'] == step.get('bindingId') for rid in binding.get('requirementIds', []))
+                    if inputs & refs:
+                        inputs.update(refs)
+                if previous == inputs:
+                    break
+            if inputs - set(hashes):
+                raise FlowError('Resolve missing requirement dependencies before starting a run',
+                                details=sorted(inputs - set(hashes)))
+            document_ids = set(shared_document_ids) | {r['documentId'] for r in requirements if r['id'] in inputs}
             run = {'id': uid('RUN'), 'stage': str(stage), 'status': 'running', 'createdAt': now(),
                    'inputRevision': self._project()['revision'], 'requirementIds': selected,
-                   'requirementHashes': {r: hashes[r] for r in selected},
+                   'requirementHashes': {r: hashes[r] for r in sorted(inputs)},
+                   'documentHashes': {d['id']: d['businessHash'] for d in documents if d['id'] in document_ids},
+                   'sharedDocumentIds': shared_document_ids,
                    'documents': [{'id': d['id'], 'revision': d['revision'], 'path': d['path'],
                                   'businessHash': d['businessHash']} for d in documents],
                    'relations': self._read('relations.json'), 'sources': self._read('sources.json'), 'outputs': []}
@@ -1014,8 +1139,63 @@ class ProjectStore:
                 raise FlowError('Unknown run', 404)
             if run['status'] != 'running':
                 raise FlowError('Run is already finished', 409)
-            run.update(status=status, outputs=outputs or [], error=error, finishedAt=now())
+            recorded_outputs = run.get('outputs', []) if outputs is None else outputs
+            self._run_output_paths({'outputs': recorded_outputs})
+            run.update(status=status, outputs=recorded_outputs, error=error, finishedAt=now())
             self._write('runs/' + run_id + '.json', run)
+            return run
+
+    def _run_output_paths(self, run):
+        outputs = run.get('outputs', [])
+        artifact_ids = {a['id'] for a in self._read('artifacts.json', {'items': []})['items']}
+        paths = outputs.get('paths', []) if isinstance(outputs, dict) else outputs
+        if not isinstance(paths, list) or any(not isinstance(p, str) for p in paths):
+            raise FlowError('Run output paths must be a list of project-relative paths')
+        result = []
+        for path in paths:
+            if path in artifact_ids:
+                continue  # Legacy output lists contained artifact IDs.
+            target = self._safe(path)
+            relative = target.relative_to(self.root)
+            if relative.parts[0] == 'versions' or (relative.parts[0] == '.prototype-flow'
+                    and relative.parts[1:2] != ('run-work',)):
+                raise FlowError('Run outputs cannot include project metadata or history')
+            result.append(relative.as_posix())
+        return result
+
+    def resume_run(self, run_id, version=None):
+        """Fork a task from fixed inputs, never overwrite a live or historical run."""
+        valid_id(run_id)
+        with self._transaction():
+            base = self._verify_snapshot(version)[0] if version and version != 'working' else self.root
+            original = self._read('runs/' + run_id + '.json', base=base)
+            if not original:
+                raise FlowError('Run is not available in this version', 404)
+            source = self._safe(original['inputPath'], base=base, must_exist=True)
+            if self._inventory(source) != original.get('inputFileHashes', {}):
+                raise FlowError('Fixed run input changed; cannot resume', 409)
+            run = copy.deepcopy(original)
+            run.update(id=uid('RUN'), status='running', createdAt=now(), outputs=[],
+                       resumedFrom={'runId': run_id, 'versionId': version or 'working'})
+            for key in ('finishedAt', 'error', 'snapshotOutputs', 'recoveredOutputs'):
+                run.pop(key, None)
+            run['inputPath'] = '.prototype-flow/run-inputs/' + run['id']
+            self._copy_tree(source, self._safe(run['inputPath']))
+            recovered = []
+            saved_outputs = original.get('snapshotOutputs', []) if base != self.root else [
+                {'sourcePath': p, 'snapshotPath': p} for p in self._run_output_paths(original)]
+            for output in saved_outputs:
+                source = self._safe(output['snapshotPath'], base=base, must_exist=True)
+                relative = '.prototype-flow/run-work/' + run['id'] + '/' + output['sourcePath']
+                target = self._safe(relative)
+                if source.is_dir():
+                    self._copy_tree(source, target)
+                else:
+                    self._copy_file(source, target)
+                recovered.append({'sourcePath': output['sourcePath'], 'path': relative})
+            run['recoveredOutputs'] = recovered
+            run['outputs'] = {'paths': [item['path'] for item in recovered]}
+            self._write('runs/' + run['id'] + '.json', run)
             return run
 
     def versions(self):
@@ -1029,7 +1209,7 @@ class ProjectStore:
             versions.append({k: v for k, v in data.items() if k != 'files'})
         return sorted(versions, key=lambda v: v['createdAt'], reverse=True)
 
-    def snapshot(self, name, description=''):
+    def snapshot(self, name, description='', recovery=False):
         if not isinstance(name, str) or not name.strip():
             raise FlowError('Version name is required')
         with self._transaction():
@@ -1040,29 +1220,46 @@ class ProjectStore:
             destination.mkdir(parents=True)
             stage = destination / 'project'
             stage.mkdir()
+            issues = []
             try:
                 library = self._safe(project['libraryRoot'])
                 library_hashes = self._inventory(library)
                 document_hashes = {d['path']: d['fullHash'] for d in self._scan()[0]}
                 self._copy_tree(library, stage / project['libraryRoot'])
                 for artifact in self._read('artifacts.json')['items']:
-                    origin = self._safe(artifact['path'], must_exist=True)
-                    if self._inventory(origin) != artifact['fileHashes']:
-                        raise FlowError('Registered artifact changed; register a new artifact before snapshot', 409,
-                                        {'artifactId': artifact['id']})
-                    self._copy_tree(origin, stage / artifact['path'])
-                    if self._inventory(stage / artifact['path']) != artifact['fileHashes']:
-                        raise FlowError('Artifact changed while creating snapshot', 409)
+                    self._snapshot_directory(artifact['path'], stage, artifact['fileHashes'], recovery, issues)
                     if artifact.get('inputPath'):
-                        source = self._safe(artifact['inputPath'], must_exist=True)
-                        if self._inventory(source) != artifact.get('inputFileHashes', {}):
-                            raise FlowError('Fixed artifact input changed before snapshot', 409)
-                        self._copy_tree(source, stage / artifact['inputPath'])
+                        self._snapshot_directory(artifact['inputPath'], stage,
+                                                 artifact.get('inputFileHashes', {}), recovery, issues)
                     for document in artifact.get('inputDocuments', []):
                         revision_path = '.prototype-flow/revisions/' + valid_id(document['id']) + '/' + document['revision'] + '.md'
                         source = self._safe(revision_path)
                         if source.is_file():
                             self._copy_file(source, stage / revision_path)
+                for path in sorted(self._safe('.prototype-flow/runs').glob('*.json')):
+                    run = self._read('runs/' + path.name)
+                    valid_id(run['id'])
+                    self._snapshot_directory(run['inputPath'], stage, run.get('inputFileHashes', {}), recovery, issues)
+                    run['snapshotOutputs'] = []
+                    for relative in self._run_output_paths(run):
+                        source = self._safe(relative)
+                        captured = '.prototype-flow/run-outputs/' + run['id'] + '/' + relative
+                        target = stage / captured
+                        if source.is_dir():
+                            hashes = self._inventory(source)
+                            self._copy_tree(source, target)
+                            if self._inventory(target) != hashes or self._inventory(source) != hashes:
+                                raise FlowError('Run output changed during snapshot', 409)
+                        elif source.is_file():
+                            expected = digest(source.read_bytes())
+                            self._copy_file(source, target)
+                            if digest(target.read_bytes()) != expected or digest(source.read_bytes()) != expected:
+                                raise FlowError('Run output changed during snapshot', 409)
+                        else:
+                            issues.append({'code': 'run-output-missing', 'runId': run['id'], 'path': relative})
+                            continue
+                        run['snapshotOutputs'].append({'sourcePath': relative, 'snapshotPath': captured})
+                    self._write_bytes(stage / '.prototype-flow/runs' / path.name, (canonical(run) + '\n').encode())
                 for relative in self._referenced_files():
                     origin = self._safe(relative)
                     if origin.is_file():
@@ -1084,6 +1281,7 @@ class ProjectStore:
                                             for did, binding in feishu.get('bindings', {}).items()}}
                     self._write_bytes(stage / '.prototype-flow/feishu.json', (canonical(summary) + '\n').encode())
                 evidence = self.validate()
+                evidence['warnings'].extend(issues)
                 if self._inventory(library) != library_hashes or self._inventory(stage / project['libraryRoot']) != library_hashes:
                     raise FlowError('Library changed during snapshot; retry with current files', 409)
                 for relative, expected_hash in document_hashes.items():
@@ -1092,12 +1290,32 @@ class ProjectStore:
                 inventory = self._inventory(stage)
                 manifest = {'schemaVersion': 1, 'id': version_id, 'name': name.strip(), 'description': description,
                             'createdAt': now(), 'inputRevision': project['revision'],
-                            'modules': project['modules'], 'validation': evidence, 'files': inventory}
+                            'modules': project['modules'], 'validation': evidence, 'files': inventory,
+                            'recoveryBackup': recovery}
                 self._write_bytes(destination / 'manifest.json', (json.dumps(manifest, ensure_ascii=False, indent=2) + '\n').encode())
                 return manifest
             except Exception:
                 shutil.rmtree(destination)
                 raise
+
+    def _snapshot_directory(self, relative, stage, expected, recovery, issues):
+        origin = self._safe(relative)
+        actual = self._inventory(origin) if origin.is_dir() else None
+        if actual != expected:
+            if not recovery:
+                raise FlowError('Registered artifact or fixed input changed before snapshot', 409,
+                                {'path': relative})
+            issues.append({'code': 'recovery-content-changed', 'path': relative,
+                           'expectedHash': digest(canonical(expected)),
+                           'actualHash': digest(canonical(actual)) if actual is not None else None})
+        if actual is None:
+            # Preserve a directory accidentally replaced by a regular file, too.
+            if origin.is_file():
+                self._copy_file(origin, stage / relative)
+            return
+        self._copy_tree(origin, stage / relative)
+        if self._inventory(stage / relative) != actual or self._inventory(origin) != actual:
+            raise FlowError('Files changed while creating snapshot', 409, {'path': relative})
 
     def _copy_file(self, source, target):
         self._safe(source.relative_to(self.root))
@@ -1152,7 +1370,7 @@ class ProjectStore:
         return base, manifest
 
     def compare(self, from_version, to_version='working'):
-        with self._transaction():
+        with self._transaction(read_only=True):
             left = self.state(from_version)
             right = self.state(to_version)
             a, b = ({r['id']: r for r in s['requirements']} for s in (left, right))
@@ -1186,8 +1404,20 @@ class ProjectStore:
     def restore(self, version_id):
         with self._transaction():
             base, manifest = self._verify_snapshot(version_id)
+            fixed_directories = {}
+            for artifact in self._read('artifacts.json', base=base)['items']:
+                fixed_directories[artifact['path']] = artifact['fileHashes']
+                if artifact.get('inputPath'):
+                    fixed_directories[artifact['inputPath']] = artifact.get('inputFileHashes', {})
+            for path in sorted(self._safe('.prototype-flow/runs', base=base).glob('*.json')):
+                run = self._read('runs/' + path.name, base=base)
+                fixed_directories[run['inputPath']] = run.get('inputFileHashes', {})
+            for relative, hashes in fixed_directories.items():
+                origin = self._safe(relative, base=base)
+                if not origin.is_dir() or self._inventory(origin) != hashes:
+                    raise FlowError('Target version contains damaged artifacts or fixed inputs; inspect its recovery files instead', 409)
             previous_revision = self._project()['revision']
-            backup = self.snapshot('恢复前备份 ' + version_id)
+            backup = self.snapshot('恢复前备份 ' + version_id, recovery=True)
             historical_project = self._project(base)
             current_project = self._project()
             current_library = self._safe(current_project['libraryRoot'])
@@ -1213,14 +1443,24 @@ class ProjectStore:
                 self._copy_tree(revision_directory, self._safe('.prototype-flow/revisions'))
             input_directory = base / '.prototype-flow/run-inputs'
             if input_directory.exists():
-                self._copy_tree(input_directory, self._safe('.prototype-flow/run-inputs'))
+                for source in sorted(input_directory.iterdir()):
+                    target = self._safe('.prototype-flow/run-inputs/' + source.name)
+                    if target.exists() and (not target.is_dir() or self._inventory(target) != self._inventory(source)):
+                        if target.is_dir():
+                            shutil.rmtree(target)
+                        else:
+                            target.unlink()
+                    self._copy_tree(source, target)
             for artifact in self._read('artifacts.json', base=base)['items']:
                 origin = self._safe(artifact['path'], base=base)
                 target = self._safe(artifact['path'])
                 if target.exists() and self._inventory(target) != artifact['fileHashes']:
                     # Current artifact bytes are already backed up. Replace this managed
                     # directory so later-added files do not change the historical demo.
-                    shutil.rmtree(target)
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
                 self._copy_tree(origin, target)
             for filename in ('sources.json', 'requirement-index.json', 'relations.json', 'artifacts.json', 'impact.json'):
                 self._write(filename, self._read(filename, base=base))
@@ -1234,13 +1474,13 @@ class ProjectStore:
     def validate(self, stage='all', document_ids=None):
         if stage not in ('all', 'prd'):
             raise FlowError('Validation stage must be all or prd')
-        with self._transaction():
+        with self._transaction(read_only=True):
             errors, warnings = [], []
             try:
                 documents, requirements = self._scan()
                 ids = {r['id'] for r in requirements}
                 sources = {s['id'] for s in self._read('sources.json', {'items': []})['items']}
-                relations = self._read('relations.json')
+                relations = self._evaluated_relations() if stage == 'all' else self._read('relations.json')
                 retired = {rid for x in relations['supersessions'] for rid in x.get('from', [])}
                 selected = [req for req in requirements if document_ids is None or req['documentId'] in document_ids]
                 for req in selected:
@@ -1267,6 +1507,7 @@ class ProjectStore:
                         if not self._safe(relative).is_file():
                             warnings.append({'code': 'referenced-file-missing', 'path': relative})
                 else:
+                    errors.extend(self._flow_step_errors(relations, ids))
                     if not artifacts:
                         warnings.append({'code': 'no-demo', 'message': '尚未登记 Demo 产物'})
                     for relative in self._referenced_files():

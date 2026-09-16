@@ -459,7 +459,7 @@ class FeishuSync:
             if segment['type'] == 'text':
                 expected = segment['content'] if index == 0 else expected + '\n\n' + segment['content']
             else:
-                assets.append(segment['asset'])
+                assets.append(copy.deepcopy(segment['asset']))
                 expected += '\n\n![' + segment['asset']['alt'] + '](pf-image:' + segment['asset']['sha256'] + ')'
             item['pending'] = {'expected': expected, 'assets': assets, 'beforeHash': _remote_hash(remote), 'beforeRevision': remote['revision']}
             item['status'] = 'publishing'
@@ -520,7 +520,18 @@ class FeishuSync:
             if not plan:
                 raise FlowError('未找到同步计划', 404)
             if plan['inputHash'] != _hash(json.dumps(self._input(plan), ensure_ascii=False, sort_keys=True)):
-                raise FlowError('同步计划固定输入发生变化；请重新 prepare', 409)
+                # Older runtimes accidentally aliased image progress into fixed input.
+                # Accept only that exact defect: the original checksum must still match.
+                repaired = copy.deepcopy(plan)
+                for item in repaired['documents']:
+                    for asset in item.get('assets', []):
+                        asset.pop('token', None)
+                    for segment in item.get('segments', []):
+                        if segment.get('type') == 'image':
+                            segment['asset'].pop('token', None)
+                if plan['inputHash'] != _hash(json.dumps(self._input(repaired), ensure_ascii=False, sort_keys=True)):
+                    raise FlowError('同步计划固定输入发生变化；请重新 prepare', 409)
+                plan = repaired
             for item in plan['documents']:
                 for asset in item['assets']:
                     if _hash(_inside(directory, asset['path']).read_bytes()) != asset['sha256']:

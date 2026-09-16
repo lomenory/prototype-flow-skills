@@ -5,10 +5,11 @@
 ## 固定输入并生成
 
 1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；需要旧产物或运行记录时使用 `state <project-dir> --full`。读取已有 `DESIGN.md`、设计参考及同项目 Demo，沿用已有视觉框架。
-2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希和项目修订。新 Demo 放入 `demos/<new-artifact-id>/`，保留上一套可演示产物。
+2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希和项目修订。完整文档仍保存为上下文；产物有效性只跟踪选中需求、传递依赖、关联流程/页面及所属文档，其他共享规则文档用 `--documents <document-ids...>` 明确加入。新 Demo 放入 `demos/<new-artifact-id>/`，保留上一套可演示产物。
 3. 按 demo-design 适用 route/tier 完成设计、产品契约、实现和真实验证。独立模块共用导航、公共组件、数据对象身份和业务状态；模块 A 的操作必须能在模块 B 连续体现。
 4. 注册完整产物时使用 `runId`，或显式提供输入修订、需求哈希与文档哈希。`candidate` 表示候选；只有实际证据支持才用 `verified` 或 `current`。
 5. 更新关系清单，将需求和契约场景、规则、状态、UI 的关系保存在旁路数据中，保存实际截图入口和证据。产品 Demo 不展示项目管理或契约调试信息。
+6. 完成本次验证和关联后，用 `run-finish <project-dir> <run-id> --status completed --outputs-file <outputs.json>` 记录实际产物；登记 artifact 不会自动结束任务。输出可用 `{"artifactIds":["实际产物ID"],"bindingIds":["实际绑定ID"],"paths":["项目内输出路径"]}`，未登记的部分成果须在 `paths` 中声明，才能随快照保存。
 
 `prototype-contract.json` 遵循 demo-design 当前 schema；新增项目需求 ID 和版本字段写入 prototype-flow 的清单，不能塞进下游 schema。
 
@@ -20,7 +21,11 @@
 
 一条多步骤路径保存为 `relations.flows`，每个 step 引用需求、对应 binding 或稳定页面状态；模块视图和流程视图引用同一份页面与截图。需求与页面多对多，允许一个需求的成功、错误、取消状态各有截图。
 
+步骤使用 `requirementId`、`bindingId`，或能匹配已有 binding 的 `artifactId/screenId/stateId`。保存和 `validate` 都检查引用；拆合需求会标记相关步骤待复核，不自动把旧入口迁给新需求。
+
 验证从真实截图入口打开，确认页面状态与截图一致、刷新恢复且可继续跨模块流程。截图存在或 URL 语法合法并不证明此行为。`verified` 与 evidence 仅记录真正执行的检查。
+
+首次登记已验证绑定时，运行时生成 `verificationHash`，固定截图字节、产物身份、需求、入口、页面状态与 fixture。后续变化或旧数据缺少指纹时，读取和检查均显示待复核；重存旧 evidence 不会刷新结论。实际重新验证后，在对应 binding 中提供新证据、`verified:true` 与一次性 `reverify:true`，运行时才建立新指纹。
 
 ## PRD 变化
 
@@ -29,6 +34,8 @@
 检查影响时覆盖：规则和字段、权限、入口、加载和错误状态、重复操作、共享数据、公共组件及跨模块路径。删除需求时清理其界面、行为和状态消费者；候选关联和历史引用按需求生命周期处理。
 
 用户在 R12 Demo 制作期间保存 R13 时，完成产物仍标明 R12。比较新旧输入，更新真正受影响部分后重新验证，不覆盖 R13 PRD 或沿用已过期证据。运行失败保留候选、任务输入、已完成输出和错误信息，以 `run-finish --status partial|failed` 记录。恢复从这些记录继续；未明确的业务问题只阻塞依赖它的部分。
+
+中断任务用 `run-resume <project-dir> <run-id>` 创建独立续作；从历史接续加 `--version <version-id>`。输入仍是原固定版本，已声明的输出复制到新任务工作目录，返回 `recoveredOutputs`；原任务、历史和当前同名文件保留。若最新 PRD 已改变，仍须判断影响，不能把续作自动视为最新。
 
 ## 完成程度
 

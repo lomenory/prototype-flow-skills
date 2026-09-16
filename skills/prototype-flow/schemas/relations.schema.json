@@ -62,8 +62,22 @@
                 "requirementId": {
                   "type": "string",
                   "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
+                },
+                "artifactId": {
+                  "type": "string"
+                },
+                "screenId": {
+                  "type": "string"
+                },
+                "stateId": {
+                  "type": "string"
                 }
               },
+              "anyOf": [
+                {"required": ["bindingId"]},
+                {"required": ["requirementId"]},
+                {"required": ["artifactId", "screenId", "stateId"]}
+              ],
               "additionalProperties": true
             }
           }
@@ -134,6 +148,18 @@
           },
           "evidence": {
             "type": "object"
+          },
+          "verificationHash": {
+            "type": ["string", "null"],
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "运行时固定的截图、产物、需求、入口及状态指纹；旧数据缺失时待复核"
+          },
+          "verificationStatus": {
+            "type": "string"
+          },
+          "reverify": {
+            "type": "boolean",
+            "description": "本次确已重新验证时使用；运行时消费后不保存"
           },
           "contractRefs": {
             "type": "object"

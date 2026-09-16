@@ -86,9 +86,9 @@ def compact_result(command, value):
         result['path'] = 'versions/' + value['id']
         result['counts'] = {'modules': len(value.get('modules', [])), 'files': len(value.get('files', {}))}
         return result
-    if command in ('run-start', 'run-finish'):
+    if command in ('run-start', 'run-finish', 'run-resume'):
         result = selected(value, 'id', 'stage', 'status', 'inputRevision', 'inputPath', 'requirementIds',
-                          'createdAt', 'finishedAt', 'error')
+                          'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
         return result
@@ -185,6 +185,10 @@ def parser():
     cmd = command('run-start', '固定一次 AI 工作的输入修订和需求范围')
     cmd.add_argument('--stage', required=True)
     cmd.add_argument('--requirements', nargs='*')
+    cmd.add_argument('--documents', nargs='*', help='额外影响本次产物的共享规则文档 ID')
+    cmd = command('run-resume', '从当前或历史任务固定输入创建独立续作，不覆盖原任务')
+    cmd.add_argument('id')
+    cmd.add_argument('--version', help='从指定历史版本读取任务；省略时读取当前任务')
     cmd = command('run-finish', '记录实际完成项和失败项，不伪造验证证据')
     cmd.add_argument('id')
     cmd.add_argument('--status', required=True, choices=['completed', 'partial', 'failed', 'blocked'])
@@ -279,7 +283,9 @@ def main(argv=None):
         elif command == 'refresh':
             result = store.refresh()
         elif command == 'run-start':
-            result = store.start_run(args.stage, args.requirements)
+            result = store.start_run(args.stage, args.requirements, args.documents)
+        elif command == 'run-resume':
+            result = store.resume_run(args.id, args.version)
         elif command == 'run-finish':
             result = store.finish_run(args.id, args.status,
                 read_json(args.outputs_file) if args.outputs_file else None, args.error)
