@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 from pf_core import FlowError, ProjectStore
+from pf_export import module_package
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'}
 CONTENT_EXTENSIONS = IMAGE_EXTENSIONS | {'.pdf', '.txt', '.md', '.csv'}
@@ -139,7 +140,7 @@ class WorkbenchServer:
                 # Requests can contain local document names. Keep terminal output to lifecycle/errors.
                 pass
 
-            def respond_headers(self, status=200, content_type='application/json; charset=utf-8', length=None, csp=None):
+            def respond_headers(self, status=200, content_type='application/json; charset=utf-8', length=None, csp=None, filename=None):
                 self.send_response(status)
                 self.send_header('Content-Type', content_type)
                 self.send_header('Cache-Control', 'no-store')
@@ -150,6 +151,8 @@ class WorkbenchServer:
                     self.send_header('Content-Length', str(length))
                 if csp:
                     self.send_header('Content-Security-Policy', csp)
+                if filename:
+                    self.send_header('Content-Disposition', "attachment; filename=prototype-flow.zip; filename*=UTF-8''" + quote(filename, safe=''))
                 self.end_headers()
 
             def json(self, data, status=200):
@@ -211,6 +214,13 @@ class WorkbenchServer:
                         self.authenticate()
                         if path == '/api/state':
                             return self.json(owner.enriched_state(version))
+                        if path.startswith('/api/modules/') and path.endswith('/package'):
+                            parts = path.split('/')
+                            if len(parts) != 5:
+                                raise FlowError('接口不存在', 404)
+                            data, filename = module_package(owner.store, parts[3], version)
+                            self.respond_headers(200, 'application/zip', len(data), filename=filename)
+                            return self.wfile.write(data)
                         if path.startswith('/api/documents/'):
                             return self.json(owner.store.document(path.split('/')[-1], version=version))
                         if path == '/api/versions':

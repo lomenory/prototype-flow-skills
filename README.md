@@ -14,6 +14,7 @@
 | 新资料整理入库 | 来源记录、PRD Markdown、稳定需求 ID 和 PRD 检查 | prototype-flow |
 | 持续整理需求 | Agent 通过 CLI 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
 | 浏览项目 | 只读本地工作台、跨模块流程画布、已有页面和截图关联，复制需求名称与编号 | prototype-flow |
+| 下载已确认需求 | 按模块打包关联 Demo 的完整目录与运行资源、PRD 和本地引用；支持历史版本 | prototype-flow |
 | 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
 | 同步飞书展示 | 本地 PRD 单向同步到已授权的飞书目标 | prototype-flow + [use-feishu-cli](skills/use-feishu-cli/SKILL.md) |
@@ -24,7 +25,9 @@
 
 2026-09-16 工作台更新：工作台仅提供浏览，新增模块、新增需求、需求编辑与其他写入操作统一交给 Agent 通过 CLI 执行；PRD 与流程画布中的需求点均可复制名称和稳定编号。确认模块后清除对应的待分析状态，之后有新变更时重新提示。
 
-本次冻结发布包通过 111 项 Python 回归测试、9 项前端测试和前端构建；Chromium 已验证浏览、需求复制、历史查看与刷新。飞书恢复验证使用模拟传输，未执行真实云端写入。旧截图证据缺少指纹时显示待复核，旧快照未保存的任务记录不会自动补造。详见[运行时说明](skills/prototype-flow/references/runtime.md)与[场景验收](skills/prototype-flow/references/acceptance.md)。
+本次冻结发布包通过 115 项 Python 回归测试、10 项前端测试和前端构建；Chromium 已验证打包下载、解压后 Demo 的下单与支付状态交互，此前已验证浏览、需求复制、历史查看与刷新。飞书恢复验证使用模拟传输，未执行真实云端写入。旧截图证据缺少指纹时显示待复核，旧快照未保存的任务记录不会自动补造。详见[运行时说明](skills/prototype-flow/references/runtime.md)与[场景验收](skills/prototype-flow/references/acceptance.md)。
+
+2026-09-16 打包下载更新：已确认模块可在总览卡片、PRD 页面和画布详情下载 ZIP。按需求关联选择 Demo，多套 Demo 保留各自目录，共享 Demo 保持完整，不裁剪其他模块的页面。包内包含 PRD Markdown、本地引用与运行说明；缺少资源、Demo 损坏或依据旧稿时明确提示。外部在线资源仍需联网。
 
 ## 安装主 Skill
 
