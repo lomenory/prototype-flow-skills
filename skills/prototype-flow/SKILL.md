@@ -1,6 +1,6 @@
 ---
 name: prototype-flow
-description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进需求拆分、高保真 Demo 和可编辑本地项目看板，维护需求到页面截图的关联、跨模块流程及版本历史；可选单向同步到飞书展示。按请求只执行所需阶段，单独页面视觉修改使用 demo-design。
+description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进需求拆分、高保真 Demo 和只读本地项目看板，维护需求到页面截图的关联、跨模块流程及版本历史；可选单向同步到飞书展示。按请求只执行所需阶段，单独页面视觉修改使用 demo-design。
 ---
 
 # Prototype Flow
@@ -36,7 +36,7 @@ python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称"
 python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 ```
 
-需要查看工作台时运行 `serve <project-dir>`，返回本机工作台和独立只读 Demo 预览信息。AI 生成和飞书同步由当前 Agent 对话发起；loopback 地址仅供当前电脑使用。
+需要查看工作台时运行 `serve <project-dir>`，返回本机工作台和独立只读 Demo 预览信息。工作台仅供浏览和复制需求名称、编号；新增、编辑、上传及版本保存/恢复全部由当前 Agent 使用本地 CLI 执行。AI 生成和飞书同步由当前 Agent 对话发起；loopback 地址仅供当前电脑使用。
 
 ## 复用已有能力
 

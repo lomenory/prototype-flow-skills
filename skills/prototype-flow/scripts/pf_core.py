@@ -424,10 +424,34 @@ class ProjectStore:
                     'changedAt': timestamp, 'reason': 'business-change', 'evidence': copy.deepcopy(evidence)})
                 module.update(stage='review', stageEvidence=evidence, stageUpdatedAt=timestamp)
         prior_impact = self._read('impact.json', {'requirementIds': []})
-        pending = sorted(set(prior_impact.get('requirementIds', [])) | impacted)
+        pending = self._pending_after_confirmation(project, documents, requirements,
+            set(prior_impact.get('requirementIds', [])) | impacted)
         return {'project': project, 'documents': documents, 'requirements': requirements,
                 'impactedRequirementIds': sorted(impacted), 'pendingRequirementIds': pending,
                 'refreshRequired': changed_documents, 'storedRevision': stored_revision}
+
+    @staticmethod
+    def _pending_after_confirmation(project, documents, requirements, pending):
+        """Close only inputs covered by a still-valid, explicit module confirmation.
+
+        Also interpret older confirmation records on read, without mutating projects
+        or historical snapshots just to remove an obsolete pending label.
+        """
+        pending = set(pending)
+        docs = {d['id']: d for d in documents}
+        for module in project['modules']:
+            evidence = module.get('stageEvidence') or {}
+            document = docs.get(module['documentId'], {})
+            if (module.get('stage') != 'confirmed'
+                    or evidence.get('type') != 'user-confirmation'
+                    or not evidence.get('summary') or not evidence.get('source')
+                    or not evidence.get('businessHash')
+                    or evidence['businessHash'] != document.get('businessHash')):
+                continue
+            hashes = evidence.get('requirementHashes', {})
+            pending.difference_update(r['id'] for r in requirements
+                if r['moduleId'] == module['id'] and hashes.get(r['id']) == r['hash'])
+        return sorted(pending)
 
     def _reindex(self):
         view = self._index_changes()
@@ -497,6 +521,8 @@ class ProjectStore:
         current_documents = {d['id']: d['businessHash'] for d in documents}
         pending = set(view['pendingRequirementIds'] if view else
                       self._read('impact.json', {'requirementIds': []}, base=base).get('requirementIds', []))
+        if view is None:
+            pending = set(self._pending_after_confirmation(self._project(base), documents, requirements, pending))
         for artifact in artifacts['items']:
             artifact['staleRequirementIds'] = sorted(r for r, h in artifact.get('requirementHashes', {}).items() if current_hashes.get(r) != h)
             artifact['staleDocumentIds'] = sorted(d for d, h in artifact.get('documentHashes', {}).items() if current_documents.get(d) != h)
@@ -743,6 +769,7 @@ class ProjectStore:
             module.update(stage=stage, stageEvidence=record, stageUpdatedAt=timestamp)
             project.update(revision=project['revision'] + 1, updatedAt=timestamp)
             self._write('project.json', project)
+            self._reindex()
             self._maintain()
             return copy.deepcopy(module)
 

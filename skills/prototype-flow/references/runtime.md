@@ -22,7 +22,7 @@ project/
 └── versions/<version-id>/    不可变项目快照
 ```
 
-需要打开工作台时运行 `serve <project-dir>`。产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，不将写入接口交给 Demo 或来源文档。不要把本地服务器绑定至公网或向他人分享 API 令牌。
+需要打开工作台时运行 `serve <project-dir>`。产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，仅提供读取；POST、PUT、PATCH、DELETE 返回 405，Agent 通过本地 CLI 执行写入。不要把本地服务器绑定至公网或向他人分享 API 令牌。
 
 目录与导航由内建运行时维护，无需外部文档维护 Skill。`00-ai-context/DOC_MAP.md` 是统一导航；旧工具生成的 `INDEX.md` 转为导航指针，用户自写 INDEX 保留。已有 `AI_GUIDE.md` 仅替换已知过期维护指引，保留自定义补充，不创建新指南。旧 dashboard 和 `prdlib:related` 正文块不删除、不再生成或回写；历史快照不参与当前文档库维护。
 
@@ -69,6 +69,8 @@ Python 对应 `ProjectStore.set_module_stage(module_id, stage, evidence=None)`�
 {"type":"user-confirmation","summary":"实际用户确认的范围及结论","source":"实际对话或评审记录位置"}
 ```
 
+确认模块会关闭该模块中被本次确认覆盖、且需求哈希和 PRD 业务哈希仍一致的待分析记录；其他模块和后续变更保持待分析。读取旧项目或旧快照时，同样按有效确认依据计算标签，不为修正标签写入文件，也不把页面关联自动标成已验证。
+
 浏览器测试、AI 审查或产物登记不会自动升级为用户已确认。需求、共享正文或已声明依赖变化时，受影响的 `confirmed` 模块自动回到 `review`，原确认与失效原因保留在阶段历史；已经处于 draft、demo 或 validation 等手动阶段的模块保持原阶段。纯工具维护区域刷新不会撤销确认。此处记录状态不新增审批流程，继续执行当前已授权范围。
 
 ## 保存与变更
@@ -87,7 +89,7 @@ CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身�
 python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <candidate.md> --base-revision <loaded-revision>
 ```
 
-冲突时重新读当前正文，与本地未保存草稿比较后形成合并候选；不要把最新 revision 简单填到旧内容上强行覆盖。工作台保留草稿与外部变化提示。业务正文保存成功后，即使导航维护失败也保留正文，维护结果独立报告；修复后运行 `refresh`，无需再次保存正文。
+冲突时重新读当前正文，与本地未保存草稿比较后形成合并候选；不要把最新 revision 简单填到旧内容上强行覆盖。Agent 保留候选正文并核对外部变化；工作台仅显示已保存内容。业务正文保存成功后，即使导航维护失败也保留正文，维护结果独立报告；修复后运行 `refresh`，无需再次保存正文。
 
 `requirement` 显式执行 add/split/merge/move/remove；用 `--parts-file` 提供新需求数组，每项至少有 `title` 和 `content`，可含 `priority/sourceIds/dependsOn`。提供 `--base-revision` 时使用整数项目修订。关系变更以整个 `relations.json` 候选写入，先读取现有值避免删除别人的关联。
 

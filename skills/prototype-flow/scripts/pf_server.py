@@ -1,8 +1,6 @@
 """Loopback-only workbench and an isolated read-only Demo origin."""
 from __future__ import annotations
 
-import base64
-import binascii
 import copy
 import hashlib
 import json
@@ -16,7 +14,6 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 from pf_core import FlowError, ProjectStore
 
-MAX_BODY = 16 * 1024 * 1024
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'}
 CONTENT_EXTENSIONS = IMAGE_EXTENSIONS | {'.pdf', '.txt', '.md', '.csv'}
 
@@ -163,7 +160,7 @@ class WorkbenchServer:
             def failure(self, exc):
                 if isinstance(exc, FlowError):
                     self.json({'error': str(exc), 'details': getattr(exc, 'details', None)}, error_status(exc))
-                elif isinstance(exc, (ValueError, KeyError, TypeError, binascii.Error)):
+                elif isinstance(exc, (ValueError, KeyError, TypeError)):
                     self.json({'error': '请求参数无效', 'details': str(exc)}, 400)
                 elif isinstance(exc, FileNotFoundError):
                     self.json({'error': '文件不存在'}, 404)
@@ -200,17 +197,6 @@ class WorkbenchServer:
                     raise FlowError('不允许从其他页面访问项目接口', 403)
                 if mutation and origin != owner.origin:
                     raise FlowError('写入请求必须来自当前工作台', 403)
-
-            def body(self):
-                if self.headers.get_content_type() != 'application/json':
-                    raise FlowError('请使用 JSON 请求', 415)
-                length = int(self.headers.get('Content-Length', '0'))
-                if length < 0 or length > MAX_BODY:
-                    raise FlowError('请求过大，请将图片控制在 10 MB 内', 413)
-                obj = json.loads(self.rfile.read(length).decode('utf-8'))
-                if not isinstance(obj, dict):
-                    raise FlowError('请求正文必须是对象', 400)
-                return obj
 
             def do_GET(self):
                 try:
@@ -258,49 +244,20 @@ class WorkbenchServer:
                 except Exception as exc:
                     self.failure(exc)
 
-            def do_PUT(self):
-                self.mutate('PUT')
+            def reject_write(self):
+                try:
+                    self.authenticate(mutation=True)
+                    raise FlowError('工作台仅供浏览，请通过 Agent 使用本地 CLI 修改项目。', 405)
+                except Exception as exc:
+                    self.failure(exc)
 
-            def do_POST(self):
-                self.mutate('POST')
+            do_POST = reject_write
+            do_PUT = reject_write
+            do_PATCH = reject_write
+            do_DELETE = reject_write
 
             def do_OPTIONS(self):
                 self.json({'error': '不支持跨站接口请求'}, 403)
-
-            def mutate(self, method):
-                try:
-                    self.authenticate(mutation=True)
-                    data = self.body()
-                    parsed = urlsplit(self.path)
-                    selected_version = parse_qs(parsed.query).get('version', [None])[0]
-                    if selected_version not in (None, '', 'working'):
-                        raise FlowError('历史版本只读；请先基于历史创建工作修订', 409)
-                    path = unquote(parsed.path)
-                    if method == 'PUT' and path.startswith('/api/documents/'):
-                        result = owner.store.save_document(path.split('/')[-1], data['content'], data['baseRevision'])
-                    elif method == 'POST' and path == '/api/modules':
-                        result = owner.store.add_module(data['title'], data.get('id'))
-                    elif method == 'POST' and path == '/api/requirements/transform':
-                        result = owner.store.transform_requirements(
-                            data['operation'], data.get('ids', []), data.get('parts'),
-                            data.get('targetModuleId'), data.get('baseRevision'))
-                    elif method == 'POST' and path == '/api/assets':
-                        raw = base64.b64decode(data['data'], validate=True)
-                        if len(raw) > 10 * 1024 * 1024:
-                            raise FlowError('图片不得超过 10 MB', 413)
-                        result = owner.store.upload_asset(data['documentId'], data['filename'], raw)
-                        result['url'] = '/content?' + urlencode({'path': result['path']})
-                    elif method == 'POST' and path == '/api/versions':
-                        result = owner.store.snapshot(data['name'], data.get('description', ''))
-                    elif method == 'POST' and path.startswith('/api/versions/') and path.endswith('/restore'):
-                        result = owner.store.restore(path.split('/')[-2])
-                    elif method == 'POST' and path == '/api/refresh':
-                        result = owner.store.refresh()
-                    else:
-                        raise FlowError('接口不存在', 404)
-                    return self.json(result)
-                except Exception as exc:
-                    self.failure(exc)
 
         return Handler
 

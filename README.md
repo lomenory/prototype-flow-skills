@@ -12,8 +12,8 @@
 | --- | --- | --- |
 | 初始化项目 | 项目身份、PRD 目录、索引与导航，可接入已有文档库 | [prototype-flow](skills/prototype-flow/SKILL.md) |
 | 新资料整理入库 | 来源记录、PRD Markdown、稳定需求 ID 和 PRD 检查 | prototype-flow |
-| 持续整理需求 | 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
-| 查看和管理项目 | 可编辑本地工作台、跨模块流程画布、已有页面和截图关联 | prototype-flow |
+| 持续整理需求 | Agent 通过 CLI 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
+| 浏览项目 | 只读本地工作台、跨模块流程画布、已有页面和截图关联，复制需求名称与编号 | prototype-flow |
 | 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
 | 同步飞书展示 | 本地 PRD 单向同步到已授权的飞书目标 | prototype-flow + [use-feishu-cli](skills/use-feishu-cli/SKILL.md) |
@@ -22,7 +22,9 @@
 
 2026-09-16 更新：查询保持只读；局部 Demo 按实际依赖判断过期；流程引用与截图指纹可校验；损坏 Demo 支持保留备份后恢复；快照保存中断任务，并通过 `run-resume` 独立续作；飞书含图部分失败可继续同一计划。Demo 成功交付须记录 `run-finish --status completed`。
 
-本次冻结发布包通过 108 项 Python 回归测试；工作台沿用此前通过 23 项前端测试的构建。飞书恢复验证使用模拟传输，未执行真实云端写入。旧截图证据缺少指纹时显示待复核，旧快照未保存的任务记录不会自动补造。详见[运行时说明](skills/prototype-flow/references/runtime.md)与[场景验收](skills/prototype-flow/references/acceptance.md)。
+2026-09-16 工作台更新：工作台仅提供浏览，新增模块、新增需求、需求编辑与其他写入操作统一交给 Agent 通过 CLI 执行；PRD 与流程画布中的需求点均可复制名称和稳定编号。确认模块后清除对应的待分析状态，之后有新变更时重新提示。
+
+本次冻结发布包通过 111 项 Python 回归测试、9 项前端测试和前端构建；Chromium 已验证浏览、需求复制、历史查看与刷新。飞书恢复验证使用模拟传输，未执行真实云端写入。旧截图证据缺少指纹时显示待复核，旧快照未保存的任务记录不会自动补造。详见[运行时说明](skills/prototype-flow/references/runtime.md)与[场景验收](skills/prototype-flow/references/acceptance.md)。
 
 ## 安装主 Skill
 
@@ -126,7 +128,7 @@ CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时�
 python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
 ```
 
-打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。预构建工作台可编辑 PRD、查看模块阶段、已有 Demo 与页面截图、跨模块流程和版本历史。本机地址仅当前电脑可用；生成 Demo、保存版本或同步飞书仍按具体任务执行。
+打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。预构建工作台只读展示 PRD、模块阶段、已有 Demo 与页面截图、跨模块流程和版本历史。需求点的复制按钮会复制明确的需求名称与编号，方便交给 Agent 修改。编辑、阶段确认、保存或恢复版本等写入操作由 Agent 通过 CLI 执行，工作台 HTTP 写入请求返回 405。本机地址仅当前电脑可用；生成 Demo 或同步飞书仍按具体任务执行。
 
 ## 分发内容
 
