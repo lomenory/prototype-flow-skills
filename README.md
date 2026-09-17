@@ -35,6 +35,8 @@ Demo 直接嵌入工作区，右上角可收起的需求列表切换登记页面
 
 本次布局更新通过 117 项 Python 测试、15 项前端测试和构建；浏览器已核对模式切换、状态导航、搜索高亮、复制不误触、抽屉固定底栏、PRD 定位及三栏对齐。发布包另做文件哈希、HTTP 资源、只读接口和 ZIP 资源检查。
 
+2026-09-17 完整工作台更新：发布需求分支折叠与搜索定位、可调宽度的详情标签面板、居中的 Demo 需求/状态选择器、按阶段切换的项目总览，以及可收起的 PRD Anchor 目录和正文标题布局。需求整理拆分保存并检查通过后自动启动工作台。本次重新通过 117 项 Python 测试、19 项前端测试和生产构建；浏览器交互证据沿用开发仓库中对应相同构建的验收记录。
+
 ## 安装主 Skill
 
 主 Skill 使用通用 `SKILL.md` 入口和 Python CLI，可由 Codex、Claude Code、Cursor，或能读取本地文件并执行命令的 Agent 使用。`agents/openai.yaml` 仅提供可选的 Codex 展示元数据。
@@ -74,6 +76,17 @@ Codex 用户也可以继续发送：
 > 使用 skill-installer 安装 https://github.com/lomenory/prototype-flow-skills/tree/main/skills/prototype-flow
 
 安装后可用 `$prototype-flow` 发起任务。主 Skill 可以单独安装，无需克隆整个仓库。
+
+### 更新已有安装
+
+`git pull` 只更新当前仓库；如果 Agent 使用的是个人目录中的 Skill 副本，还需更新该副本。安装器不会覆盖不同内容的已有目录。
+
+1. 在本分发仓库运行 `git pull --ff-only`，确认获取最新 `main`。
+2. 核对 Agent 实际读取的 `prototype-flow/SKILL.md` 路径。若直接使用本仓库，无需再复制；若使用个人目录，先备份旧的 `prototype-flow` 到 skills 目录之外，再用本仓库的 `skills/prototype-flow` 完整替换原目录。不要只复制 `SKILL.md` 或将新版资源叠加到旧目录。
+3. 在本分发仓库运行 `python3 -B skills/prototype-flow/scripts/install.py --dest <实际的-skills-根目录> --check`，确认返回 `ok: true`、`status: available`。例如 Codex 安装在 `~/.codex/skills/prototype-flow` 时，`--dest` 使用 `~/.codex/skills`。
+4. 停止旧工作台服务，用更新后的 `<实际-Skill-目录>/scripts/flow.py serve <项目目录>` 重新启动，并打开新返回的 `url`。
+
+需求文档、Demo 和项目版本保存在项目目录中，更新技能时保留这些项目目录。
 
 ### 按阶段准备依赖
 
