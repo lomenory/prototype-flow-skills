@@ -125,7 +125,7 @@ CLI 负责保存和一致性；资料理解、PRD 撰写和 Demo 设计由当前
 
 新项目可以使用 `init <project-dir> --name "项目名称" --empty` 建立空项目，再执行 `intake <project-dir> --file <payload.json>`，一次保存来源、完整 PRD 和需求块，统一维护导航并进行 PRD 检查。输入格式见 [需求与资料](skills/prototype-flow/references/requirements.md#一次入库)。
 
-CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时使用 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。入库不自动生成 Demo、启动工作台或保存项目快照。
+CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时使用 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后，自动启动工作台并打开本机地址；同一项目已有可用服务时复用。入库不自动生成 Demo 或保存项目快照。
 
 内建维护生成一份 `DOC_MAP.md` 导航，保留旧项目的文档身份、关联块和历史兼容；不再自动生成独立 dashboard 或回写全库关联。
 

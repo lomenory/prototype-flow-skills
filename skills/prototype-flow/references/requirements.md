@@ -56,7 +56,7 @@ python3 -B <skill-dir>/scripts/flow.py source <project-dir> --label "订单会�
 
 运行时在写入后维护索引和 `DOC_MAP.md` 导航，成功后读取结果摘要即可；外部文件改动或维护失败时再执行 `refresh`，不重复保存已写入正文。旧 `prdlib:related` 区域和 dashboard 保留兼容，不自动生成或回写。重要业务变化的理由写进相应 PRD 或 `04-decisions/`，无需额外维护一份强制 CHANGELOG。
 
-完成后检查需求来源可追溯、ID 唯一、验收能观察、冲突和假设可见，并确认结构检查结果。`intake` 已检查本次 PRD；只有本次保存尚未提供相应检查或外部文件有变动时，补运行 `validate <project-dir> --stage prd`。该阶段检查文档、稳定 ID、来源及引用，不要求 Demo 页面或截图。普通入库到此交付文件入口，不自动进入工作台、快照、Demo 或云端同步。
+完成后检查需求来源可追溯、ID 唯一、验收能观察、冲突和假设可见，并确认结构检查结果。`intake` 已检查本次 PRD；只有本次保存尚未提供相应检查或外部文件有变动时，补运行 `validate <project-dir> --stage prd`。该阶段检查文档、稳定 ID、来源及引用，不要求 Demo 页面或截图。需求整理拆分保存并检查通过后，按 [完成本次请求](../SKILL.md#完成本次请求) 自动启动工作台，交付文件入口和本机链接；不自动进入快照、Demo 或云端同步。
 
 ### 一次入库
 
