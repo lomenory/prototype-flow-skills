@@ -88,7 +88,7 @@ def compact_result(command, value):
         return result
     if command in ('run-start', 'run-finish', 'run-resume'):
         result = selected(value, 'id', 'stage', 'status', 'inputRevision', 'inputPath', 'requirementIds',
-                          'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds')
+                          'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds', 'contextScope')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
         return result
@@ -137,6 +137,7 @@ def parser():
     cmd = command('serve', '启动本机工作台与独立只读 Demo 预览；Ctrl+C 停止')
     cmd.add_argument('--port', type=int, default=0)
     cmd.add_argument('--preview-port', type=int, default=0)
+    cmd.add_argument('--reuse', action='store_true', help='验证并复用同项目的现有服务；没有可用服务时启动')
     cmd = command('state', '读取项目摘要；--full 包含完整正文，支持历史版本')
     cmd.add_argument('--version')
     cmd = command('document', '读取完整 PRD 及保存基线')
@@ -178,7 +179,7 @@ def parser():
     cmd.add_argument('--to', dest='to_version', default='working')
     cmd = command('restore', '基于历史创建工作修订，保留当前飞书同步记录')
     cmd.add_argument('version')
-    cmd = command('validate', '检查稳定 ID、关联、资源和版本一致性')
+    cmd = command('validate', '检查当前稿稳定 ID、关联与资源；历史版本在读取和恢复时校验')
     cmd.add_argument('--stage', choices=['all', 'prd'], default='all',
                      help='prd 仅检查 PRD 来源、引用和稳定 ID；默认 all 保留完整检查')
     command('refresh', '发现外部修改并刷新文档库和需求索引')
@@ -186,6 +187,7 @@ def parser():
     cmd.add_argument('--stage', required=True)
     cmd.add_argument('--requirements', nargs='*')
     cmd.add_argument('--documents', nargs='*', help='额外影响本次产物的共享规则文档 ID')
+    cmd.add_argument('--full-context', action='store_true', help='固定全项目文档与资源；默认只固定所选需求及依赖的上下文')
     cmd = command('run-resume', '从当前或历史任务固定输入创建独立续作，不覆盖原任务')
     cmd.add_argument('id')
     cmd.add_argument('--version', help='从指定历史版本读取任务；省略时读取当前任务')
@@ -234,18 +236,32 @@ def main(argv=None):
         elif command == 'intake':
             result = store.intake(read_json(args.file))
         elif command == 'serve':
-            from pf_server import WorkbenchServer
-            store.state()  # Fail early if the project was not initialized.
-            server = WorkbenchServer(store, args.port, args.preview_port)
+            from pf_server import WorkbenchServer, ServiceRegistry
+            registry = ServiceRegistry(store.root)
+            with registry.lock():
+                existing = registry.reuse() if args.reuse else None
+                if existing:
+                    output(existing)
+                    return 0
+                store.state()  # Fail early if the project was not initialized.
+                server = WorkbenchServer(store, args.port, args.preview_port)
+                info = server.start()
+                try:
+                    registry.publish(server)
+                except Exception:
+                    server.close()
+                    raise
             event = threading.Event()
             for signum in (signal.SIGINT, signal.SIGTERM):
                 signal.signal(signum, lambda *_: event.set())
-            output(server.start())
+            output(info)
             try:
                 while not event.wait(1):
                     pass
             finally:
                 server.close()
+                with registry.lock():
+                    registry.forget(server.instance_id)
             return 0
         elif command == 'state':
             result = store.state(args.version, summary=not args.full)
@@ -283,7 +299,7 @@ def main(argv=None):
         elif command == 'refresh':
             result = store.refresh()
         elif command == 'run-start':
-            result = store.start_run(args.stage, args.requirements, args.documents)
+            result = store.start_run(args.stage, args.requirements, args.documents, full_context=args.full_context)
         elif command == 'run-resume':
             result = store.resume_run(args.id, args.version)
         elif command == 'run-finish':

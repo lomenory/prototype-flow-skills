@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import copy
+import contextlib
+import fcntl
 import hashlib
+import http.client
 import json
 import mimetypes
+import os
 import re
 import secrets
+import stat
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,6 +23,102 @@ from pf_export import module_package
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'}
 CONTENT_EXTENSIONS = IMAGE_EXTENSIONS | {'.pdf', '.txt', '.md', '.csv'}
+
+
+def metadata_signature(root, ignored=()):
+    """A change hint, never an integrity verdict; do not read file contents."""
+    root = Path(root)
+    entries = []
+    if not root.exists():
+        return 'missing'
+    if not root.is_dir():
+        value = root.lstat()
+        return str((value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns, value.st_ino))
+    for directory, directories, names in os.walk(root, followlinks=False):
+        directories[:] = sorted(name for name in directories if name not in ignored)
+        for name in sorted(directories + [name for name in names if name not in ignored]):
+            path = Path(directory) / name
+            try:
+                value = path.lstat()
+                entries.append((path.relative_to(root).as_posix(), value.st_mode, value.st_size,
+                                value.st_mtime_ns, value.st_ctime_ns, value.st_ino))
+            except FileNotFoundError:
+                entries.append((path.relative_to(root).as_posix(), 'removed'))
+    return hashlib.sha256(json.dumps(entries, separators=(',', ':')).encode()).hexdigest()
+
+
+class ServiceRegistry:
+    """Private per-user discovery outside project data and project snapshots."""
+    def __init__(self, project_root):
+        self.project_root = str(Path(project_root).resolve())
+        self.directory = Path(tempfile.gettempdir()) / ('prototype-flow-services-' + str(os.getuid()))
+        key = hashlib.sha256(self.project_root.encode()).hexdigest()
+        self.path = self.directory / (key + '.json')
+        self.lock_path = self.directory / (key + '.lock')
+
+    @contextlib.contextmanager
+    def lock(self):
+        self.directory.mkdir(mode=0o700, exist_ok=True)
+        info = self.directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise FlowError('本地服务发现目录不安全', 403)
+        self.directory.chmod(0o700)
+        descriptor = os.open(self.lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(descriptor)
+
+    def _read(self):
+        if self.path.is_symlink():
+            raise FlowError('本地服务记录不允许符号链接', 403)
+        try:
+            return json.loads(self.path.read_text('utf-8'))
+        except (FileNotFoundError, ValueError):
+            return {}
+
+    def reuse(self):
+        record = self._read()
+        if record.get('projectRoot') != self.project_root:
+            return None
+        connection = None
+        try:
+            address = urlsplit(record['url'])
+            if (address.scheme != 'http' or address.hostname != '127.0.0.1' or not address.port
+                    or address.path or address.query or address.fragment or address.username):
+                return None
+            connection = http.client.HTTPConnection('127.0.0.1', address.port, timeout=2)
+            connection.request('GET', '/api/health', headers={'X-Prototype-Flow-Token': record['token']})
+            response = connection.getresponse()
+            if response.status != 200:
+                return None
+            result = json.loads(response.read(65536))
+            if (result.get('projectRoot') != self.project_root or result.get('instanceId') != record.get('instanceId')
+                    or result.get('url') != record.get('url') or result.get('previewOrigin') != record.get('previewOrigin')
+                    or result.get('protocolVersion') != 1):
+                return None
+            return {key: result[key] for key in ('url', 'previewOrigin', 'projectRoot', 'transport')} | {'reused': True}
+        except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
+            return None
+        finally:
+            if connection:
+                connection.close()
+
+    def publish(self, server):
+        data = dict(server.info(), token=server.token, instanceId=server.instance_id)
+        descriptor, name = tempfile.mkstemp(prefix='.service-', dir=self.directory)
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+                json.dump(data, output)
+            os.replace(name, self.path)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+
+    def forget(self, instance_id):
+        if self._read().get('instanceId') == instance_id:
+            self.path.unlink(missing_ok=True)
 
 
 def safe_file(root: Path, relative: str) -> Path:
@@ -69,6 +171,9 @@ class WorkbenchServer:
     def __init__(self, store: ProjectStore, port=0, preview_port=0, assets=None):
         self.store = store
         self.token = secrets.token_urlsafe(32)
+        self.instance_id = secrets.token_urlsafe(24)
+        self._integrity_cache = {}
+        self._integrity_lock = threading.RLock()
         self.assets = Path(assets or Path(__file__).resolve().parents[1] / 'assets' / 'workbench')
         self.demo = FlowServer(('127.0.0.1', preview_port), self._demo_handler())
         self.preview_origin = 'http://127.0.0.1:%s' % self.demo.server_port
@@ -85,8 +190,80 @@ class WorkbenchServer:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             self._threads.append(thread)
+        return self.info()
+
+    def info(self):
         return {'url': self.origin, 'previewOrigin': self.preview_origin,
-                'projectRoot': str(self.store.root), 'transport': 'loopback_http'}
+                'projectRoot': str(self.store.root), 'transport': 'loopback_http', 'reused': False}
+
+    def health(self):
+        self.store._project()
+        if not (self.assets / 'index.html').is_file() or not all(thread.is_alive() for thread in self._threads):
+            raise FlowError('本地工作台服务尚未就绪', 503)
+        return dict(self.info(), instanceId=self.instance_id, protocolVersion=1)
+
+    def revision(self):
+        # Scan only metadata. Integrity is checked separately before content is used.
+        project = self.store._project()
+        paths = {project['libraryRoot'], 'DESIGN.md'}
+        paths.update(a['path'] for a in self.store._read('artifacts.json', {'items': []})['items'])
+        paths.update(b['screenshot'] for b in self.store._read('relations.json', {'bindings': []})['bindings']
+                     if b.get('screenshot'))
+        for source in self.store._read('sources.json', {'items': []})['items']:
+            paths.update(source[key] for key in ('path', 'archivePath') if source.get(key))
+        # Skip nested paths already covered by their library or artifact directory.
+        roots = sorted(paths, key=lambda value: (len(Path(value).parts), value))
+        scopes = []
+        for relative in roots:
+            if not any(Path(parent) in Path(relative).parents for parent in scopes):
+                scopes.append(relative)
+        signatures = {relative: metadata_signature(self.store._safe(relative), {'__pycache__', '.DS_Store'})
+                      for relative in scopes}
+        signatures['.prototype-flow'] = metadata_signature(self.store.meta,
+            {'store.lock', 'revisions', 'run-inputs', 'run-outputs', 'feishu-plans', '__pycache__'})
+        versions = self.store._safe('versions')
+        signatures['versions'] = {path.name: metadata_signature(path / 'manifest.json')
+                                  for path in sorted(versions.iterdir()) if path.is_dir() and not path.is_symlink()} if versions.exists() else {}
+        token = hashlib.sha256(json.dumps(signatures, sort_keys=True).encode()).hexdigest()
+        return {'revisionToken': token,
+                'projectRoot': str(self.store.root)}
+
+    def _checked_history(self, version):
+        if not version:
+            return self.store.root
+        root = self.store.content_root(version)
+        with self._integrity_lock:
+            signature = metadata_signature(root.parent)
+            key = ('history', version)
+            if self._integrity_cache.get(key) != signature:
+                self.store._verify_snapshot(version)
+                if signature != metadata_signature(root.parent):
+                    raise FlowError('历史版本在检查期间发生变化，请重试', 409)
+                self._integrity_cache[key] = signature
+        return root
+
+    def _checked_artifact(self, artifact_id, version=None):
+        """Check only this artifact; cache successful byte checks behind metadata."""
+        with self.store._transaction(read_only=True):
+            root = self._checked_history(version)
+            artifact = next((a for a in self.store._read('artifacts.json', {'items': []}, base=root)['items']
+                             if a['id'] == artifact_id), None)
+            if not artifact:
+                raise FlowError('该版本没有这个 Demo', 404)
+            artifact_root = self.store._safe(artifact['path'], base=root)
+            if not artifact_root.is_dir():
+                raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
+            expected = artifact.get('fileHashes', {})
+            with self._integrity_lock:
+                signature = (metadata_signature(artifact_root), json.dumps(expected, sort_keys=True))
+                key = ('artifact', version, artifact_id, str(artifact_root))
+                if self._integrity_cache.get(key) != signature:
+                    if self.store._inventory(artifact_root) != expected:
+                        raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
+                    if signature[0] != metadata_signature(artifact_root):
+                        raise FlowError('Demo 在检查期间发生变化，请重试', 409)
+                    self._integrity_cache[key] = signature
+            return artifact, artifact_root
 
     def close(self):
         for server in (self.http, self.demo):
@@ -134,27 +311,18 @@ class WorkbenchServer:
 
     def demo_entry(self, version=None, binding_id=None, artifact_id=None):
         """Check a registered entry before embedding; never accept a client URL."""
-        state = self.store.state(version=version)
+        root = self._checked_history(version)
         binding = None
         if binding_id:
-            binding = next((b for b in rows(state.get('relations', {}), 'bindings') if b['id'] == binding_id), None)
+            relations = self.store._read('relations.json', {'bindings': []}, base=root)
+            binding = next((b for b in relations['bindings'] if b['id'] == binding_id), None)
             if not binding:
                 raise FlowError('该版本没有这个页面状态', 404)
             artifact_id = binding.get('artifactId')
-        artifact = next((a for a in rows(state.get('artifacts')) if a['id'] == artifact_id), None)
-        if not artifact:
-            raise FlowError('该版本没有这个 Demo', 404)
-        if artifact.get('syncStatus') == 'invalid' or artifact.get('integrityStatus') not in (None, 'intact'):
-            raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
+        artifact, artifact_root = self._checked_artifact(artifact_id, version)
         url = self.demo_url(artifact, version, binding.get('route') if binding else None)
         if not url:
             raise FlowError('页面状态的演示入口无效', 400)
-        root = self.store.content_root(version=version)
-        artifact_root = (root / artifact['path']).resolve()
-        try:
-            artifact_root.relative_to(root.resolve())
-        except ValueError:
-            raise FlowError('Demo 路径超出项目范围', 403)
         relative = '/'.join(unquote(urlsplit(url).path).split('/')[4:])
         file = safe_file(artifact_root, relative)
         if file.suffix.lower() not in ('.html', '.htm'):
@@ -204,8 +372,10 @@ class WorkbenchServer:
                 if self.headers.get('Host') != expected:
                     raise FlowError('不允许的访问地址', 403)
 
-            def send_file(self, path, csp=None):
+            def send_file(self, path, csp=None, expected=None):
                 data = path.read_bytes()
+                if expected is not None and hashlib.sha256(data).hexdigest() != expected:
+                    raise FlowError('请求文件与登记版本不一致，请重新验证产物', 409)
                 kind = mimetypes.guess_type(str(path))[0] or 'application/octet-stream'
                 if kind.startswith('text/') or kind == 'application/javascript':
                     kind += '; charset=utf-8'
@@ -243,6 +413,10 @@ class WorkbenchServer:
                         self.authenticate()
                         if path == '/api/state':
                             return self.json(owner.enriched_state(version))
+                        if path == '/api/revision':
+                            return self.json(owner.revision())
+                        if path == '/api/health':
+                            return self.json(owner.health())
                         if path == '/api/demo-entry':
                             return self.json(owner.demo_entry(version, query.get('binding', [None])[0], query.get('artifact', [None])[0]))
                         if path.startswith('/api/modules/') and path.endswith('/package'):
@@ -265,7 +439,7 @@ class WorkbenchServer:
                     if path == '/content':
                         if version:
                             # Validate the immutable manifest before serving any historical bytes.
-                            owner.store.state(version=version)
+                            owner._checked_history(version)
                         root = owner.store.content_root(version=version)
                         file = safe_file(root, query.get('path', [''])[0])
                         if file.suffix.lower() not in CONTENT_EXTENSIONS:
@@ -314,23 +488,15 @@ class WorkbenchServer:
                     if len(parts) < 5 or parts[1] != 'demo':
                         raise FlowError('演示入口不存在', 404)
                     version = None if parts[2] == 'working' else parts[2]
-                    state = owner.store.state(version=version)
-                    artifacts = rows(state.get('artifacts'))
-                    artifact = next((a for a in artifacts if a['id'] == parts[3]), None)
-                    if not artifact:
-                        raise FlowError('该版本没有这个 Demo', 404)
-                    if artifact.get('integrityStatus') not in (None, 'intact'):
-                        raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
-                    project_root = owner.store.content_root(version=version)
-                    artifact_root = (project_root / artifact['path']).resolve()
-                    try:
-                        artifact_root.relative_to(project_root.resolve())
-                    except ValueError:
-                        raise FlowError('Demo 路径超出项目范围', 403)
+                    artifact, artifact_root = owner._checked_artifact(parts[3], version)
                     relative = '/'.join(parts[4:]) or artifact.get('entryHtml', 'index.html')
                     # No workbench token/API is exposed on this origin.
                     policy = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:; object-src 'none'; frame-ancestors " + owner.origin
-                    return self.send_file(safe_file(artifact_root, relative), policy)
+                    file = safe_file(artifact_root, relative)
+                    expected = artifact.get('fileHashes', {}).get(file.relative_to(artifact_root).as_posix())
+                    if not expected:
+                        raise FlowError('该资源未登记在 Demo 中', 403)
+                    return self.send_file(file, policy, expected)
                 except Exception as exc:
                     self.failure(exc)
 

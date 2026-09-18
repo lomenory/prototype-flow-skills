@@ -155,7 +155,8 @@
             "description": "运行时固定的截图、产物、需求、入口及状态指纹；旧数据缺失时待复核"
           },
           "verificationStatus": {
-            "type": "string"
+            "type": "string",
+            "description": "运行时验证原因：verified、missing-fingerprint（旧记录缺少指纹）、fingerprint-changed（截图或绑定内容变化）；保留旧状态兼容"
           },
           "reverify": {
             "type": "boolean",

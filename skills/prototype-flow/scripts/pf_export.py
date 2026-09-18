@@ -9,7 +9,7 @@ import zipfile
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from pf_core import FlowError
+from pf_core import FlowError, markdown_links
 
 
 def module_package(store, module_id, version=None):
@@ -54,6 +54,7 @@ def module_package(store, module_id, version=None):
             raise FlowError('Demo 尚未覆盖该模块的全部需求，请补齐后下载。', 409)
 
         root = store.content_root(version=version)
+        library_root = PurePosixPath(state['project']['libraryRoot'])
         files = {}
 
         def add(relative, expected=None):
@@ -90,15 +91,13 @@ def module_package(store, module_id, version=None):
             if PurePosixPath(path).suffix.lower() != '.md':
                 continue
             markdown = data.decode('utf-8')
-            targets = re.findall(r'!?\[[^\]\n]*\]\(\s*(<[^>]+>|[^\s)]+)', markdown)
-            targets += re.findall(r'^\s{0,3}\[[^\]\n]+\]:\s*(<[^>]+>|\S+)', markdown, re.M)
-            for target in targets:
+            for target in markdown_links(markdown):
                 parsed = urlsplit(target.strip('<>'))
                 if parsed.scheme or parsed.netloc or not parsed.path:
                     continue
                 decoded = unquote(parsed.path)
                 relative = posixpath.normpath(posixpath.join(posixpath.dirname(path), decoded))
-                if not relative.startswith('prd-library/'):
+                if library_root not in PurePosixPath(relative).parents:
                     # Demo links retain their paths when they are part of a selected artifact.
                     if relative in files:
                         continue

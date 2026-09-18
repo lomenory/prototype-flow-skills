@@ -43,6 +43,10 @@ Demo 直接嵌入工作区，右上角可收起的需求列表切换登记页面
 
 2026-09-17 主题配色更新：统一使用 `indigo/600` 主题色、`green/600` 成功色和 `yellow/600` 警告色，配套按钮交互色阶、Alert 浅底与边框、状态标签及画布强调；错误提示边框减轻为 `red/200`。对应开发提交 `a9054e5`。发布验证覆盖 19 项前端测试、生产构建与 HTTP 资源检查；浏览器配色证据沿用该提交的 `output/toast-audit/` 第二轮记录，不代表新增业务失败路径测试。
 
+2026-09-18 工作台与运行时更新：新增独立“待办与任务”页面，以表格和详情抽屉查看待处理事项及任务记录；结构图项目节点显示最近任务，相关卡片标记进行中或受阻。新增本地及历史资料预览、PRD 内部链接定位、审查位置链接与上下文复制；当前稿每 30 秒及页面回焦时检查变化，按需刷新并保留有效阅读位置。任务状态来自已保存记录，任务完成不代表需求或交付已确认，所有页面仍只读。打包下载保留在总览卡片和 PRD 页面，画布详情不再提供该入口。
+
+`serve --reuse` 支持发现并健康检查同项目服务；Demo 任务默认只固定相关输入，确需全库上下文时使用 `run-start --full-context`。普通 Demo 在完成修改与验证后一次性登记不可变产物，中断成果通过任务 `outputs.paths` 保存；默认 `validate` 检查当前稿，历史内容在读取、比较或恢复对应版本时校验。对应开发提交 `8365fb8`、`7e9803a`；本次通过 129 项 Python 测试、37 项前端测试、生产构建和发布包 HTTP 资源检查，未新增浏览器视觉验收结论。
+
 ## 安装主 Skill
 
 主 Skill 使用通用 `SKILL.md` 入口和 Python CLI，可由 Codex、Claude Code、Cursor，或能读取本地文件并执行命令的 Agent 使用。`agents/openai.yaml` 仅提供可选的 Codex 展示元数据。
@@ -90,7 +94,7 @@ Codex 用户也可以继续发送：
 1. 在本分发仓库运行 `git pull --ff-only`，确认获取最新 `main`。
 2. 核对 Agent 实际读取的 `prototype-flow/SKILL.md` 路径。若直接使用本仓库，无需再复制；若使用个人目录，先备份旧的 `prototype-flow` 到 skills 目录之外，再用本仓库的 `skills/prototype-flow` 完整替换原目录。不要只复制 `SKILL.md` 或将新版资源叠加到旧目录。
 3. 在本分发仓库运行 `python3 -B skills/prototype-flow/scripts/install.py --dest <实际的-skills-根目录> --check`，确认返回 `ok: true`、`status: available`。例如 Codex 安装在 `~/.codex/skills/prototype-flow` 时，`--dest` 使用 `~/.codex/skills`。
-4. 停止旧工作台服务，用更新后的 `<实际-Skill-目录>/scripts/flow.py serve <项目目录>` 重新启动，并打开新返回的 `url`。
+4. 停止旧工作台服务，用更新后的 `python3 -B <实际-Skill-目录>/scripts/flow.py serve <项目目录> --reuse` 重新启动，并打开返回的 `url`。升级后先停止旧服务，以免复用仍加载旧运行时的进程；日常使用则可复用已启动的当前版本服务。
 
 需求文档、Demo 和项目版本保存在项目目录中，更新技能时保留这些项目目录。
 
@@ -153,10 +157,10 @@ CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时�
 需要查看项目时执行：
 
 ```bash
-python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype
+python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype --reuse
 ```
 
-打开命令返回的本机 URL，使用 `Ctrl+C` 停止服务。预构建工作台只读展示 PRD、模块阶段、已有 Demo 与页面截图、跨模块流程和版本历史。需求点的复制按钮会复制明确的需求名称与编号，方便交给 Agent 修改。编辑、阶段确认、保存或恢复版本等写入操作由 Agent 通过 CLI 执行，工作台 HTTP 写入请求返回 405。本机地址仅当前电脑可用；生成 Demo 或同步飞书仍按具体任务执行。
+打开命令返回的本机 URL；返回 `reused: true` 表示复用已有服务，新启动的服务需保持进程运行，使用 `Ctrl+C` 停止。预构建工作台只读展示 PRD、模块阶段、已有 Demo 与页面截图、跨模块流程、待办与任务和版本历史。需求点的复制按钮会复制明确的需求名称与编号，画布右下角可复制审查上下文。编辑、阶段确认、保存或恢复版本等写入操作由 Agent 通过 CLI 执行，工作台 HTTP 写入请求返回 405。本机地址仅当前电脑可用；生成 Demo 或同步飞书仍按具体任务执行。
 
 ## 分发内容
 

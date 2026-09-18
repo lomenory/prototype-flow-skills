@@ -110,6 +110,27 @@ def business_text(content):
     return '\n'.join(business_meta) + '\n' + re.sub(r'\n{3,}', '\n\n', body)
 
 
+def markdown_links(content):
+    """Return local or remote Markdown targets, excluding examples in code."""
+    content = GENERATED.sub('', content)
+    lines, fence = [], None
+    for line in content.splitlines():
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = None
+            continue
+        if marker:
+            fence = marker[1]
+            continue
+        lines.append(line)
+    content = '\n'.join(lines)
+    content = re.sub(r'(`+)(?!`)(.*?)\1(?!`)', '', content, flags=re.S)
+    targets = re.findall(r'!?\[[^\]\n]*\]\(\s*(<[^>]+>|[^\s)]+)', content)
+    targets += re.findall(r'^\s{0,3}\[[^\]\n]+\]:\s*(<[^>]+>|\S+)', content, re.M)
+    return [target.strip('<>') for target in targets]
+
+
 def parse_requirements(content, document_id, module_id):
     clean = GENERATED.sub('', content)
     spans, found = [], []
@@ -177,6 +198,29 @@ class ProjectStore:
         self.meta = self.root / '.prototype-flow'
         self._lock = threading.RLock()
         self._depth = 0
+        self._write_journals = []
+
+    @contextlib.contextmanager
+    def _rollback_writes(self):
+        """Restore only files written by this operation if a later step fails."""
+        journal = {}
+        self._write_journals.append(journal)
+        try:
+            yield
+        except Exception:
+            self._write_journals.pop()
+            for path, original in reversed(list(journal.items())):
+                if original is None:
+                    if path.exists():
+                        path.unlink()
+                else:
+                    data, stat = original
+                    self._write_bytes(path, data)
+                    os.chmod(path, stat.st_mode)
+                    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            raise
+        else:
+            self._write_journals.pop()
 
     @contextlib.contextmanager
     def _transaction(self, read_only=False):
@@ -235,6 +279,9 @@ class ProjectStore:
         path = self._safe(path.relative_to(self.root))
         if path.is_file() and path.read_bytes() == data:
             return
+        for journal in self._write_journals:
+            if path not in journal:
+                journal[path] = (path.read_bytes(), path.stat()) if path.is_file() else None
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix='.pf-write-', dir=str(path.parent))
         try:
@@ -276,7 +323,7 @@ class ProjectStore:
     def init(self, name, mode='local', library_root='prd-library', maintainer_path=None, create_overview=True):
         if mode not in ('local', 'feishu'):
             raise FlowError('mode must be local or feishu')
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             if self._read('project.json'):
                 return self.state()
             library = self._safe(library_root)
@@ -565,6 +612,11 @@ class ProjectStore:
         next_reqs = parse_requirements(content, current['id'], current['moduleId'])
         before_ids = {r['id'] for r in parse_requirements(current['content'], current['id'], current['moduleId'])}
         after_ids = {r['id'] for r in next_reqs}
+        retired = {rid for change in self._read('relations.json', {}).get('supersessions', [])
+                   for rid in change.get('from', [])}
+        if after_ids & retired:
+            raise FlowError('Retired requirement IDs cannot be reused', 409,
+                            {'requirementIds': sorted(after_ids & retired)})
         if before_ids - after_ids and not allow_removed:
             raise FlowError('Use an explicit split, merge or remove operation to remove stable requirements', 409,
                             {'requirementIds': sorted(before_ids - after_ids)})
@@ -579,7 +631,7 @@ class ProjectStore:
             self._write_bytes(path, document['content'].encode())
 
     def save_document(self, document_id, content, base_revision):
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             current = self.document(document_id)
             if base_revision != current['revision']:
                 raise FlowError('The document changed after it was opened; your draft was not overwritten.', 409,
@@ -821,9 +873,11 @@ class ProjectStore:
     def _evaluated_relations(self, base=None):
         relations = self._read('relations.json', base=base)
         for binding in relations.get('bindings', []):
-            if binding.get('verified') and (not binding.get('verificationHash') or
-                    binding['verificationHash'] != self._binding_fingerprint(binding, base)):
-                binding.update(verified=False, status='needs-review', verificationStatus='changed-or-unbound')
+            if binding.get('verified'):
+                reason = ('missing-fingerprint' if not binding.get('verificationHash') else
+                          'fingerprint-changed' if binding['verificationHash'] != self._binding_fingerprint(binding, base) else None)
+                if reason:
+                    binding.update(verified=False, status='needs-review', verificationStatus=reason)
         return relations
 
     def update_relations(self, data):
@@ -868,7 +922,8 @@ class ProjectStore:
                             if previous and not reverify:
                                 item['verificationHash'] = previous.get('verificationHash')
                                 if item['verificationHash'] != fingerprint:
-                                    item.update(verified=False, status='needs-review', verificationStatus='changed-or-unbound')
+                                    reason = 'fingerprint-changed' if item['verificationHash'] else 'missing-fingerprint'
+                                    item.update(verified=False, status='needs-review', verificationStatus=reason)
                             else:
                                 item.update(verificationHash=fingerprint, verificationStatus='verified')
                                 if item.get('status') == 'needs-review':
@@ -1098,7 +1153,7 @@ class ProjectStore:
                 self._write_bytes(target, data_bytes)
             return {'path': relative, 'markdownPath': os.path.relpath(target, self._safe(document['path']).parent).replace(os.sep, '/')}
 
-    def start_run(self, stage, requirement_ids=None, shared_document_ids=None):
+    def start_run(self, stage, requirement_ids=None, shared_document_ids=None, full_context=False):
         with self._transaction():
             self._reindex()
             documents, requirements = self._scan()
@@ -1130,21 +1185,42 @@ class ProjectStore:
                 raise FlowError('Resolve missing requirement dependencies before starting a run',
                                 details=sorted(inputs - set(hashes)))
             document_ids = set(shared_document_ids) | {r['documentId'] for r in requirements if r['id'] in inputs}
+            input_documents = [d for d in documents if full_context or d['id'] in document_ids]
+            sources = self._read('sources.json')
+            input_relations = copy.deepcopy(relations)
+            if not full_context:
+                source_ids = {sid for req in requirements if req['documentId'] in document_ids
+                              for sid in req.get('sourceIds', [])}
+                sources['items'] = [s for s in sources['items'] if s['id'] in source_ids]
+                binding_ids = {b['id'] for b in relations.get('bindings', [])
+                               if inputs.intersection(b.get('requirementIds', []))}
+                input_relations['flows'] = [flow for flow in relations.get('flows', [])
+                    if inputs.intersection(flow.get('requirementIds', [])) or any(
+                        step.get('requirementId') in inputs or step.get('bindingId') in binding_ids
+                        for step in flow.get('steps', []))]
+                binding_ids.update(step['bindingId'] for flow in input_relations['flows']
+                                   for step in flow.get('steps', []) if step.get('bindingId'))
+                input_relations['bindings'] = [b for b in relations.get('bindings', []) if b['id'] in binding_ids]
+                input_relations['supersessions'] = [item for item in relations.get('supersessions', [])
+                    if inputs.intersection(item.get('from', []) + item.get('to', []))]
             run = {'id': uid('RUN'), 'stage': str(stage), 'status': 'running', 'createdAt': now(),
                    'inputRevision': self._project()['revision'], 'requirementIds': selected,
+                   'contextScope': 'full' if full_context else 'selected',
                    'requirementHashes': {r: hashes[r] for r in sorted(inputs)},
                    'documentHashes': {d['id']: d['businessHash'] for d in documents if d['id'] in document_ids},
                    'sharedDocumentIds': shared_document_ids,
+                   'documentIndex': [{key: d[key] for key in ('id', 'title', 'moduleId', 'path', 'revision')}
+                                     for d in documents],
                    'documents': [{'id': d['id'], 'revision': d['revision'], 'path': d['path'],
-                                  'businessHash': d['businessHash']} for d in documents],
-                   'relations': self._read('relations.json'), 'sources': self._read('sources.json'), 'outputs': []}
+                                  'businessHash': d['businessHash']} for d in input_documents],
+                   'relations': input_relations, 'sources': sources, 'outputs': []}
             run['inputPath'] = '.prototype-flow/run-inputs/' + run['id']
             fixed = self._safe(run['inputPath'])
             fixed.mkdir(parents=True)
-            for document in documents:
+            for document in input_documents:
                 self._save_revision(document)
                 self._copy_file(self._safe(document['path']), fixed / document['path'])
-            for relative in self._referenced_files():
+            for relative in self._referenced_files(input_documents, sources, input_relations):
                 source = self._safe(relative)
                 if source.is_file():
                     self._copy_file(source, fixed / relative)
@@ -1353,35 +1429,40 @@ class ProjectStore:
     def _document_references(self, documents):
         paths = set()
         for document in documents:
-            content = GENERATED.sub('', document['content'])
-            content = re.sub(r'(?ms)^(`{3,}|~{3,})[^\n]*\n.*?^\1[^\n]*$', '', content)
-            content = re.sub(r'`[^`\n]+`', '', content)
-            for match in re.finditer(r'!?\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["\'][^\n]*["\'])?\)', content):
-                parsed = urlsplit(match.group(1) or match.group(2))
+            for target in markdown_links(document['content']):
+                parsed = urlsplit(target)
                 if parsed.scheme or parsed.netloc or not parsed.path:
                     continue
                 relative = Path(os.path.normpath(str(Path(document['path']).parent / unquote(parsed.path))))
                 paths.add(self._safe(relative).relative_to(self.root).as_posix())
         return paths
 
-    def _referenced_files(self):
-        """Local captured sources, screenshots and Markdown image dependencies."""
+    def _referenced_files(self, documents=None, sources=None, relations=None):
+        """Capture local source/screenshot files and their Markdown dependency closure."""
         paths = set()
-        for source in self._read('sources.json', {'items': []})['items']:
+        sources = self._read('sources.json', {'items': []}) if sources is None else sources
+        relations = self._read('relations.json') if relations is None else relations
+        documents = self._scan()[0] if documents is None else documents
+        for source in sources['items']:
             for key in ('path', 'archivePath'):
                 if source.get(key):
                     paths.add(self._safe(source[key]).relative_to(self.root).as_posix())
-        for binding in self._read('relations.json')['bindings']:
+        for binding in relations['bindings']:
             if binding.get('screenshot'):
                 paths.add(self._safe(binding['screenshot']).relative_to(self.root).as_posix())
-        for document in self._scan()[0]:
-            for match in re.finditer(r'!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["\'][^\n]*["\'])?\)', document['content']):
-                reference = match.group(1) or match.group(2)
-                parsed = urlsplit(reference)
-                if parsed.scheme or parsed.netloc:
-                    continue
-                relative = Path(os.path.normpath(str(Path(document['path']).parent / unquote(parsed.path))))
-                paths.add(self._safe(relative).relative_to(self.root).as_posix())
+        paths.update(self._document_references(documents))
+        pending = list(paths)
+        visited = {document['path'] for document in documents}
+        while pending:
+            relative = pending.pop()
+            if relative in visited:
+                continue
+            visited.add(relative)
+            path = self._safe(relative)
+            if path.suffix.lower() == '.md' and path.is_file():
+                linked = self._document_references([{'path': relative, 'content': path.read_text('utf-8')}])
+                pending.extend(linked - paths)
+                paths.update(linked)
         return sorted(paths)
 
     def _copy_tree(self, source, target):
