@@ -17,6 +17,7 @@
 | 下载已确认需求 | 按模块打包关联 Demo 的完整目录与运行资源、PRD 和本地引用；支持历史版本 | prototype-flow |
 | 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
+| 复用项目 Demo 框架 | 固定共享框架与完整业务 Demo，准备新目录并保留历史版本 | prototype-flow + demo-design |
 | 同步飞书展示 | 本地 PRD 单向同步到已授权的飞书目标 | prototype-flow + [use-feishu-cli](skills/use-feishu-cli/SKILL.md) |
 
 2026-09-15 更新：内建文档维护、一次入库 `intake`、默认摘要输出及 `validate --stage prd` 已发布。详见[实现提交 df8d8e7](https://github.com/lomenory/prototype-flow-skills/commit/df8d8e79961bb5f74d9830cea0c07056649817ba)。
@@ -48,6 +49,8 @@ Demo 直接嵌入工作区，右上角可收起的需求列表切换登记页面
 `serve --reuse` 支持发现并健康检查同项目服务；Demo 任务默认只固定相关输入，确需全库上下文时使用 `run-start --full-context`。普通 Demo 在完成修改与验证后一次性登记不可变产物，中断成果通过任务 `outputs.paths` 保存；默认 `validate` 检查当前稿，历史内容在读取、比较或恢复对应版本时校验。对应开发提交 `8365fb8`、`7e9803a`；本次通过 129 项 Python 测试、37 项前端测试、生产构建和发布包 HTTP 资源检查，未新增浏览器视觉验收结论。
 
 2026-09-20 演示与详情更新：进入 Demo 演示模式时隐藏工作台侧栏，演示区域占满顶部栏下方宽度；切回“需求结构”恢复侧栏并保留已加载的 Demo。需求详情标签调整为“关联页面 / 需求 / 依据与依赖”，首次打开默认展示关联页面，切换需求保留当前标签。本次发布当前开发工作区的完整预构建资源，通过 37 项前端测试、生产构建和 HTTP 资源检查；运行时和依赖未变，未新增浏览器视觉验收结论。
+
+2026-09-20 共享 Demo 框架更新：新增 `framework`、`demo-prepare` 和框架数据格式。首次生成或接入 Demo 先建立项目共享框架；后续任务固定框架版本和完整基准 Demo，在新目录复用公共实现与已有业务成果。只有验证证据和输入基线符合要求时才同步切换当前框架与 Demo，冲突或写入失败不推进指针；旧项目仍可浏览，后续生成前需提取框架。详见[项目共享框架](skills/prototype-flow/references/demo-framework.md)。本次通过 142 项 Python 测试，并检查发布包命令与 HTTP 资源；工作台资源与上一版一致，沿用已有前端验证，不新增视觉验收结论。
 
 ## 安装主 Skill
 

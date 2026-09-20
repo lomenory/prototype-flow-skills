@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prototype-flow.local/schemas/framework.schema.json",
+  "title": "项目共享 Demo 框架注册输入",
+  "type": "object",
+  "required": ["id", "title", "path", "basedOn", "changeSummary"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"},
+    "title": {"type": "string", "minLength": 1},
+    "path": {"type": "string", "pattern": "^demo-framework/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$", "description": "必须为 demo-framework/<id>；目录包含 DESIGN.md、可运行 HTML 和包内资源"},
+    "entryHtml": {"type": "string", "default": "index.html"},
+    "basedOn": {"type": ["string", "null"], "description": "读取到的当前框架 ID；首版必须显式填写 null"},
+    "changeSummary": {"type": "string", "minLength": 1},
+    "sourceArtifactId": {"type": ["string", "null"], "description": "可选，实际提取来源的已登记 Demo ID"},
+    "fileHashes": {"type": "object", "readOnly": true, "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "createdAt": {"type": "string", "readOnly": true}
+  },
+  "additionalProperties": false
+}

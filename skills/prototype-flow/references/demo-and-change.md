@@ -4,10 +4,10 @@
 
 ## 固定输入并生成
 
-1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；需要旧产物或运行记录时使用 `state <project-dir> --full`。读取已有 `DESIGN.md`、设计参考及同项目 Demo，沿用已有视觉框架。
-2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希和项目修订。默认保存选中需求、传递依赖、关联流程/页面及所属文档的完整正文与相关来源、图片；其他共享规则文档用 `--documents <document-ids...>` 明确加入。确需全库上下文时加 `--full-context`，其余文档索引可用于继续定位；有效性仍按声明的依赖范围判断。新 Demo 放入 `demos/<new-artifact-id>/`，保留上一套可演示产物。
+1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；需要旧产物或运行记录时使用 `state <project-dir> --full`。按[项目共享框架](demo-framework.md)读取已有规范与完整 Demo；首次生成/接入先提取可执行框架，后续判断是否影响公共能力，需要时准备新框架候选。
+2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希、项目修订、框架版本和完整基准 Demo；升级框架用 `--framework <id>`。默认保存选中需求、传递依赖、关联流程/页面及所属文档的完整正文与相关来源、图片；其他共享规则文档用 `--documents <document-ids...>` 明确加入。确需全库上下文时加 `--full-context`。运行 `demo-prepare <project-dir> <run-id> --path demos/<new-artifact-id>` 复制固定的框架和业务成果，再继续制作，保留上一套可演示产物。
 3. 按 demo-design 适用 route/tier 完成设计、产品契约、实现和真实验证。独立模块共用导航、公共组件、数据对象身份和业务状态；模块 A 的操作必须能在模块 B 连续体现。
-4. 普通任务先完成修改与实际验证，再一次性登记不可变完整产物；使用 `runId`，或显式提供输入修订、需求哈希与文档哈希。只有实际证据支持才用 `verified` 或 `current`。中断成果可先由 `run-finish` 的 `outputs.paths` 保存，不必提前登记候选。确需登记 `candidate` 时，它同样冻结文件和身份；后续修改必须保留原目录并使用新目录、新 ID，不能原地修正或把同 ID 升级为 current。
+4. 普通任务先完成修改与实际验证，再一次性通过 `runId` 登记不可变完整产物，填写框架实际使用的 `evidence.frameworkReview`。只有实际证据支持才用 `verified` 或 `current`；`activated:true` 表示本地默认框架和 Demo 已一起切换。输入过期不切换，基线被其他任务推进时先比较差异。中断成果可由 `run-finish` 的 `outputs.paths` 保存，不必提前登记候选。确需登记 `candidate` 时，它同样冻结文件和身份；后续修改使用新目录和新 ID，不能原地修正或把同 ID 升级为 current。无框架的显式修订登记只保留旧数据兼容。
 5. 更新关系清单，将需求和契约场景、规则、状态、UI 的关系保存在旁路数据中，保存实际截图入口和证据。产品 Demo 不展示项目管理或契约调试信息。
 6. 完成本次验证和关联后，用 `run-finish <project-dir> <run-id> --status completed --outputs-file <outputs.json>` 记录实际产物；登记 artifact 不会自动结束任务。输出可用 `{"artifactIds":["实际产物ID"],"bindingIds":["实际绑定ID"],"paths":["项目内输出路径"]}`，未登记的部分成果须在 `paths` 中声明，才能随快照保存。
 

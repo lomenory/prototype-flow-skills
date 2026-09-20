@@ -207,6 +207,7 @@ class WorkbenchServer:
         project = self.store._project()
         paths = {project['libraryRoot'], 'DESIGN.md'}
         paths.update(a['path'] for a in self.store._read('artifacts.json', {'items': []})['items'])
+        paths.update(f['path'] for f in self.store._frameworks()['items'])
         paths.update(b['screenshot'] for b in self.store._read('relations.json', {'bindings': []})['bindings']
                      if b.get('screenshot'))
         for source in self.store._read('sources.json', {'items': []})['items']:

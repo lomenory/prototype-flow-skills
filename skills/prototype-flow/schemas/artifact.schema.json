@@ -28,6 +28,24 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
     },
+    "frameworkId": {
+      "type": "string",
+      "description": "运行时从任务固定输入取得，不能指定不同版本"
+    },
+    "frameworkPath": {
+      "const": "_framework",
+      "readOnly": true
+    },
+    "baseArtifactId": {
+      "type": ["string", "null"],
+      "readOnly": true,
+      "description": "继承业务页面的完整 Demo ID"
+    },
+    "sourceDemoPath": {
+      "type": "string",
+      "readOnly": true,
+      "description": "首次接入尚未登记的 Demo 时，记录其项目内原始目录"
+    },
     "inputRevision": {
       "type": "integer",
       "minimum": 0
@@ -55,7 +73,18 @@
       ]
     },
     "evidence": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "frameworkReview": {
+          "type": "object",
+          "required": ["summary", "source"],
+          "properties": {
+            "summary": {"type": "string", "minLength": 1},
+            "source": {"type": "string", "minLength": 1}
+          },
+          "description": "框架任务的 verified/current 产物必须提供实际复用检查记录；由运行时结合 runId 检查"
+        }
+      }
     },
     "fileHashes": {
       "type": "object",

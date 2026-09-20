@@ -19,6 +19,7 @@ project/
 ├── prd-library/               当前 PRD、来源资料与 DOC_MAP 导航
 ├── .prototype-flow/          当前项目清单、索引、关系、任务及同步账本
 ├── demos/<artifact-id>/      独立完整 Demo 和资源
+├── demo-framework/<id>/     不可变共享框架版本，含 DESIGN.md 与可运行代码
 └── versions/<version-id>/    不可变项目快照
 ```
 
@@ -33,6 +34,7 @@ project/
 - 需求索引：从 `pf:req` 内容块重建。块元数据见 `schemas/requirement-block.schema.json`。
 - `relations.json`：人工语义关联；格式见 `schemas/relations.schema.json`。刷新需求不重新推断依赖。
 - `artifacts.json`：完整产物与输入依据。单项注册格式见 `schemas/artifact.schema.json`。
+- `frameworks.json`：共享框架版本、文件哈希和当前框架指针；`framework` 登记候选，`run-start` 固定版本，`demo-prepare` 准备新的完整 Demo，已验证产物登记时同步启用。提取、升级和证据见[项目共享框架](demo-framework.md)。
 - `sources.json`：来源登记和已提取内容；文档依据引用来源 ID，不把登记当作已完成分析。
 - `runs/`：固定一次任务输入和实际进度；`run-start` / `run-finish` 管理，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
 - `feishu.json` 和 `feishu-plans/`：实时同步账本和固定计划，恢复历史时保留。

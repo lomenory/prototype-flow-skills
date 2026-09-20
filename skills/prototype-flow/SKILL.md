@@ -41,7 +41,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 ## 复用已有能力
 
 - **内建文档维护**：初始化必要目录，维护稳定身份、需求索引和 `DOC_MAP.md` 导航；批量写入后统一收尾。业务关系来自显式登记，旧关联块和 dashboard 保留，不自动推断或回写。正文保存与导航维护分别报告，无需再次运行独立文档维护 Skill。
-- **demo-design**：涉及产品 Demo 设计、实现或更新时读取当前 Skill，遵循它适用的 route、tier、product_contract 和验证要求。沿用已有视觉设计，项目内共用导航、组件和业务状态。这里不复制其规范、不扩展它的 schema，也不将管理契约渲染进产品 Demo。
+- **demo-design**：涉及产品 Demo 设计、实现或更新时读取当前 Skill，遵循它适用的 route、tier、product_contract 和验证要求。首次生成或接入 Demo 时建立[项目共享框架](references/demo-framework.md)，后续固定框架版本与已有完整 Demo，复用导航、组件和业务状态；需求影响公共能力时同任务更新框架和 Demo。这里不复制其规范、不扩展它的 schema，也不将管理契约渲染进产品 Demo。
 - **use-feishu-cli**：只有启用飞书的项目和相应任务才读取。复用配置、身份和按需权限，按当前 CLI 内置指导执行；适配器不自动登录或申请权限。
 
 自动安装来源、目录、失败恢复和手动命令见 [依赖安装](references/dependencies.md)。安装失败或同名 Skill 不完整时保留现有目录，继续不依赖它的已授权工作，并报告返回的错误；不能将自写占位实现冒充该 Skill 的交付。这里只安装 Skill 文件；浏览器、Node、`lark-cli`、账号登录与云端权限仍按相关任务处理。

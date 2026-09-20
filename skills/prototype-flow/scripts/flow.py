@@ -52,6 +52,8 @@ def state_summary(state):
         'sources': len(state.get('sources', {}).get('items', [])),
         'artifacts': len(state.get('artifacts', {}).get('items', [])),
     }
+    result['frameworks'] = {'currentFrameworkId': state.get('frameworks', {}).get('currentFrameworkId'),
+                            'count': len(state.get('frameworks', {}).get('items', []))}
     return result
 
 
@@ -76,11 +78,14 @@ def compact_result(command, value):
                 'ids': {key: [item['id'] for item in value.get(key, [])]
                         for key in ('flows', 'bindings', 'supersessions')}}
     if command == 'artifact':
-        result = selected(value, 'id', 'title', 'path', 'entryHtml', 'status', 'runId', 'inputRevision')
+        result = selected(value, 'id', 'title', 'path', 'entryHtml', 'status', 'runId', 'inputRevision',
+                          'frameworkId', 'baseArtifactId', 'sourceDemoPath', 'activated')
         result['counts'] = {'requirements': len(value.get('requirementHashes', {})),
                             'documents': len(value.get('documentHashes', {})),
                             'files': len(value.get('fileHashes', {}))}
         return result
+    if command == 'framework':
+        return selected(value, 'id', 'title', 'path', 'entryHtml', 'basedOn', 'sourceArtifactId', 'changeSummary')
     if command == 'snapshot':
         result = selected(value, 'id', 'name', 'description', 'createdAt', 'inputRevision', 'validation')
         result['path'] = 'versions/' + value['id']
@@ -91,6 +96,11 @@ def compact_result(command, value):
                           'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds', 'contextScope')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
+        if value.get('framework'):
+            result['framework'] = selected(value['framework'], 'id', 'path', 'entryHtml')
+            result['baseArtifact'] = selected(value.get('baseArtifact') or {}, 'id', 'path', 'entryHtml')
+            result.update(frameworkBaselineId=value.get('frameworkBaselineId'),
+                          artifactBaselineId=value.get('artifactBaselineId'))
         return result
     return value
 
@@ -164,6 +174,11 @@ def parser():
     cmd.add_argument('--file', required=True)
     cmd = command('artifact', '注册依据固定修订生成的完整 Demo')
     cmd.add_argument('--file', required=True)
+    cmd = command('framework', '登记不可变共享框架候选；随已验证 Demo 一起启用')
+    cmd.add_argument('--file', required=True)
+    cmd = command('demo-prepare', '从任务固定的完整 Demo 和框架复制新的工作目录')
+    cmd.add_argument('id', help='固定输入的任务 ID')
+    cmd.add_argument('--path', required=True, help='尚不存在的 demos/<新目录>')
     cmd = command('requirement', '显式新增、拆分、合并、移动或移除需求')
     cmd.add_argument('--operation', required=True, choices=['add', 'split', 'merge', 'move', 'remove'])
     cmd.add_argument('--ids', nargs='*', default=[])
@@ -188,6 +203,10 @@ def parser():
     cmd.add_argument('--requirements', nargs='*')
     cmd.add_argument('--documents', nargs='*', help='额外影响本次产物的共享规则文档 ID')
     cmd.add_argument('--full-context', action='store_true', help='固定全项目文档与资源；默认只固定所选需求及依赖的上下文')
+    cmd.add_argument('--framework', help='本次使用的框架版本；默认当前版本或唯一首版候选')
+    cmd.add_argument('--base-artifact', help='保留业务成果的完整 Demo；默认当前版本或唯一已有产物')
+    cmd.add_argument('--base-demo', help='首次接入尚未登记的 demos/<目录>；与 --base-artifact 互斥')
+    cmd.add_argument('--base-entry', default='index.html', help='首次接入 Demo 的 HTML 入口，默认 index.html')
     cmd = command('run-resume', '从当前或历史任务固定输入创建独立续作，不覆盖原任务')
     cmd.add_argument('id')
     cmd.add_argument('--version', help='从指定历史版本读取任务；省略时读取当前任务')
@@ -280,6 +299,10 @@ def main(argv=None):
             result = store.update_relations(read_json(args.file))
         elif command == 'artifact':
             result = store.register_artifact(read_json(args.file))
+        elif command == 'framework':
+            result = store.register_framework(read_json(args.file))
+        elif command == 'demo-prepare':
+            result = store.prepare_demo(args.id, args.path)
         elif command == 'requirement':
             result = store.transform_requirements(args.operation, args.ids,
                 read_json(args.parts_file) if args.parts_file else None,
@@ -299,7 +322,9 @@ def main(argv=None):
         elif command == 'refresh':
             result = store.refresh()
         elif command == 'run-start':
-            result = store.start_run(args.stage, args.requirements, args.documents, full_context=args.full_context)
+            result = store.start_run(args.stage, args.requirements, args.documents, full_context=args.full_context,
+                                     framework_id=args.framework, base_artifact_id=args.base_artifact,
+                                     base_demo_path=args.base_demo, base_entry=args.base_entry)
         elif command == 'run-resume':
             result = store.resume_run(args.id, args.version)
         elif command == 'run-finish':

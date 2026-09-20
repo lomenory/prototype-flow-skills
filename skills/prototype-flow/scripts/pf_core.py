@@ -327,7 +327,7 @@ class ProjectStore:
             if self._read('project.json'):
                 return self.state()
             library = self._safe(library_root)
-            if library == self.root or library.parts[len(self.root.parts)] in ('.prototype-flow', 'versions', 'demos'):
+            if library == self.root or library.parts[len(self.root.parts)] in ('.prototype-flow', 'versions', 'demos', 'demo-framework'):
                 raise FlowError('Library must be a dedicated project subdirectory')
             library.mkdir(parents=True, exist_ok=True)
             self._write('project.json', {'schemaVersion': 1, 'id': uid('PROJECT'), 'name': name,
@@ -558,6 +558,7 @@ class ProjectStore:
                            'sources': len(self._read('sources.json', {'items': []}, base=base)['items']),
                            'artifacts': len(self._read('artifacts.json', {'items': []}, base=base)['items'])},
                 'maintenanceStatus': self._read('maintenance.json', {}, base=base),
+                'frameworks': self._framework_summary(base),
                 'historical': base != self.root, 'versionId': version if base != self.root else None}
 
     def _state(self, version=None, view=None):
@@ -588,6 +589,7 @@ class ProjectStore:
                 runs.append(json.loads(path.read_text(encoding='utf-8')))
         return {'project': view['project'] if view else self._project(base), 'documents': documents, 'requirements': requirements,
                 'relations': self._evaluated_relations(base), 'artifacts': artifacts,
+                'frameworks': self._frameworks(base),
                 'sources': self._read('sources.json', {'items': []}, base=base),
                 'versions': self.versions(), 'feishu': self._read('feishu.json', {}, base=base),
                 'runs': runs, 'maintenanceStatus': self._read('maintenance.json', {}, base=base),
@@ -960,7 +962,7 @@ class ProjectStore:
         return inventory
 
     def register_artifact(self, data):
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             self._reindex()
             data = copy.deepcopy(data)
             artifact_id = valid_id(data.get('id') or uid('DEMO'))
@@ -987,6 +989,9 @@ class ProjectStore:
                 data['inputFileHashes'] = run.get('inputFileHashes', {})
                 if data['inputPath'] and self._inventory(self._safe(data['inputPath'])) != data['inputFileHashes']:
                     raise FlowError('Fixed generation input changed on disk', 409)
+                self._bind_demo_framework(data, run, path)
+            elif self._frameworks()['items'] or data.get('frameworkId'):
+                raise FlowError('Framework-managed artifacts require a fixed demo run')
             if not isinstance(data.get('inputRevision'), int) or not isinstance(data.get('requirementHashes'), dict):
                 raise FlowError('Artifact requires fixed inputRevision and requirementHashes, or runId')
             if not data['requirementHashes']:
@@ -1020,6 +1025,7 @@ class ProjectStore:
                 compatible = all(current.get(r) == h for r, h in artifact['requirementHashes'].items())
                 compatible = compatible and all(current_docs.get(d) == h for d, h in artifact['documentHashes'].items())
                 if compatible:
+                    self._activate_demo_framework(artifact)
                     artifacts['currentArtifactId'] = artifact_id
                     resolved = set(artifact.get('requirementIds', artifact['requirementHashes']))
                     impact = self._read('impact.json', {'requirementIds': []})
@@ -1027,7 +1033,186 @@ class ProjectStore:
                     self._write('impact.json', impact)
             self._write('artifacts.json', artifacts)
             self._bump()
-            return artifact
+            return dict(artifact, activated=artifacts.get('currentArtifactId') == artifact_id)
+
+    def _frameworks(self, base=None):
+        return self._read('frameworks.json', {'schemaVersion': 1, 'items': [],
+                                             'currentFrameworkId': None}, base=base)
+
+    def _framework_summary(self, base=None):
+        registry = self._frameworks(base)
+        return {'currentFrameworkId': registry['currentFrameworkId'],
+                'items': [{k: f[k] for k in ('id', 'title', 'path', 'basedOn', 'entryHtml', 'changeSummary')}
+                          for f in registry['items']]}
+
+    def register_framework(self, data):
+        """Register immutable executable resources; activation happens with a verified Demo."""
+        with self._transaction(), self._rollback_writes():
+            self._project()
+            if not isinstance(data, dict):
+                raise FlowError('Framework must be an object')
+            fid = valid_id(data.get('id'))
+            registry = self._frameworks()
+            if any(f['id'] == fid for f in registry['items']):
+                raise FlowError('Framework identity is immutable; use a new ID and directory', 409)
+            if 'basedOn' not in data or data['basedOn'] != registry['currentFrameworkId']:
+                raise FlowError('Framework baseline changed; compare with the current framework', 409)
+            if data.get('path') != 'demo-framework/' + fid:
+                raise FlowError('Framework path must be demo-framework/<id>')
+            directory = self._safe(data['path'], must_exist=True)
+            if not directory.is_dir():
+                raise FlowError('Framework must be a complete directory')
+            entry = data.get('entryHtml', 'index.html')
+            self._validate_route(entry)
+            hashes = self._inventory(directory)
+            if entry not in hashes or Path(entry).suffix.lower() != '.html' or 'DESIGN.md' not in hashes:
+                raise FlowError('Framework requires DESIGN.md and an executable HTML entry')
+            for field in ('title', 'changeSummary'):
+                if not isinstance(data.get(field), str) or not data[field].strip():
+                    raise FlowError('Framework requires ' + field)
+            artifact_id = data.get('sourceArtifactId')
+            if artifact_id:
+                self._intact_artifact(artifact_id)
+            record = {key: data[key] for key in ('id', 'title', 'path', 'basedOn', 'changeSummary')}
+            record.update(entryHtml=entry, sourceArtifactId=artifact_id, fileHashes=hashes, createdAt=now())
+            registry['items'].append(record)
+            self._write('frameworks.json', registry)
+            self._bump()
+            return record
+
+    def _intact_artifact(self, artifact_id):
+        artifact = next((a for a in self._read('artifacts.json')['items'] if a['id'] == artifact_id), None)
+        if not artifact:
+            raise FlowError('Unknown baseline Demo', 404)
+        path = self._safe(artifact['path'])
+        if not path.is_dir() or self._inventory(path) != artifact['fileHashes']:
+            raise FlowError('Baseline Demo changed on disk', 409)
+        return artifact
+
+    def _demo_inputs(self, framework_id=None, base_artifact_id=None, base_demo_path=None, base_entry='index.html'):
+        registry = self._frameworks()
+        framework_id = framework_id or registry['currentFrameworkId']
+        # A sole first candidate is unambiguous; later candidates must be explicitly selected.
+        if not framework_id and len(registry['items']) == 1:
+            framework_id = registry['items'][0]['id']
+        framework = next((f for f in registry['items'] if f['id'] == framework_id), None)
+        if not framework:
+            raise FlowError('Establish a Demo framework first; register it with framework --file and select --framework')
+        if framework_id != registry['currentFrameworkId'] and framework['basedOn'] != registry['currentFrameworkId']:
+            raise FlowError('Framework candidate is based on an older version; compare before continuing', 409)
+        path = self._safe(framework['path'])
+        if not path.is_dir() or self._inventory(path) != framework['fileHashes']:
+            raise FlowError('Registered framework changed on disk', 409)
+        artifacts = self._read('artifacts.json')
+        current = artifacts['currentArtifactId']
+        if base_demo_path:
+            if base_artifact_id or artifacts['items']:
+                raise FlowError('Use --base-artifact for registered Demos; raw import is only for first adoption')
+            if len(Path(base_demo_path).parts) != 2 or Path(base_demo_path).parts[0] != 'demos':
+                raise FlowError('Imported Demo must be a complete directory under demos/<name>')
+            source = self._safe(base_demo_path, must_exist=True)
+            self._validate_route(base_entry)
+            hashes = self._inventory(source)
+            if not source.is_dir() or base_entry not in hashes or Path(base_entry).suffix.lower() != '.html':
+                raise FlowError('Imported Demo requires an existing HTML entry')
+            baseline = {'id': None, 'path': base_demo_path, 'entryHtml': base_entry, 'fileHashes': hashes}
+            return {'framework': copy.deepcopy(framework), 'baseArtifact': baseline,
+                    'frameworkBaselineId': registry['currentFrameworkId'], 'artifactBaselineId': current}
+        base_id = base_artifact_id or current
+        if not base_id and len(artifacts['items']) == 1:
+            base_id = artifacts['items'][0]['id']
+        if not base_id and artifacts['items']:
+            raise FlowError('No current Demo; select --base-artifact explicitly to preserve existing work')
+        baseline = self._intact_artifact(base_id) if base_id else None
+        return {'framework': copy.deepcopy(framework), 'baseArtifact': copy.deepcopy(baseline),
+                'frameworkBaselineId': registry['currentFrameworkId'], 'artifactBaselineId': current}
+
+    def prepare_demo(self, run_id, path):
+        """Materialize a NEW work directory from the pinned business Demo and framework."""
+        with self._transaction(), self._rollback_writes():
+            run = self._read('runs/' + valid_id(run_id) + '.json')
+            if not run or run['status'] != 'running' or not run.get('framework'):
+                raise FlowError('Preparation requires a running task with a fixed framework')
+            fixed = self._safe(run['inputPath'])
+            if self._inventory(fixed) != run['inputFileHashes']:
+                raise FlowError('Fixed generation input changed on disk', 409)
+            target = self._safe(path)
+            if len(Path(path).parts) != 2 or Path(path).parts[0] != 'demos':
+                raise FlowError('Demo work path must be demos/<new-directory>')
+            if target.exists():
+                raise FlowError('Demo work directory already exists; preserve it and choose a new path', 409)
+            try:
+                baseline = run.get('baseArtifact')
+                if baseline:
+                    self._copy_tree(fixed / baseline['path'], target)
+                    bundled = target / '_framework'
+                    if bundled.exists():
+                        if not baseline.get('frameworkId'):
+                            raise FlowError('Unmanaged _framework directory conflicts with framework packaging')
+                        shutil.rmtree(bundled)
+                else:
+                    target.mkdir(parents=True)
+                framework = run['framework']
+                self._copy_tree(fixed / framework['path'], target / '_framework')
+                self._copy_file(fixed / framework['path'] / 'DESIGN.md', target / 'DESIGN.md')
+                outputs = run.get('outputs') or {}
+                if not isinstance(outputs, dict):
+                    outputs = {'paths': outputs}
+                outputs.setdefault('paths', []).append(path)
+                run['outputs'] = outputs
+                self._write('runs/' + run['id'] + '.json', run)
+            except Exception:
+                if target.exists():
+                    shutil.rmtree(target)
+                raise
+            return {'runId': run_id, 'path': path, 'frameworkId': framework['id'],
+                    'baseArtifactId': baseline['id'] if baseline else None,
+                    'frameworkEntry': '_framework/' + framework['entryHtml']}
+
+    def _bind_demo_framework(self, data, run, directory):
+        framework = run.get('framework')
+        if not framework:
+            if self._frameworks()['items'] or data.get('frameworkId'):
+                raise FlowError('Legacy run has no framework; start a new demo run before registering')
+            return  # Historical/import-only records remain readable and adoptable.
+        if data.get('frameworkId', framework['id']) != framework['id']:
+            raise FlowError('Artifact framework differs from its fixed input')
+        if self._inventory(directory / '_framework') != framework['fileHashes']:
+            raise FlowError('Demo must bundle the fixed framework unchanged in _framework/', 409)
+        design = directory / 'DESIGN.md'
+        if not design.is_file() or digest(design.read_bytes()) != framework['fileHashes']['DESIGN.md']:
+            raise FlowError('Demo DESIGN.md must match the fixed framework', 409)
+        if data.get('status') in ('verified', 'current'):
+            evidence = data.get('evidence')
+            review = evidence.get('frameworkReview') if isinstance(evidence, dict) else None
+            if not isinstance(review, dict) or any(not isinstance(review.get(k), str) or not review[k].strip()
+                                                  for k in ('summary', 'source')):
+                raise FlowError('Verified Demo requires evidence.frameworkReview with summary and source')
+        data.update(frameworkId=framework['id'], frameworkPath='_framework',
+                    frameworkBaselineId=run['frameworkBaselineId'], artifactBaselineId=run['artifactBaselineId'],
+                    baseArtifactId=(run.get('baseArtifact') or {}).get('id'))
+        baseline = run.get('baseArtifact') or {}
+        if baseline and not baseline.get('id'):
+            data['sourceDemoPath'] = baseline['path']
+        # Unchanged pages retain their original business provenance, never claim the new PRD by copying.
+        retired = {rid for item in self._read('relations.json')['supersessions'] for rid in item.get('from', [])}
+        data['requirementHashes'] = {**{rid: h for rid, h in baseline.get('requirementHashes', {}).items()
+                                     if rid not in retired}, **data['requirementHashes']}
+        data['documentHashes'] = {**baseline.get('documentHashes', {}), **data['documentHashes']}
+
+    def _activate_demo_framework(self, artifact):
+        if not artifact.get('frameworkId'):
+            return
+        registry = self._frameworks()
+        current_demo = self._read('artifacts.json')['currentArtifactId']
+        if (registry['currentFrameworkId'] != artifact['frameworkBaselineId']
+                or current_demo != artifact['artifactBaselineId']):
+            raise FlowError('Current framework or Demo changed during this task; compare before publishing locally', 409)
+        framework = next((f for f in registry['items'] if f['id'] == artifact['frameworkId']), None)
+        if not framework or self._inventory(self._safe(framework['path'])) != framework['fileHashes']:
+            raise FlowError('Framework is missing or changed; cannot activate', 409)
+        registry['currentFrameworkId'] = framework['id']
+        self._write('frameworks.json', registry)
 
     def transform_requirements(self, operation, ids, parts=None, target_module_id=None, base_revision=None, summary=False):
         with self._transaction():
@@ -1153,8 +1338,12 @@ class ProjectStore:
                 self._write_bytes(target, data_bytes)
             return {'path': relative, 'markdownPath': os.path.relpath(target, self._safe(document['path']).parent).replace(os.sep, '/')}
 
-    def start_run(self, stage, requirement_ids=None, shared_document_ids=None, full_context=False):
-        with self._transaction():
+    def start_run(self, stage, requirement_ids=None, shared_document_ids=None, full_context=False,
+                  framework_id=None, base_artifact_id=None, base_demo_path=None, base_entry='index.html'):
+        with self._transaction(), self._rollback_writes():
+            demo_inputs = self._demo_inputs(framework_id, base_artifact_id, base_demo_path, base_entry) if stage == 'demo' else {}
+            if stage != 'demo' and (framework_id or base_artifact_id or base_demo_path):
+                raise FlowError('Framework and baseline selection require stage demo')
             self._reindex()
             documents, requirements = self._scan()
             hashes = {r['id']: r['hash'] for r in requirements}
@@ -1215,21 +1404,29 @@ class ProjectStore:
                                   'businessHash': d['businessHash']} for d in input_documents],
                    'relations': input_relations, 'sources': sources, 'outputs': []}
             run['inputPath'] = '.prototype-flow/run-inputs/' + run['id']
+            run.update(demo_inputs)
             fixed = self._safe(run['inputPath'])
             fixed.mkdir(parents=True)
-            for document in input_documents:
-                self._save_revision(document)
-                self._copy_file(self._safe(document['path']), fixed / document['path'])
-            for relative in self._referenced_files(input_documents, sources, input_relations):
-                source = self._safe(relative)
-                if source.is_file():
-                    self._copy_file(source, fixed / relative)
-            # The established design brief is optional, but fixed when present.
-            design = self._safe('DESIGN.md')
-            if design.is_file():
-                self._copy_file(design, fixed / 'DESIGN.md')
-            run['inputFileHashes'] = self._inventory(fixed)
-            self._write('runs/' + run['id'] + '.json', run)
+            try:
+                for document in input_documents:
+                    self._save_revision(document)
+                    self._copy_file(self._safe(document['path']), fixed / document['path'])
+                for relative in self._referenced_files(input_documents, sources, input_relations):
+                    source = self._safe(relative)
+                    if source.is_file():
+                        self._copy_file(source, fixed / relative)
+                for resource in (demo_inputs.get('framework'), demo_inputs.get('baseArtifact')):
+                    if resource:
+                        self._snapshot_directory(resource['path'], fixed, resource['fileHashes'], False, [])
+                # Framework DESIGN.md is authoritative, including when nested in an imported Demo.
+                design = fixed / demo_inputs['framework']['path'] / 'DESIGN.md' if demo_inputs else self._safe('DESIGN.md')
+                if design.is_file():
+                    self._copy_file(design, fixed / 'DESIGN.md')
+                run['inputFileHashes'] = self._inventory(fixed)
+                self._write('runs/' + run['id'] + '.json', run)
+            except Exception:
+                shutil.rmtree(fixed)
+                raise
             return run
 
     def finish_run(self, run_id, status, outputs=None, error=None):
@@ -1329,6 +1526,8 @@ class ProjectStore:
                 library_hashes = self._inventory(library)
                 document_hashes = {d['path']: d['fullHash'] for d in self._scan()[0]}
                 self._copy_tree(library, stage / project['libraryRoot'])
+                for framework in self._frameworks()['items']:
+                    self._snapshot_directory(framework['path'], stage, framework['fileHashes'], recovery, issues)
                 for artifact in self._read('artifacts.json')['items']:
                     self._snapshot_directory(artifact['path'], stage, artifact['fileHashes'], recovery, issues)
                     if artifact.get('inputPath'):
@@ -1368,7 +1567,7 @@ class ProjectStore:
                     if origin.is_file():
                         self._copy_file(origin, stage / relative)
                 meta_names = ('project.json', 'sources.json', 'requirement-index.json', 'relations.json',
-                              'artifacts.json', 'impact.json', 'maintenance.json')
+                              'artifacts.json', 'frameworks.json', 'impact.json', 'maintenance.json')
                 for filename in meta_names:
                     origin = self._safe('.prototype-flow/' + filename)
                     if origin.exists():
@@ -1507,12 +1706,15 @@ class ProjectStore:
                 ha, hb = shot_hash(before, from_version), shot_hash(after, to_version)
                 if ha != hb or before != after:
                     screenshots.append({'id': bid, 'before': before, 'after': after, 'beforeHash': ha, 'afterHash': hb})
-            return {'from': from_version, 'to': to_version, 'requirements': reqs, 'documents': docs, 'screenshots': screenshots}
+            return {'from': from_version, 'to': to_version, 'requirements': reqs, 'documents': docs, 'screenshots': screenshots,
+                    'frameworks': {'before': left.get('frameworks'), 'after': right.get('frameworks')}}
 
     def restore(self, version_id):
         with self._transaction():
             base, manifest = self._verify_snapshot(version_id)
             fixed_directories = {}
+            for framework in self._frameworks(base)['items']:
+                fixed_directories[framework['path']] = framework['fileHashes']
             for artifact in self._read('artifacts.json', base=base)['items']:
                 fixed_directories[artifact['path']] = artifact['fileHashes']
                 if artifact.get('inputPath'):
@@ -1543,7 +1745,7 @@ class ProjectStore:
             # never restore realtime ledgers or replace unrelated user files.
             for relative in manifest['files']:
                 first = Path(relative).parts[0]
-                if first in ('.prototype-flow', 'demos') or relative.startswith(historical_project['libraryRoot'] + '/'):
+                if first in ('.prototype-flow', 'demos', 'demo-framework') or relative.startswith(historical_project['libraryRoot'] + '/'):
                     continue
                 self._copy_file(self._safe(relative, base=base), self._safe(relative))
             revision_directory = base / '.prototype-flow/revisions'
@@ -1559,7 +1761,7 @@ class ProjectStore:
                         else:
                             target.unlink()
                     self._copy_tree(source, target)
-            for artifact in self._read('artifacts.json', base=base)['items']:
+            for artifact in self._read('artifacts.json', base=base)['items'] + self._frameworks(base)['items']:
                 origin = self._safe(artifact['path'], base=base)
                 target = self._safe(artifact['path'])
                 if target.exists() and self._inventory(target) != artifact['fileHashes']:
@@ -1572,6 +1774,7 @@ class ProjectStore:
                 self._copy_tree(origin, target)
             for filename in ('sources.json', 'requirement-index.json', 'relations.json', 'artifacts.json', 'impact.json'):
                 self._write(filename, self._read(filename, base=base))
+            self._write('frameworks.json', self._frameworks(base))
             historical_project.update(revision=previous_revision + 1, updatedAt=now(), restoredFrom=version_id,
                                       restoreBackup=backup['id'], maintainerPath=current_project.get('maintainerPath'))
             self._write('project.json', historical_project)
@@ -1616,6 +1819,16 @@ class ProjectStore:
                             warnings.append({'code': 'referenced-file-missing', 'path': relative})
                 else:
                     errors.extend(self._flow_step_errors(relations, ids))
+                    frameworks = self._frameworks()
+                    framework_by_id = {f['id']: f for f in frameworks['items']}
+                    if not framework_by_id:
+                        warnings.append({'code': 'no-framework', 'message': '生成新 Demo 前需建立项目共享框架'})
+                    if frameworks['currentFrameworkId'] and frameworks['currentFrameworkId'] not in framework_by_id:
+                        errors.append({'code': 'framework-current-missing'})
+                    for framework in frameworks['items']:
+                        path = self._safe(framework['path'])
+                        if not path.is_dir() or self._inventory(path) != framework['fileHashes']:
+                            errors.append({'code': 'framework-mutated', 'id': framework['id']})
                     if not artifacts:
                         warnings.append({'code': 'no-demo', 'message': '尚未登记 Demo 产物'})
                     for relative in self._referenced_files():
@@ -1623,6 +1836,15 @@ class ProjectStore:
                             warnings.append({'code': 'referenced-file-missing', 'path': relative})
                     for artifact in artifacts:
                         path = self._safe(artifact['path'])
+                        framework = framework_by_id.get(artifact.get('frameworkId'))
+                        if artifact.get('frameworkId'):
+                            if not framework:
+                                errors.append({'code': 'artifact-framework-missing', 'id': artifact['id']})
+                            elif self._inventory(path / '_framework') != framework['fileHashes']:
+                                errors.append({'code': 'artifact-framework-mismatch', 'id': artifact['id']})
+                        else:
+                            warnings.append({'code': 'framework-unbound', 'id': artifact['id'],
+                                             'message': '历史 Demo 未绑定共享框架，下次生成前需提取接入'})
                         if not path.is_dir():
                             errors.append({'code': 'artifact-missing', 'id': artifact['id']})
                         elif self._inventory(path) != artifact['fileHashes']:
