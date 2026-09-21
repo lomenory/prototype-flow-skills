@@ -36,6 +36,8 @@ python3 -B <skill-dir>/scripts/flow.py demo-prepare <project-dir> <run-id> --pat
 
 `demo-prepare` 只接受尚不存在的 `demos/<新目录>`：从固定输入复制完整业务 Demo，把框架包放入 `_framework/`，并将框架 `DESIGN.md` 复制到 Demo 根目录。没有既有 Demo 时只准备框架，Agent 创建业务入口。命令自动把工作目录加入任务 `outputs.paths`，中断时可随快照保存。继续原任务时使用已准备目录，或 `run-resume` 找回成果，不重复覆盖目录。
 
+续作任务有唯一恢复 Demo 时，`demo-prepare` 自动复制该成果，不从旧业务基线重做；多个恢复 Demo 时添加 `--from-output <recoveredOutputs.path>`，只接受本任务返回且含 `_framework/` 的目录。恢复副本的框架和根级设计文件必须匹配固定输入，冲突时保留成果并报告。命令返回 `recoveredFrom`，原恢复目录继续保留；后续修改与登记均使用新的 `demos/` 目录。
+
 复制只是起点。让业务页面实际使用 `_framework/` 的样式、页面壳和公共组件，保留已有页面、导航、对象身份和跨模块状态。接入旧 Demo 时在新目录迁移样式与组件，检查覆盖冲突；不能仅附带一个未使用的框架包。导航新增菜单若已有配置能力，直接修改业务侧配置，不必升级框架。
 
 ## 需求推动框架更新
@@ -50,12 +52,12 @@ python3 -B <skill-dir>/scripts/flow.py demo-prepare <project-dir> <run-id> --pat
 {
   "frameworkReview": {
     "summary": "填写实际观察的 Token、导航、公共组件、代表页面和跨模块路径及结果",
-    "source": "填写实际截图或验证报告在项目内的定位"
+    "source": "demos/本次Demo目录/evidence/framework-review.md"
   }
 }
 ```
 
-这只是格式示例，不能当作已完成验证。检查真实渲染、资源引用和适用交互；字节一致不证明页面正在使用框架。
+这只是格式示例，不能当作已完成验证。`source` 必须是本 Demo 包内实际截图或报告的项目相对路径，随产物哈希与快照冻结。已有外置报告在登记前复制进本 Demo 包；不要引用上一版 Demo 的报告代替本次验证。检查真实渲染、资源引用和适用交互；字节一致不证明页面正在使用框架。
 
 `artifact` 从任务取得框架和基准 Demo ID，校验 `_framework/` 与固定框架的文件清单和内容完全一致、根级 `DESIGN.md` 一致；`verified/current` 需要上述证据记录。具体 Demo 内对框架包的局部修改会被拒绝，应登记新框架版本。
 
@@ -68,5 +70,6 @@ python3 -B <skill-dir>/scripts/flow.py demo-prepare <project-dir> <run-id> --pat
 - 框架版本、当前选择、固定输入和 Demo 随快照保存；恢复先备份，任务续作沿用原框架和原业务 Demo。
 - 历史 Demo 内置当时的 `_framework/`，不链接项目中的可变目录。整个 Demo 文件夹包含框架资源。
 - 旧项目和快照不自动改写；未绑定框架的 Demo 仍可查看、校验和恢复，显示 `framework-unbound` 提示。再次生成前提取框架，并以原 Demo 为业务基线。
+- 旧框架产物未将报告放入自身包内时，校验显示 `framework-review-unarchived`；保留原记录，按实际证据补齐新版产物，不伪造历史验证。
 - 仅接入已有 Demo 时也先提取框架，在新目录完成绑定和验证。无框架的旧记录登记仅保留历史数据与已验证固定样例兼容，不用非 demo 阶段绕过新任务的框架要求。
 - 运行时负责路径、资源清单、版本、输入和证据字段检查；Agent 负责框架提取、影响判断、实际使用和浏览器验证。不能把结构检查当作视觉或业务正确的证明。

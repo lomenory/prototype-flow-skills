@@ -79,6 +79,8 @@ Python 对应 `ProjectStore.set_module_stage(module_id, stage, evidence=None)`�
 
 CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身份、修订和结果；需要原完整返回时追加 `--full`。工作台仍使用完整数据接口，不受 CLI 输出精简影响。通过摘要或 `DOC_MAP.md` 选定相关文档后按需读取，无需逐层加载多份全库导航。
 
+查询任务或产物使用 `state <project-dir> --section runs|artifacts`，单项加 `--id <id>`，历史加 `--version <version-id>`。此时 `--full` 只展开所选记录。任务查询不加载 PRD 或 Demo；产物查询只检查所选产物及其依赖文档。返回的 `project.revision` 是已落盘修订，不包含全项目 `refreshRequired`；检查全局外部变化仍用普通 `state`。历史查询保留整份快照的完整性检查。
+
 `state`、`document`、`compare` 和 `validate` 不创建或写回项目文件。`state` 的项目及模块状态按当前文件计算；`storedRevision` 是已落盘修订，`refreshRequired:true` 表示返回的变化尚未持久化。只读检查到此报告；获准维护后执行 `refresh` 才更新索引、项目修订和确认阶段。工作台 GET 查询同样只读。
 
 新建单份 PRD 使用 `intake <project-dir> --file <payload.json>`：一次保存新模块、来源、公共正文和需求块，设为 `draft`，收尾一次并返回维护及结构检查结果。候选格式见 [需求与资料](requirements.md#一次入库)。该命令不更新已有模块；更新正文或拆合已有需求继续使用下面的操作。
@@ -109,7 +111,7 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 `restore <root> <version-id>` 先严格校验目标历史，再保存恢复前备份并形成新工作修订。恢复前备份允许当前 Demo 或固定输入损坏/缺失，保存实际可读字节、原登记记录及损坏说明，不要求先修好当前 Demo；普通快照仍拒绝篡改。备份标记 `recoveryBackup`，含损坏产物的备份仅供找回文件，不能作为完整恢复目标。历史自身不可编辑；当前飞书绑定、同步基线和实时任务保持不变。
 
-恢复 Demo 或中断任务时用 `state <project-dir> --full` 读取实时任务；查看历史任务加 `--version <version-id>`。`run-resume <project-dir> <run-id> --version <version-id>` 从历史固定输入和输出创建新任务，返回 `resumedFrom` 与 `recoveredOutputs`，不覆盖实时任务或原输出。省略版本则从当前任务续作。新任务输入仍可能落后于当前 PRD，登记产物时继续计算过期状态。旧版本若没有保存任务记录，会明确报缺失，不虚构恢复上下文。
+恢复 Demo 或中断任务时用 `state <project-dir> --section runs` 定位，已知编号加 `--id <run-id>`；查看历史任务加 `--version <version-id>`。`run-resume <project-dir> <run-id> --version <version-id>` 从历史固定输入和输出创建新任务，返回 `resumedFrom` 与 `recoveredOutputs`，不覆盖实时任务或原输出。省略版本则从当前任务续作。随后用 `demo-prepare` 将恢复的 Demo 准备到新的 `demos/` 目录，选择与约束见[共享框架](demo-framework.md#后续复用)。新任务输入仍可能落后于当前 PRD，登记产物时继续计算过期状态。旧版本若没有保存任务记录，会明确报缺失，不虚构恢复上下文。
 
 ## 用户流程画布
 

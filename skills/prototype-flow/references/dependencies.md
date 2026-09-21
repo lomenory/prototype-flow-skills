@@ -1,6 +1,6 @@
 # 依赖安装
 
-PRD 整理、保存、导航和本地工作台由内建运行时完成，无需外部 Skill。进入 Demo 或飞书阶段时调用 `flow.py dependencies`，按需补齐缺失 Skill；Python 数据操作和 HTTP 服务不会自行联网安装。
+PRD 整理、保存、导航、本地工作台及飞书 `configure/prepare/status` 由内建运行时完成，无需外部 Skill。进入 Demo 制作或飞书云端操作 `bind/sync` 时调用 `flow.py dependencies`，按需补齐缺失 Skill；Python 数据操作和 HTTP 服务不会自行联网安装。
 
 ## 阶段
 

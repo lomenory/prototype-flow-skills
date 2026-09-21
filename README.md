@@ -52,6 +52,8 @@ Demo 直接嵌入工作区，右上角可收起的需求列表切换登记页面
 
 2026-09-20 共享 Demo 框架更新：新增 `framework`、`demo-prepare` 和框架数据格式。首次生成或接入 Demo 先建立项目共享框架；后续任务固定框架版本和完整基准 Demo，在新目录复用公共实现与已有业务成果。只有验证证据和输入基线符合要求时才同步切换当前框架与 Demo，冲突或写入失败不推进指针；旧项目仍可浏览，后续生成前需提取框架。详见[项目共享框架](skills/prototype-flow/references/demo-framework.md)。本次通过 142 项 Python 测试，并检查发布包命令与 HTTP 资源；工作台资源与上一版一致，沿用已有前端验证，不新增视觉验收结论。
 
+2026-09-21 查询与运行时更新：新增按任务或产物及编号查询，避免加载无关内容；Demo 续作优先使用恢复成果，多个成果可用 `demo-prepare --from-output` 选择。新登记的已验证框架产物必须把真实验证报告或截图保存在自身 Demo 包内；统一流程步骤的依赖解析，加强刷新失败回滚和来源文件保护。飞书本地命令不准备云端依赖，状态检查包含引用图片的变化，转换保留代码示例并拒绝真实本地链接。对应开发提交 `cabf2bf`，通过 164 项 Python 测试及发布包 CLI、HTTP 检查；工作台资源沿用已验证版本，飞书验证使用模拟传输，未执行真实云端同步。
+
 ## 安装主 Skill
 
 主 Skill 使用通用 `SKILL.md` 入口和 Python CLI，可由 Codex、Claude Code、Cursor，或能读取本地文件并执行命令的 Agent 使用。`agents/openai.yaml` 仅提供可选的 Codex 展示元数据。
@@ -105,7 +107,7 @@ Codex 用户也可以继续发送：
 
 ### 按阶段准备依赖
 
-PRD 整理、入库和本地工作台使用内建运行时，无需外部 Skill。主 Skill 进入 Demo 阶段时使用 `demo-design`，飞书阶段使用 `use-feishu-cli`。下载固定到 Git 提交，逐文件校验后安装；已有 Skill 会被复用，不会被自动覆盖或升级。只查看已有工作台和历史无需下载依赖。
+PRD 整理、入库、本地工作台及飞书 `configure/prepare/status` 使用内建运行时，无需外部 Skill。主 Skill 进入 Demo 阶段时使用 `demo-design`，飞书云端操作 `bind/sync` 使用 `use-feishu-cli`。下载固定到 Git 提交，逐文件校验后安装；已有 Skill 会被复用，不会被自动覆盖或升级。只查看已有工作台和历史无需下载依赖。
 
 新 Skill 在本轮按返回的文件路径读取使用。依赖中的 Codex/Browser 工具名通过主 Skill 的能力映射接入当前宿主，验收与权限要求保持不变；独立使用依赖 Skill 时，应检查其自身说明。
 
@@ -153,7 +155,7 @@ CLI 负责保存和一致性；资料理解、PRD 撰写和 Demo 设计由当前
 
 新项目可以使用 `init <project-dir> --name "项目名称" --empty` 建立空项目，再执行 `intake <project-dir> --file <payload.json>`，一次保存来源、完整 PRD 和需求块，统一维护导航并进行 PRD 检查。输入格式见 [需求与资料](skills/prototype-flow/references/requirements.md#一次入库)。
 
-CLI 默认返回摘要，`document` 读取单份正文；需要完整状态时使用 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后，自动启动工作台并打开本机地址；同一项目已有可用服务时复用。入库不自动生成 Demo 或保存项目快照。
+CLI 默认返回摘要，`document` 读取单份正文。任务或产物查询使用 `state <project-dir> --section runs|artifacts`，单项追加 `--id <id>`；此时 `--full` 只展开所选记录。只有确需全部状态时使用无 section 的 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后，自动启动工作台并打开本机地址；同一项目已有可用服务时复用。入库不自动生成 Demo 或保存项目快照。
 
 内建维护生成一份 `DOC_MAP.md` 导航，保留旧项目的文档身份、关联块和历史兼容；不再自动生成独立 dashboard 或回写全库关联。
 

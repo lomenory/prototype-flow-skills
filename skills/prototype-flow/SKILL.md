@@ -16,8 +16,8 @@ description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进
 ## 进入本次工作
 
 1. 识别用户要检查、讨论方案、实施、继续、保存版本还是同步飞书；沿用同一任务已有授权，按请求处理对应阶段。已有 PRD 或 Demo 可中途接入。
-2. 核对实际项目目录和当前宿主适用的项目规则（如 AGENTS.md、CLAUDE.md 或 Cursor 规则），保留现有文件，不假定宿主自动互读这些规则。PRD 整理、保存及本地工作台使用内建运行时，无需准备外部 Skill。Demo 工作运行 `dependencies --stage demo --project <project-dir>`，飞书工作选 `feishu`，完整项目选 `core`；读取返回的依赖 `path/SKILL.md`。命令复用已有 Skill，缺失时按固定提交校验安装；只读或禁止安装的任务追加 `--check`，遵守宿主权限。
-3. 已初始化时用只读的 `state` 摘要定位模块，再用 `document` 读取相关 PRD；也可直接从 `00-ai-context/DOC_MAP.md` 定位，不串行重复阅读全库和多份导航。`refreshRequired` 表示发现尚未落盘的外部变化；检查任务仅报告，已授权维护时再 `refresh`。仅在确需全部状态时使用 `state --full`。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
+2. 核对实际项目目录和当前宿主适用的项目规则（如 AGENTS.md、CLAUDE.md 或 Cursor 规则），保留现有文件，不假定宿主自动互读这些规则。PRD、本地工作台及飞书 `configure/prepare/status` 使用内建运行时，无需准备外部 Skill。Demo 工作运行 `dependencies --stage demo --project <project-dir>`；飞书云端操作 `bind/sync` 选 `feishu`，读取返回的依赖 `path/SKILL.md`。命令复用已有 Skill，缺失时按固定提交校验安装；只读或禁止安装的任务追加 `--check`，遵守宿主权限。
+3. 已初始化时用只读的 `state` 摘要定位模块，再用 `document` 读取相关 PRD；也可直接从 `00-ai-context/DOC_MAP.md` 定位，不串行重复阅读全库和多份导航。任务或产物查询用 `state --section runs|artifacts`，已知编号加 `--id <id>`；只有确需全部状态时才用无 section 的 `state --full`。普通 `state` 的 `refreshRequired` 表示尚未落盘的外部变化；检查任务仅报告，已授权维护时再 `refresh`。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
 4. 只读本阶段的参考文件：
 
 | 请求 | 按需读取 |
@@ -42,7 +42,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 
 - **内建文档维护**：初始化必要目录，维护稳定身份、需求索引和 `DOC_MAP.md` 导航；批量写入后统一收尾。业务关系来自显式登记，旧关联块和 dashboard 保留，不自动推断或回写。正文保存与导航维护分别报告，无需再次运行独立文档维护 Skill。
 - **demo-design**：涉及产品 Demo 设计、实现或更新时读取当前 Skill，遵循它适用的 route、tier、product_contract 和验证要求。首次生成或接入 Demo 时建立[项目共享框架](references/demo-framework.md)，后续固定框架版本与已有完整 Demo，复用导航、组件和业务状态；需求影响公共能力时同任务更新框架和 Demo。这里不复制其规范、不扩展它的 schema，也不将管理契约渲染进产品 Demo。
-- **use-feishu-cli**：只有启用飞书的项目和相应任务才读取。复用配置、身份和按需权限，按当前 CLI 内置指导执行；适配器不自动登录或申请权限。
+- **use-feishu-cli**：实际读取或写入飞书时才准备，按操作读取相应 CLI 指导。复用配置、身份和按需权限；适配器不自动登录或申请权限。
 
 自动安装来源、目录、失败恢复和手动命令见 [依赖安装](references/dependencies.md)。安装失败或同名 Skill 不完整时保留现有目录，继续不依赖它的已授权工作，并报告返回的错误；不能将自写占位实现冒充该 Skill 的交付。这里只安装 Skill 文件；浏览器、Node、`lark-cli`、账号登录与云端权限仍按相关任务处理。
 

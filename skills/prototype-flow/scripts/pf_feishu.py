@@ -9,6 +9,7 @@ import contextlib
 import copy
 import hashlib
 import html
+import ipaddress
 import json
 import os
 import re
@@ -168,13 +169,81 @@ def _remote_hash(remote):
 
 _IMAGE = re.compile(r'!\[([^\]\n]*)\]\((<[^>]+>|[^\s)]+)(?:\s+"[^"\n]*")?\)')
 _REQ = re.compile(r'<!--\s*pf:req\s+(\{.*?\})\s*-->\s*', re.S)
+_LINK = re.compile(r'(?<!!)\[[^\]\n]+\]\((<[^>]+>|[^\s)]+)(?:\s+"[^"\n]*")?\)')
+_AUTOLINK = re.compile(r'<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*)>')
+
+
+def _mask_markdown_code(content):
+    """Hide code from content checks while preserving offsets and newlines."""
+    spans, opening, offset = [], None, 0
+    for line in content.splitlines(keepends=True):
+        if opening:
+            start, marker, length = opening
+            if re.fullmatch(r' {0,3}' + re.escape(marker) + '{' + str(length) + r',}[ \t]*(?:\r?\n)?', line):
+                spans.append((start, offset + len(line)))
+                opening = None
+        else:
+            fence = re.match(r' {0,3}(`{3,}|~{3,})([^\r\n]*)', line)
+            if fence and not (fence[1][0] == '`' and '`' in fence[2]):
+                opening = (offset, fence[1][0], len(fence[1]))
+        offset += len(line)
+    if opening:
+        spans.append((opening[0], len(content)))
+
+    # Inline code uses an exactly matching backtick run, and cannot continue
+    # through another block or a blank paragraph. Fence contents stay opaque.
+    cursor = 0
+    for start, end in [*spans, (len(content), len(content))]:
+        region = content[cursor:start]
+        runs = list(re.finditer(r'`+', region))
+        index = 0
+        while index < len(runs):
+            token = runs[index]
+            prefix = region[:token.start()]
+            if (len(prefix) - len(prefix.rstrip('\\'))) % 2:
+                index += 1
+                continue
+            closing = next((i for i in range(index + 1, len(runs))
+                            if len(runs[i][0]) == len(token[0])
+                            and not re.search(r'\n[ \t]*\n', region[token.end():runs[i].start()])), None)
+            if closing is None:
+                index += 1
+                continue
+            spans.append((cursor + token.start(), cursor + runs[closing].end()))
+            index = closing + 1
+        cursor = end
+    masked = list(content)
+    for start, end in spans:
+        masked[start:end] = ['\n' if char == '\n' else ' ' for char in content[start:end]]
+    return ''.join(masked)
+
+
+def _is_local_link(target):
+    parsed = urlparse(unquote(target.strip('<>')))
+    if not parsed.scheme or parsed.scheme.lower() == 'file':
+        return True
+    host = (parsed.hostname or '').lower().rstrip('.')
+    if host == 'localhost' or host.endswith('.localhost'):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or bool(getattr(address, 'ipv4_mapped', None) and address.ipv4_mapped.is_loopback)
 
 
 def _canonical(markdown, title):
     """Conservative exporter normalization, not a general Markdown renderer."""
-    text = re.sub(r'<title\b[^>]*>.*?</title>', '', markdown, flags=re.S)
-    text = _IMAGE.sub('', text)
-    text = re.sub(r'<img\b[^>]*\/?>', '', text)
+    # Title/media wrappers are verified separately. Literal examples inside
+    # code remain part of the readback comparison, including image syntax.
+    visible = _mask_markdown_code(markdown)
+    pattern = r'<title\b[^>]*>.*?</title>|' + _IMAGE.pattern + r'|<img\b[^>]*\/?>'
+    parts, cursor = [], 0
+    for match in re.finditer(pattern, visible, flags=re.S):
+        parts.append(markdown[cursor:match.start()])
+        cursor = match.end()
+    parts.append(markdown[cursor:])
+    text = ''.join(parts)
     lines = [line.rstrip() for line in text.replace('\r\n', '\n').splitlines()]
     while lines and not lines[0].strip():
         lines.pop(0)
@@ -275,8 +344,18 @@ class FeishuSync:
                 continue
             try:
                 doc = self.store.document(doc_id)
-                if binding.get('status') == 'synced' and binding.get('localHash') != doc['fullHash']:
-                    binding['status'] = 'pending'
+                if binding.get('status') == 'synced':
+                    changed = binding.get('localHash') != doc['fullHash']
+                    for asset in binding.get('images', []):
+                        if changed:
+                            break
+                        try:
+                            source = _inside(self.root, asset['sourcePath'])
+                            changed = _hash(source.read_bytes()) != asset['sha256']
+                        except (FlowError, OSError, KeyError, ValueError):
+                            changed = True
+                    if changed:
+                        binding['status'] = 'pending'
             except (FlowError, KeyError):
                 binding['status'] = 'local_missing'
         return ledger
@@ -298,18 +377,25 @@ class FeishuSync:
         content = re.sub(r'<!--\s*/pf:req\s*-->', '', content)
         # Add stable IDs to requirement headings so block IDs can be rebuilt.
         content = re.sub(r'(?m)^(REQ-[A-Za-z0-9_-]+)\s*\n+(#{1,6})\s+([^\n]+)', r'\2 \3 · \1', content)
-        if re.search(r'<(?:[A-Za-z][\w:-]*)(?:\s|>|/)', re.sub(r'```.*?```', '', content, flags=re.S)):
+        visible = _mask_markdown_code(content)
+        if re.search(r'<(?:[A-Za-z][\w:-]*)(?:\s|>|/)', _AUTOLINK.sub('', visible)):
             raise FlowError('PRD 含非标准 Markdown 嵌入内容；先人工确认飞书转换，不能静默降级')
-        fence_spans = [m.span() for m in re.finditer(r'(?ms)^```[^\n]*\n.*?^```[^\n]*$', content)]
-        image_matches = [m for m in _IMAGE.finditer(content) if not any(a <= m.start() < b for a, b in fence_spans)]
+        image_matches = [_IMAGE.match(content, match.start()) for match in _IMAGE.finditer(visible)]
         image_spans = [match.span() for match in image_matches]
         # Local links are not remotely accessible. Generated related blocks were
         # stripped; authored local links must be replaced explicitly first.
-        for link in re.finditer(r'(?<!!)\[[^\]]+\]\(([^\s)]+)\)', content):
+        for link in _LINK.finditer(visible):
             if any(a <= link.start() < b for a, b in image_spans):
                 continue
-            if not urlparse(link.group(1).strip('<>')).scheme:
+            if _is_local_link(link.group(1)):
                 raise FlowError('云端不能访问本地链接，请先改为已绑定的飞书链接或说明：' + link.group(1))
+        # Reference destinations and autolink/plain URL syntax can also become
+        # clickable links in the shared document. Code examples remain masked.
+        targets = [m[1] for m in re.finditer(r'(?m)^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|[^\s]+)', visible)]
+        targets.extend(m[0] for m in re.finditer(r'(?i)\b(?:https?://|file:)[^\s<>]+', visible))
+        for target in targets:
+            if _is_local_link(target):
+                raise FlowError('云端不能访问本地链接，请先改为已绑定的飞书链接或说明：' + target)
         segments, assets, cursor = [], [], 0
         for index, match in enumerate(image_matches):
             # Inline/table/nested image placement cannot be preserved by the

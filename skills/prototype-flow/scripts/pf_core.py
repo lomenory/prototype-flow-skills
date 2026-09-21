@@ -403,6 +403,41 @@ class ProjectStore:
                               'readOnly': base != self.root})
         return documents, requirements
 
+    def _check_requirement_lifecycle(self, before_ids, after_ids, relations, allow_removed=False):
+        retired = {rid for change in relations.get('supersessions', []) for rid in change.get('from', [])}
+        removed = set(before_ids) - set(after_ids) - retired
+        if removed and not allow_removed:
+            raise FlowError('External edit removed stable requirements without an explicit transformation', 409,
+                            {'requirementIds': sorted(removed)})
+        if set(after_ids) & retired:
+            raise FlowError('Retired requirement IDs cannot be reused', 409,
+                            {'requirementIds': sorted(set(after_ids) & retired)})
+
+    @staticmethod
+    def _step_bindings(step, bindings):
+        """Resolve every supported page reference without duplicating flow metadata."""
+        if not isinstance(step, dict):
+            return []
+        fields = ('artifactId', 'screenId', 'stateId')
+        return [binding for binding in bindings if
+                (step.get('bindingId') and step['bindingId'] == binding.get('id')) or
+                (all(step.get(key) for key in fields) and
+                 all(step[key] == binding.get(key) for key in fields))]
+
+    def _step_requirements(self, step, bindings):
+        if not isinstance(step, dict):
+            return set()
+        ids = {step['requirementId']} if step.get('requirementId') else set()
+        for binding in self._step_bindings(step, bindings):
+            ids.update(binding.get('requirementIds', []))
+        return ids
+
+    def _relation_requirements(self, relation, bindings):
+        ids = set(relation.get('requirementIds', []))
+        for step in relation.get('steps', []):
+            ids.update(self._step_requirements(step, bindings))
+        return ids
+
     def _index_changes(self):
         """Calculate the current view without writing indexes or confirmation history."""
         documents, requirements = self._scan()
@@ -411,14 +446,7 @@ class ProjectStore:
         old_reqs = {r['id']: r for r in previous.get('items', [])}
         new_reqs = {r['id']: r for r in requirements}
         relations = self._read('relations.json', {'flows': [], 'bindings': [], 'supersessions': []})
-        retired = {rid for change in relations.get('supersessions', []) for rid in change.get('from', [])}
-        unrecorded_removed = set(old_reqs) - set(new_reqs) - retired
-        if unrecorded_removed:
-            raise FlowError('External edit removed stable requirements without an explicit transformation', 409,
-                            {'requirementIds': sorted(unrecorded_removed)})
-        if set(new_reqs) & retired:
-            raise FlowError('Retired requirement IDs cannot be reused', 409,
-                            {'requirementIds': sorted(set(new_reqs) & retired)})
+        self._check_requirement_lifecycle(old_reqs, new_reqs, relations)
         project = self._project()
         changed_documents = (any(old_docs.get(d['id'], {}).get('fullHash') != d['fullHash']
                                  for d in documents) or len(documents) != len(old_docs))
@@ -446,8 +474,9 @@ class ProjectStore:
                 if set(req.get('dependsOn', [])) & impacted:
                     impacted.add(req['id'])
             for flow in relations.get('flows', []):
-                if set(flow.get('requirementIds', [])) & impacted:
-                    impacted.update(flow.get('requirementIds', []))
+                references = self._relation_requirements(flow, relations.get('bindings', []))
+                if references & impacted:
+                    impacted.update(references)
             for binding in relations.get('bindings', []):
                 if set(binding.get('requirementIds', [])) & impacted:
                     impacted.update(binding.get('requirementIds', []))
@@ -513,7 +542,7 @@ class ProjectStore:
         return documents, requirements, view['impactedRequirementIds']
 
     def refresh(self):
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             self._adopt_documents()
             self._reindex()
             self._maintain()
@@ -614,14 +643,7 @@ class ProjectStore:
         next_reqs = parse_requirements(content, current['id'], current['moduleId'])
         before_ids = {r['id'] for r in parse_requirements(current['content'], current['id'], current['moduleId'])}
         after_ids = {r['id'] for r in next_reqs}
-        retired = {rid for change in self._read('relations.json', {}).get('supersessions', [])
-                   for rid in change.get('from', [])}
-        if after_ids & retired:
-            raise FlowError('Retired requirement IDs cannot be reused', 409,
-                            {'requirementIds': sorted(after_ids & retired)})
-        if before_ids - after_ids and not allow_removed:
-            raise FlowError('Use an explicit split, merge or remove operation to remove stable requirements', 409,
-                            {'requirementIds': sorted(before_ids - after_ids)})
+        self._check_requirement_lifecycle(before_ids, after_ids, self._read('relations.json', {}), allow_removed)
         other = {r['id'] for r in self._scan()[1] if r['documentId'] != current['id']}
         if other & after_ids and not allow_removed:
             raise FlowError('Requirement ID already exists in another document')
@@ -679,7 +701,7 @@ class ProjectStore:
             return document
 
     def add_source(self, label, kind, locator, content=None, source_id=None):
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             self._project()
             source_id = valid_id(source_id or uid('SRC'))
             sources = self._read('sources.json', {'schemaVersion': 1, 'items': []})
@@ -689,6 +711,8 @@ class ProjectStore:
                       'createdAt': now(), 'status': 'captured' if content is not None else 'unread'}
             if content is not None:
                 relative = self._project()['libraryRoot'] + '/03-research/' + source_id + '.md'
+                if self._safe(relative).exists():
+                    raise FlowError('Source path already exists', 409)
                 self._write_bytes(self._safe(relative), str(content).encode())
                 source.update(path=relative, hash=digest(str(content)))
             sources['items'].append(source)
@@ -711,7 +735,7 @@ class ProjectStore:
             raise FlowError('Document must be UTF-8 text under 8 MiB')
         if '<!-- pf:req' in content or '<!-- /pf:req' in content or GENERATED.search(content):
             raise FlowError('Intake content is shared prose; put requirement blocks in requirements')
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             project = self._project()
             self._scan()  # Reject an inconsistent existing project before writing.
             module_id = valid_id(payload.get('moduleId') or uid('MODULE'))
@@ -767,22 +791,9 @@ class ProjectStore:
                 writes[self._safe('.prototype-flow/sources.json')] = (json.dumps(sources, ensure_ascii=False, indent=2) + '\n').encode()
                 if source_content is not None:
                     writes[self._safe(source['path'])] = source_content.encode()
-            # Roll back our writes on I/O or indexing failure; unrelated project files stay untouched.
-            tracked = set(writes) | {self._safe('.prototype-flow/' + name) for name in
-                                    ('project.json', 'requirement-index.json', 'impact.json')}
-            originals = {path: path.read_bytes() if path.exists() else None for path in tracked}
-            try:
-                for path, data in writes.items():
-                    self._write_bytes(path, data)
-                self._reindex()
-            except Exception:
-                for path, data in originals.items():
-                    if data is None:
-                        if path.exists():
-                            path.unlink()
-                    else:
-                        self._write_bytes(path, data)
-                raise
+            for path, data in writes.items():
+                self._write_bytes(path, data)
+            self._reindex()
             maintenance = self._maintain()
             document = self.document(document_id)
             self._save_revision(document)
@@ -847,9 +858,8 @@ class ProjectStore:
                     problem = 'flow-step-binding-missing'
                 elif step.get('requirementId') and step['requirementId'] not in requirement_ids:
                     problem = 'flow-step-requirement-missing'
-                elif any(key in step for key in ('artifactId', 'screenId', 'stateId')) and not any(
-                        all(step.get(key) == b.get(key) and step.get(key)
-                            for key in ('artifactId', 'screenId', 'stateId')) for b in bindings.values()):
+                elif any(key in step for key in ('artifactId', 'screenId', 'stateId')) and not self._step_bindings(
+                        {key: step[key] for key in ('artifactId', 'screenId', 'stateId') if key in step}, bindings.values()):
                     problem = 'flow-step-state-missing'
                 elif not any(step.get(key) for key in ('bindingId', 'requirementId', 'stateId')):
                     problem = 'flow-step-target-missing'
@@ -1127,7 +1137,7 @@ class ProjectStore:
         return {'framework': copy.deepcopy(framework), 'baseArtifact': copy.deepcopy(baseline),
                 'frameworkBaselineId': registry['currentFrameworkId'], 'artifactBaselineId': current}
 
-    def prepare_demo(self, run_id, path):
+    def prepare_demo(self, run_id, path, recovered_output=None):
         """Materialize a NEW work directory from the pinned business Demo and framework."""
         with self._transaction(), self._rollback_writes():
             run = self._read('runs/' + valid_id(run_id) + '.json')
@@ -1141,9 +1151,28 @@ class ProjectStore:
                 raise FlowError('Demo work path must be demos/<new-directory>')
             if target.exists():
                 raise FlowError('Demo work directory already exists; preserve it and choose a new path', 409)
+            framework = run['framework']
+            recoverable = {item['path'] for item in run.get('recoveredOutputs', [])
+                           if (self._safe(item['path']) / '_framework').is_dir()}
+            if recovered_output is None and recoverable:
+                if len(recoverable) != 1:
+                    raise FlowError('Multiple recovered Demos; select --from-output', 409,
+                                    {'paths': sorted(recoverable)})
+                recovered_output = next(iter(recoverable))
+            recovered = None
+            if recovered_output is not None:
+                if recovered_output not in recoverable:
+                    raise FlowError('Select a recovered Demo directory from this run', 409)
+                recovered = self._safe(recovered_output, must_exist=True)
+                if (self._inventory(recovered / '_framework') != framework['fileHashes'] or
+                        not (recovered / 'DESIGN.md').is_file() or
+                        digest((recovered / 'DESIGN.md').read_bytes()) != framework['fileHashes']['DESIGN.md']):
+                    raise FlowError('Recovered Demo differs from the fixed framework; preserve it and review the changes', 409)
             try:
                 baseline = run.get('baseArtifact')
-                if baseline:
+                if recovered:
+                    self._copy_tree(recovered, target)
+                elif baseline:
                     self._copy_tree(fixed / baseline['path'], target)
                     bundled = target / '_framework'
                     if bundled.exists():
@@ -1152,9 +1181,9 @@ class ProjectStore:
                         shutil.rmtree(bundled)
                 else:
                     target.mkdir(parents=True)
-                framework = run['framework']
-                self._copy_tree(fixed / framework['path'], target / '_framework')
-                self._copy_file(fixed / framework['path'] / 'DESIGN.md', target / 'DESIGN.md')
+                if not recovered:
+                    self._copy_tree(fixed / framework['path'], target / '_framework')
+                    self._copy_file(fixed / framework['path'] / 'DESIGN.md', target / 'DESIGN.md')
                 outputs = run.get('outputs') or {}
                 if not isinstance(outputs, dict):
                     outputs = {'paths': outputs}
@@ -1167,7 +1196,19 @@ class ProjectStore:
                 raise
             return {'runId': run_id, 'path': path, 'frameworkId': framework['id'],
                     'baseArtifactId': baseline['id'] if baseline else None,
+                    'recoveredFrom': recovered_output,
                     'frameworkEntry': '_framework/' + framework['entryHtml']}
+
+    def _framework_review_file(self, data, directory):
+        evidence = data.get('evidence')
+        review = evidence.get('frameworkReview') if isinstance(evidence, dict) else None
+        if not isinstance(review, dict) or any(not isinstance(review.get(k), str) or not review[k].strip()
+                                              for k in ('summary', 'source')):
+            raise FlowError('Verified Demo requires evidence.frameworkReview with summary and source')
+        source = self._safe(review['source'])
+        if directory not in source.parents or not source.is_file():
+            raise FlowError('frameworkReview.source must name an existing file inside this Demo, relative to the project')
+        return source
 
     def _bind_demo_framework(self, data, run, directory):
         framework = run.get('framework')
@@ -1183,11 +1224,7 @@ class ProjectStore:
         if not design.is_file() or digest(design.read_bytes()) != framework['fileHashes']['DESIGN.md']:
             raise FlowError('Demo DESIGN.md must match the fixed framework', 409)
         if data.get('status') in ('verified', 'current'):
-            evidence = data.get('evidence')
-            review = evidence.get('frameworkReview') if isinstance(evidence, dict) else None
-            if not isinstance(review, dict) or any(not isinstance(review.get(k), str) or not review[k].strip()
-                                                  for k in ('summary', 'source')):
-                raise FlowError('Verified Demo requires evidence.frameworkReview with summary and source')
+            self._framework_review_file(data, directory)
         data.update(frameworkId=framework['id'], frameworkPath='_framework',
                     frameworkBaselineId=run['frameworkBaselineId'], artifactBaselineId=run['artifactBaselineId'],
                     baseArtifactId=(run.get('baseArtifact') or {}).get('id'))
@@ -1215,7 +1252,7 @@ class ProjectStore:
         self._write('frameworks.json', registry)
 
     def transform_requirements(self, operation, ids, parts=None, target_module_id=None, base_revision=None, summary=False):
-        with self._transaction():
+        with self._transaction(), self._rollback_writes():
             self._reindex()
             if base_revision is not None and base_revision != self._project()['revision']:
                 raise FlowError('Project changed; reload before transforming requirements', 409)
@@ -1267,10 +1304,11 @@ class ProjectStore:
                 changes[target_document] = text_[:position].rstrip() + '\n\n' + '\n\n'.join(additions) + '\n\n' + text_[position:]
             relations = self._read('relations.json')
             if operation not in ('move', 'add'):
+                original_bindings = copy.deepcopy(relations['bindings'])
                 relations['supersessions'].append({'id': uid('CHANGE'), 'operation': operation, 'from': ids, 'to': new_ids, 'createdAt': now(), 'status': 'needs-review'})
                 for group in ('bindings', 'flows'):
                     for relation in relations[group]:
-                        affected = set(relation.get('requirementIds', [])) & set(ids)
+                        affected = self._relation_requirements(relation, original_bindings) & set(ids)
                         if affected:
                             relation['previousRequirementIds'] = sorted(set(relation.get('previousRequirementIds', [])) | affected)
                             relation['requirementIds'] = [r for r in relation.get('requirementIds', []) if r not in ids]
@@ -1280,8 +1318,7 @@ class ProjectStore:
                                 relation['verified'] = False
                         if group == 'flows':
                             for step in relation.get('steps', []):
-                                binding = next((b for b in relations['bindings'] if b['id'] == step.get('bindingId')), {})
-                                if step.get('requirementId') in ids or binding.get('status') == 'needs-review':
+                                if self._step_requirements(step, original_bindings) & set(ids):
                                     step.update(status='needs-review', candidateRequirementIds=new_ids)
                                     relation['status'] = 'needs-review'
                 # Dependencies retain the retired ID until their meaning is reviewed.
@@ -1299,15 +1336,9 @@ class ProjectStore:
                 if digest(self._safe(document['path']).read_text(encoding='utf-8')) != document['revision']:
                     raise FlowError('Document changed during transformation; reload project', 409,
                                     {'documentId': document['id']})
-            # Roll back only our writes if a local I/O operation fails mid-operation.
-            try:
-                for document in changed_docs:
-                    self._write_bytes(self._safe(document['path']), changes[document['id']].encode())
-                self._write('relations.json', relations)
-            except Exception:
-                for document in changed_docs:
-                    self._write_bytes(self._safe(document['path']), document['content'].encode())
-                raise
+            for document in changed_docs:
+                self._write_bytes(self._safe(document['path']), changes[document['id']].encode())
+            self._write('relations.json', relations)
             self._reindex()
             self._maintain()
             if summary:
@@ -1361,11 +1392,7 @@ class ProjectStore:
                     if req['id'] in inputs:
                         inputs.update(req.get('dependsOn', []))
                 for relation in relations.get('flows', []) + relations.get('bindings', []):
-                    refs = set(relation.get('requirementIds', []))
-                    refs.update(s['requirementId'] for s in relation.get('steps', []) if s.get('requirementId'))
-                    for step in relation.get('steps', []):
-                        refs.update(rid for binding in relations.get('bindings', [])
-                                    if binding['id'] == step.get('bindingId') for rid in binding.get('requirementIds', []))
+                    refs = self._relation_requirements(relation, relations.get('bindings', []))
                     if inputs & refs:
                         inputs.update(refs)
                 if previous == inputs:
@@ -1384,11 +1411,10 @@ class ProjectStore:
                 binding_ids = {b['id'] for b in relations.get('bindings', [])
                                if inputs.intersection(b.get('requirementIds', []))}
                 input_relations['flows'] = [flow for flow in relations.get('flows', [])
-                    if inputs.intersection(flow.get('requirementIds', [])) or any(
-                        step.get('requirementId') in inputs or step.get('bindingId') in binding_ids
-                        for step in flow.get('steps', []))]
-                binding_ids.update(step['bindingId'] for flow in input_relations['flows']
-                                   for step in flow.get('steps', []) if step.get('bindingId'))
+                    if inputs.intersection(self._relation_requirements(flow, relations.get('bindings', [])))]
+                binding_ids.update(binding['id'] for flow in input_relations['flows']
+                                   for step in flow.get('steps', [])
+                                   for binding in self._step_bindings(step, relations.get('bindings', [])))
                 input_relations['bindings'] = [b for b in relations.get('bindings', []) if b['id'] in binding_ids]
                 input_relations['supersessions'] = [item for item in relations.get('supersessions', [])
                     if inputs.intersection(item.get('from', []) + item.get('to', []))]
@@ -1790,6 +1816,9 @@ class ProjectStore:
             try:
                 documents, requirements = self._scan()
                 ids = {r['id'] for r in requirements}
+                self._check_requirement_lifecycle(
+                    {r['id'] for r in self._read('requirement-index.json', {'items': []})['items']},
+                    ids, self._read('relations.json'))
                 sources = {s['id'] for s in self._read('sources.json', {'items': []})['items']}
                 relations = self._evaluated_relations() if stage == 'all' else self._read('relations.json')
                 retired = {rid for x in relations['supersessions'] for rid in x.get('from', [])}
@@ -1842,6 +1871,12 @@ class ProjectStore:
                                 errors.append({'code': 'artifact-framework-missing', 'id': artifact['id']})
                             elif self._inventory(path / '_framework') != framework['fileHashes']:
                                 errors.append({'code': 'artifact-framework-mismatch', 'id': artifact['id']})
+                            if artifact.get('status') in ('verified', 'current'):
+                                try:
+                                    self._framework_review_file(artifact, path)
+                                except FlowError:
+                                    warnings.append({'code': 'framework-review-unarchived', 'id': artifact['id'],
+                                                     'message': '旧记录的框架验证报告未保存在 Demo 包内，历史证据需复核'})
                         else:
                             warnings.append({'code': 'framework-unbound', 'id': artifact['id'],
                                              'message': '历史 Demo 未绑定共享框架，下次生成前需提取接入'})

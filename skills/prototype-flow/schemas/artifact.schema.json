@@ -80,7 +80,7 @@
           "required": ["summary", "source"],
           "properties": {
             "summary": {"type": "string", "minLength": 1},
-            "source": {"type": "string", "minLength": 1}
+            "source": {"type": "string", "minLength": 1, "description": "实际验证报告或截图的项目相对路径，文件必须位于本 Demo 目录内并随产物冻结"}
           },
           "description": "框架任务的 verified/current 产物必须提供实际复用检查记录；由运行时结合 runId 检查"
         }

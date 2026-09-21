@@ -4,21 +4,20 @@
 
 ## 初始化与权限
 
-读取可用的 `use-feishu-cli`。先复用已有配置；只有用户请求初始化且确有缺失时，按当前 CLI 指导完成配置或必要授权。不要把 auth token、app secret 或授权码存入项目。`flow.py feishu configure` 只记录项目目标，并非账号初始化。
+`configure`、`prepare`、`status` 只处理本地文件，无需准备外部 Skill、检查账号或读取 CLI 帮助。`flow.py feishu configure` 只记录项目目标，并非账号初始化。
 
-首次实际飞书任务或 CLI 版本变化时，通过 CLI 读取匹配帮助与内置 skill，而不是从旧笔记猜参数：
+实际执行 `bind` 或 `sync` 时读取可用的 `use-feishu-cli`，复用已有配置；只有用户请求初始化且确有缺失时，按当前 CLI 指导完成配置或必要授权。不要把 auth token、app secret 或授权码存入项目。
 
-```bash
-lark-cli skills read lark-shared
-lark-cli skills read lark-doc references/lark-doc-fetch.md
-lark-cli skills read lark-doc references/lark-doc-create.md
-lark-cli skills read lark-doc references/lark-doc-update.md
-lark-cli skills read lark-doc references/lark-doc-md.md
-lark-cli skills read lark-doc references/lark-doc-xml.md
-lark-cli skills read lark-doc references/lark-doc-media-insert.md
-```
+首次使用相应云端操作或 CLI 版本变化时，通过 `lark-cli skills read <skill> [reference]` 读取匹配指导。同一任务已读且版本未变时复用，按实际操作补齐：
 
-仅在实际创建/更新时读取这些文档指出的 style/workflow 引用。身份默认为 `user`；确需应用身份时显式指定并说明实际创建归属。配置和认证执行 use-feishu-cli 的当前流程，不由工作台或同步适配器自行申请权限。
+| 操作 | CLI 内置指导 |
+| --- | --- |
+| `bind` 或 `sync` 的云端读取 | `lark-shared`、`lark-doc references/lark-doc-fetch.md`、`lark-doc references/lark-doc-md.md`、`lark-doc references/lark-doc-xml.md` |
+| `sync` 创建未绑定文档或导航 | 追加 `lark-doc references/lark-doc-create.md` |
+| `sync` 更新已有文档、导航，或追加分段正文 | 追加 `lark-doc references/lark-doc-update.md` |
+| 计划含图片 | 追加 `lark-doc references/lark-doc-media-insert.md` |
+
+仅在实际创建/更新时读取这些文档指出的 style/workflow 引用，不从旧笔记猜参数。身份默认为 `user`；确需应用身份时显式指定并说明实际创建归属。配置和认证执行 use-feishu-cli 的当前流程，不由工作台或同步适配器自行申请权限。
 
 ## 配置、绑定与计划
 
@@ -45,13 +44,15 @@ python3 -B <skill-dir>/scripts/flow.py feishu sync <project-dir> <plan-id> --exe
 
 云端意外变化会阻塞受影响文档，不覆盖；本地继续编辑不改变已冻结计划，完成后若本地新修订仍有差异，显示待同步。纯本地工作、Demo 验证与项目快照不受云端失败影响。
 
+`status` 同时比较已同步正文和引用图片的本地哈希；同路径图片被替换、删除或不可读取时也显示待同步。状态检查只读本地文件，不修改账本，也不代表检查过云端最新状态。
+
 ## 格式和图片边界
 
-适配器导入本地 Markdown 的标准标题、段落、列表、常规表格、引用、代码、链接；去掉 frontmatter、内部需求元数据和本地自动关联区，在需求标题附上稳定 ID 后读回重建 block ID 与直达链接。
+适配器导入本地 Markdown 的标准标题、段落、列表、常规表格、引用、代码、链接；去掉 frontmatter、内部需求元数据和本地自动关联区，在需求标题附上稳定 ID 后读回重建 block ID 与直达链接。反引号或波浪线代码围栏、行内代码中的 HTML、链接和图片示例保持为代码，不作为真实嵌入内容或本地资源处理。
 
 项目内图片必须独占一行，prepare 固定图片副本；同步通过当前 CLI 的本地 media-insert 插入原位置。记录本地 sha256 对应的云端 token 和 block ID。为保持顺序，文档按正文段落与图片分段发布，未完成期间可能显示部分内容，工作台必须显示 partial/failed，不能提前标成功。
 
-外网图片先在适用授权下保存为项目资源；行内/表格图片、任意 XML/复杂嵌入和无法访问的本地链接在 prepare 阶段报出，先经人工核对转换后同步，不静默降级。常规正文的已绑定文档链接可以使用飞书 URL；目录导航自动引用稳定云端链接。不能把本地 Demo 地址放在共享 PRD 中作为可用分享入口。
+外网图片先在适用授权下保存为项目资源；行内/表格图片、任意 XML/复杂嵌入和无法访问的本地链接在 prepare 阶段报出，先经人工核对转换后同步，不静默降级。真实链接中的相对路径、`file:`、`localhost` 及 IPv4/IPv6 loopback 地址会被拒绝；本地 Demo 地址应改为非链接说明或可用的共享入口。常规正文的已绑定文档链接可以使用飞书 URL；目录导航自动引用稳定云端链接。
 
 readback 使用保守的 Markdown 文本/结构比较、真实图片 token 和完整需求块映射；CLI 格式转换不兼容时停止并保留实际错误，不放宽成“非空即成功”。首版模拟传输测试不能代替真实账号、云文档格式及图片呈现验收。
 

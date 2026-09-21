@@ -23,7 +23,7 @@ python3 -B skills/prototype-flow/scripts/install.py --dest .agents/skills
 
 原生 Skill 自动发现由宿主实现。Claude Code 支持 `.claude/skills`，Cursor 支持 `.cursor/skills` 和 `.agents/skills`，Codex 使用 `.agents/skills`。通用 Agent 可直接按绝对路径读取入口与引用，不要求斜杠命令、选择器或插件。目录依据：[Claude Code](https://code.claude.com/docs/en/skills)、[Cursor](https://cursor.com/docs/skills)、[OpenAI Docs](https://learn.chatgpt.com/docs/build-skills)；格式依据：[Agent Skills](https://agentskills.io/specification)。
 
-PRD 与本地工作台无需外部 Skill；Demo 和飞书依赖按 [依赖安装](dependencies.md) 在相应阶段准备。自定义目录需要在后续依赖命令中保持 `PROTOTYPE_FLOW_SKILLS_DIR=<skills-root>`。运行时能查到文件不代表宿主选择器会自动列出它；本轮仍应读取命令返回的实际路径。
+PRD、本地工作台和飞书本地命令无需外部 Skill；Demo 制作与飞书云端操作的依赖按 [依赖安装](dependencies.md) 准备。自定义目录需要在后续依赖命令中保持 `PROTOTYPE_FLOW_SKILLS_DIR=<skills-root>`。运行时能查到文件不代表宿主选择器会自动列出它；本轮仍应读取命令返回的实际路径。
 
 ## 能力与依赖适配
 

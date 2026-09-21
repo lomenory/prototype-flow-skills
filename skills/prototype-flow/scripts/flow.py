@@ -148,8 +148,10 @@ def parser():
     cmd.add_argument('--port', type=int, default=0)
     cmd.add_argument('--preview-port', type=int, default=0)
     cmd.add_argument('--reuse', action='store_true', help='验证并复用同项目的现有服务；没有可用服务时启动')
-    cmd = command('state', '读取项目摘要；--full 包含完整正文，支持历史版本')
+    cmd = command('state', '读取项目摘要或指定任务/产物；--full 返回所选范围完整记录，支持历史版本')
     cmd.add_argument('--version')
+    cmd.add_argument('--section', choices=['runs', 'artifacts'], help='只读取任务或产物，省略无关 PRD 正文')
+    cmd.add_argument('--id', help='只读取指定任务或产物；必须同时提供 --section')
     cmd = command('document', '读取完整 PRD 及保存基线')
     cmd.add_argument('id')
     cmd.add_argument('--version')
@@ -179,6 +181,7 @@ def parser():
     cmd = command('demo-prepare', '从任务固定的完整 Demo 和框架复制新的工作目录')
     cmd.add_argument('id', help='固定输入的任务 ID')
     cmd.add_argument('--path', required=True, help='尚不存在的 demos/<新目录>')
+    cmd.add_argument('--from-output', help='从该续作任务 recoveredOutputs 中的目录继续准备完整 Demo')
     cmd = command('requirement', '显式新增、拆分、合并、移动或移除需求')
     cmd.add_argument('--operation', required=True, choices=['add', 'split', 'merge', 'move', 'remove'])
     cmd.add_argument('--ids', nargs='*', default=[])
@@ -283,7 +286,13 @@ def main(argv=None):
                     registry.forget(server.instance_id)
             return 0
         elif command == 'state':
-            result = store.state(args.version, summary=not args.full)
+            if args.id is not None and not args.section:
+                raise FlowError('state --id requires --section runs or artifacts')
+            if args.section:
+                from pf_queries import query_state
+                result = query_state(store, args.section, args.id, args.version, full=args.full)
+            else:
+                result = store.state(args.version, summary=not args.full)
         elif command == 'document':
             result = store.document(args.id, args.version)
         elif command == 'save':
@@ -302,7 +311,7 @@ def main(argv=None):
         elif command == 'framework':
             result = store.register_framework(read_json(args.file))
         elif command == 'demo-prepare':
-            result = store.prepare_demo(args.id, args.path)
+            result = store.prepare_demo(args.id, args.path, recovered_output=args.from_output)
         elif command == 'requirement':
             result = store.transform_requirements(args.operation, args.ids,
                 read_json(args.parts_file) if args.parts_file else None,

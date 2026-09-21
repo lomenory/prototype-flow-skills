@@ -4,7 +4,7 @@
 
 ## 固定输入并生成
 
-1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；需要旧产物或运行记录时使用 `state <project-dir> --full`。按[项目共享框架](demo-framework.md)读取已有规范与完整 Demo；首次生成/接入先提取可执行框架，后续判断是否影响公共能力，需要时准备新框架候选。
+1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；旧产物和任务用 `state --section artifacts|runs` 查询，单项加 `--id <id>`。按[项目共享框架](demo-framework.md)读取已有规范与完整 Demo；首次生成/接入先提取可执行框架，后续判断是否影响公共能力，需要时准备新框架候选。
 2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希、项目修订、框架版本和完整基准 Demo；升级框架用 `--framework <id>`。默认保存选中需求、传递依赖、关联流程/页面及所属文档的完整正文与相关来源、图片；其他共享规则文档用 `--documents <document-ids...>` 明确加入。确需全库上下文时加 `--full-context`。运行 `demo-prepare <project-dir> <run-id> --path demos/<new-artifact-id>` 复制固定的框架和业务成果，再继续制作，保留上一套可演示产物。
 3. 按 demo-design 适用 route/tier 完成设计、产品契约、实现和真实验证。独立模块共用导航、公共组件、数据对象身份和业务状态；模块 A 的操作必须能在模块 B 连续体现。
 4. 普通任务先完成修改与实际验证，再一次性通过 `runId` 登记不可变完整产物，填写框架实际使用的 `evidence.frameworkReview`。只有实际证据支持才用 `verified` 或 `current`；`activated:true` 表示本地默认框架和 Demo 已一起切换。输入过期不切换，基线被其他任务推进时先比较差异。中断成果可由 `run-finish` 的 `outputs.paths` 保存，不必提前登记候选。确需登记 `candidate` 时，它同样冻结文件和身份；后续修改使用新目录和新 ID，不能原地修正或把同 ID 升级为 current。无框架的显式修订登记只保留旧数据兼容。
@@ -21,7 +21,7 @@
 
 一条多步骤路径保存为 `relations.flows`，每个 step 引用需求、对应 binding 或稳定页面状态；模块视图和流程视图引用同一份页面与截图。需求与页面多对多，允许一个需求的成功、错误、取消状态各有截图。
 
-步骤使用 `requirementId`、`bindingId`，或能匹配已有 binding 的 `artifactId/screenId/stateId`。保存和 `validate` 都检查引用；拆合需求会标记相关步骤待复核，不自动把旧入口迁给新需求。
+步骤使用 `requirementId`、`bindingId`，或能匹配已有 binding 的 `artifactId/screenId/stateId`。保存校验、影响传播及固定输入使用相同引用解析，无需把步骤需求再重复填进流程顶层 `requirementIds`；该列表可只补充步骤外的关联需求。拆合需求会标记相关步骤待复核，不自动把旧入口迁给新需求。
 
 验证从真实截图入口打开，确认页面状态与截图一致、刷新恢复且可继续跨模块流程。截图存在或 URL 语法合法并不证明此行为。`verified` 与 evidence 仅记录真正执行的检查。
 
@@ -35,7 +35,7 @@
 
 用户在 R12 Demo 制作期间保存 R13 时，完成产物仍标明 R12。比较新旧输入，更新真正受影响部分后重新验证，不覆盖 R13 PRD 或沿用已过期证据。运行失败保留候选、任务输入、已完成输出和错误信息，以 `run-finish --status partial|failed` 记录。恢复从这些记录继续；未明确的业务问题只阻塞依赖它的部分。
 
-中断任务用 `run-resume <project-dir> <run-id>` 创建独立续作；从历史接续加 `--version <version-id>`。输入仍是原固定版本，已声明的输出复制到新任务工作目录，返回 `recoveredOutputs`；原任务、历史和当前同名文件保留。若最新 PRD 已改变，仍须判断影响，不能把续作自动视为最新。
+中断任务用 `run-resume <project-dir> <run-id>` 创建独立续作；从历史接续加 `--version <version-id>`。输入仍是原固定版本，已声明的输出复制到新任务工作目录，返回 `recoveredOutputs`；原任务、历史和当前同名文件保留。再运行 `demo-prepare` 到新的 `demos/<id>`，优先使用唯一恢复 Demo；多个恢复 Demo 用 `--from-output <recoveredOutputs.path>` 指定。恢复目录用于保留成果，登记使用新 Demo 目录。若最新 PRD 已改变，仍须判断影响，不能把续作自动视为最新。
 
 ## 完成程度
 
