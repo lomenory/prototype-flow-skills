@@ -59,7 +59,7 @@ def module_package(store, module_id, version=None):
 
         def add(relative, expected=None):
             path = PurePosixPath(relative)
-            if '\\' in relative or path.is_absolute() or any(p.startswith('.') for p in path.parts):
+            if '\\' in relative or path.is_absolute() or not path.parts or '..' in path.parts:
                 raise FlowError('打包资源路径无效：' + relative, 403)
             file = store._safe(relative, base=root, must_exist=True)
             if not file.is_file():
@@ -67,7 +67,11 @@ def module_package(store, module_id, version=None):
             data = file.read_bytes()
             if expected and hashlib.sha256(data).hexdigest() != expected:
                 raise FlowError('打包期间文件发生变化，请刷新后重试。', 409)
-            files[relative] = data
+            # Finder metadata may already be in an immutable artifact manifest.
+            # Verify it as usual, but omit it from the delivery ZIP. Other dotfiles
+            # can be required Demo resources and must retain their relative paths.
+            if path.name != '.DS_Store':
+                files[relative] = data
             return data
 
         entries = []
