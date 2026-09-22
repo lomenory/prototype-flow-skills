@@ -10,12 +10,14 @@ import difflib
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 from urllib.parse import urlsplit, unquote
 
@@ -199,6 +201,7 @@ class ProjectStore:
         self._lock = threading.RLock()
         self._depth = 0
         self._write_journals = []
+        self.metrics = {'inventoryCalls': 0, 'hashedBytes': 0, 'copiedFiles': 0, 'copiedBytes': 0}
 
     @contextlib.contextmanager
     def _rollback_writes(self):
@@ -867,32 +870,44 @@ class ProjectStore:
                     errors.append({'code': problem, 'id': flow['id'], 'step': index})
         return errors
 
-    def _binding_fingerprint(self, binding, base=None):
+    def _binding_fingerprint(self, binding, base=None, artifacts=None):
         base = base or self.root
         fields = ('artifactId', 'screenId', 'stateId', 'route', 'fixtureId', 'screenshot', 'requirementIds')
         value = {key: binding.get(key) for key in fields}
-        artifact = next((a for a in self._read('artifacts.json', {'items': []}, base=base)['items']
-                         if a['id'] == binding.get('artifactId')), None)
+        if artifacts is None:
+            artifacts = {a['id']: a for a in self._read('artifacts.json', {'items': []}, base=base)['items']}
+        artifact = artifacts.get(binding.get('artifactId'))
         if not artifact or not binding.get('screenshot'):
             return None
         path = self._safe(binding['screenshot'], base=base)
         if not path.is_file():
             return None
+        if binding.get('verificationScope'):
+            from pf_evidence import page_content
+            return digest(canonical({'artifactId': artifact['id'],
+                'page': page_content(self, binding, artifact, base)}))
         value['screenshotHash'] = digest(path.read_bytes())
         value['artifactFiles'] = artifact.get('fileHashes')
         return digest(canonical(value))
 
-    def _evaluated_relations(self, base=None):
+    def _evaluated_relations(self, base=None, binding_ids=None):
         relations = self._read('relations.json', base=base)
+        if binding_ids is not None:
+            relations['bindings'] = [b for b in relations.get('bindings', []) if b['id'] in binding_ids]
+        artifacts = {a['id']: a for a in self._read('artifacts.json', {'items': []}, base=base)['items']}
         for binding in relations.get('bindings', []):
             if binding.get('verified'):
-                reason = ('missing-fingerprint' if not binding.get('verificationHash') else
-                          'fingerprint-changed' if binding['verificationHash'] != self._binding_fingerprint(binding, base) else None)
+                try:
+                    reason = ('missing-fingerprint' if not binding.get('verificationHash') else
+                              'fingerprint-changed' if binding['verificationHash'] != self._binding_fingerprint(
+                                  binding, base, artifacts) else None)
+                except (FlowError, OSError, UnicodeError):
+                    reason = 'dependency-changed'
                 if reason:
                     binding.update(verified=False, status='needs-review', verificationStatus=reason)
         return relations
 
-    def update_relations(self, data):
+    def update_relations(self, data, changed_binding_ids=None):
         with self._transaction():
             if not isinstance(data, dict):
                 raise FlowError('Relations must be an object')
@@ -904,8 +919,9 @@ class ProjectStore:
                 if not isinstance(data[key], list):
                     raise FlowError(key + ' must be a list')
             requirements = {r['id'] for r in self._scan()[1]}
-            artifacts = {a['id'] for a in self._read('artifacts.json')['items']}
+            artifacts = {a['id']: a for a in self._read('artifacts.json')['items']}
             previous_bindings = {b['id']: b for b in current.get('bindings', [])}
+            intact = {}
             for group in ('flows', 'bindings'):
                 ids = set()
                 for item in data[group]:
@@ -923,12 +939,21 @@ class ProjectStore:
                         self._validate_route(route)
                         if item.get('screenshot'):
                             self._safe(item['screenshot'])
-                        if item.get('verified') and not item.get('evidence'):
+                        inherit_from = item.pop('inheritVerificationFrom', None)
+                        if item.get('verified') and not item.get('evidence') and not inherit_from:
                             raise FlowError('Verified binding requires actual evidence')
                         reverify = item.pop('reverify', False)
                         previous = previous_bindings.get(item['id'])
-                        if item.get('verified'):
-                            fingerprint = self._binding_fingerprint(item)
+                        if (changed_binding_ids is not None and item['id'] not in changed_binding_ids
+                                and item == previous and not reverify and not inherit_from):
+                            continue  # Atomic upsert leaves unrelated evidence untouched.
+                        if inherit_from:
+                            if reverify:
+                                raise FlowError('Choose actual revalidation or evidence inheritance, not both')
+                            from pf_evidence import inherit_binding
+                            inherit_binding(self, item, previous_bindings.get(valid_id(inherit_from)), artifacts, intact)
+                        elif item.get('verified'):
+                            fingerprint = self._binding_fingerprint(item, artifacts=artifacts)
                             if not fingerprint:
                                 raise FlowError('Verified binding requires an existing screenshot')
                             if previous and not reverify:
@@ -938,6 +963,7 @@ class ProjectStore:
                                     item.update(verified=False, status='needs-review', verificationStatus=reason)
                             else:
                                 item.update(verificationHash=fingerprint, verificationStatus='verified')
+                                item.pop('verificationInheritedFrom', None)
                                 if item.get('status') == 'needs-review':
                                     item.pop('status')
             step_errors = self._flow_step_errors(data, requirements)
@@ -961,6 +987,7 @@ class ProjectStore:
             raise FlowError('Demo route escapes its artifact')
 
     def _inventory(self, directory):
+        self.metrics['inventoryCalls'] += 1
         directory = Path(directory)
         if not directory.exists():
             return {}
@@ -968,12 +995,14 @@ class ProjectStore:
         for path in sorted(directory.rglob('*')):
             self._safe(path.relative_to(self.root))
             if path.is_file():
-                inventory[path.relative_to(directory).as_posix()] = digest(path.read_bytes())
+                content = path.read_bytes()
+                self.metrics['hashedBytes'] += len(content)
+                inventory[path.relative_to(directory).as_posix()] = digest(content)
         return inventory
 
     def register_artifact(self, data):
         with self._transaction(), self._rollback_writes():
-            self._reindex()
+            documents_now, requirements_now, _ = self._reindex()
             data = copy.deepcopy(data)
             artifact_id = valid_id(data.get('id') or uid('DEMO'))
             artifacts = self._read('artifacts.json')
@@ -1029,9 +1058,8 @@ class ProjectStore:
                 raise FlowError('Verified artifact requires verification evidence')
             artifacts['items'].append(artifact)
             if artifact['status'] in ('verified', 'current'):
-                docs_now, reqs_now = self._scan()
-                current = {r['id']: r['hash'] for r in reqs_now}
-                current_docs = {d['id']: d['businessHash'] for d in docs_now}
+                current = {r['id']: r['hash'] for r in requirements_now}
+                current_docs = {d['id']: d['businessHash'] for d in documents_now}
                 compatible = all(current.get(r) == h for r, h in artifact['requirementHashes'].items())
                 compatible = compatible and all(current_docs.get(d) == h for d, h in artifact['documentHashes'].items())
                 if compatible:
@@ -1139,6 +1167,7 @@ class ProjectStore:
 
     def prepare_demo(self, run_id, path, recovered_output=None):
         """Materialize a NEW work directory from the pinned business Demo and framework."""
+        started, before = time.perf_counter(), dict(self.metrics)
         with self._transaction(), self._rollback_writes():
             run = self._read('runs/' + valid_id(run_id) + '.json')
             if not run or run['status'] != 'running' or not run.get('framework'):
@@ -1189,6 +1218,7 @@ class ProjectStore:
                     outputs = {'paths': outputs}
                 outputs.setdefault('paths', []).append(path)
                 run['outputs'] = outputs
+                run.setdefault('metrics', {})['demoPreparation'] = self._measurement(started, before)
                 self._write('runs/' + run['id'] + '.json', run)
             except Exception:
                 if target.exists():
@@ -1208,6 +1238,8 @@ class ProjectStore:
         source = self._safe(review['source'])
         if directory not in source.parents or not source.is_file():
             raise FlowError('frameworkReview.source must name an existing file inside this Demo, relative to the project')
+        if review.get('mode', 'observed') not in ('observed', 'inherited'):
+            raise FlowError('frameworkReview.mode must be observed or inherited')
         return source
 
     def _bind_demo_framework(self, data, run, directory):
@@ -1225,6 +1257,16 @@ class ProjectStore:
             raise FlowError('Demo DESIGN.md must match the fixed framework', 409)
         if data.get('status') in ('verified', 'current'):
             self._framework_review_file(data, directory)
+            review = data['evidence']['frameworkReview']
+            if review.get('mode') == 'inherited':
+                baseline = run.get('baseArtifact') or {}
+                if (not baseline.get('id') or review.get('fromArtifactId') != baseline['id']
+                        or baseline.get('frameworkId') != framework['id']
+                        or baseline.get('status') not in ('verified', 'current')):
+                    raise FlowError('Framework inheritance requires the verified fixed baseline and unchanged framework')
+                origin = self._intact_artifact(baseline['id'])
+                self._framework_review_file(origin, self._safe(origin['path']))
+                review['inheritedFrameworkId'] = framework['id']
         data.update(frameworkId=framework['id'], frameworkPath='_framework',
                     frameworkBaselineId=run['frameworkBaselineId'], artifactBaselineId=run['artifactBaselineId'],
                     baseArtifactId=(run.get('baseArtifact') or {}).get('id'))
@@ -1370,13 +1412,24 @@ class ProjectStore:
             return {'path': relative, 'markdownPath': os.path.relpath(target, self._safe(document['path']).parent).replace(os.sep, '/')}
 
     def start_run(self, stage, requirement_ids=None, shared_document_ids=None, full_context=False,
-                  framework_id=None, base_artifact_id=None, base_demo_path=None, base_entry='index.html'):
+                  framework_id=None, base_artifact_id=None, base_demo_path=None, base_entry='index.html', change=None):
+        started, before = time.perf_counter(), dict(self.metrics)
         with self._transaction(), self._rollback_writes():
+            if change is not None:
+                if (stage != 'demo' or not isinstance(change, dict)
+                        or set(change) - {'tier', 'summary', 'affectedBindingIds'}
+                        or type(change.get('tier')) is not int or change['tier'] not in range(4)
+                        or not isinstance(change.get('summary'), str) or not change['summary'].strip()
+                        or not isinstance(change.get('affectedBindingIds', []), list)):
+                    raise FlowError('Demo change requires tier 0..3, summary and optional affectedBindingIds')
+                known = {b['id'] for b in self._read('relations.json')['bindings']}
+                for bid in change.get('affectedBindingIds', []):
+                    if valid_id(bid) not in known:
+                        raise FlowError('Unknown affected binding', 404, bid)
             demo_inputs = self._demo_inputs(framework_id, base_artifact_id, base_demo_path, base_entry) if stage == 'demo' else {}
             if stage != 'demo' and (framework_id or base_artifact_id or base_demo_path):
                 raise FlowError('Framework and baseline selection require stage demo')
-            self._reindex()
-            documents, requirements = self._scan()
+            documents, requirements, _ = self._reindex()
             hashes = {r['id']: r['hash'] for r in requirements}
             selected = list(hashes) if requirement_ids is None else requirement_ids
             if not isinstance(selected, list) or set(selected) - set(hashes):
@@ -1430,6 +1483,8 @@ class ProjectStore:
                                   'businessHash': d['businessHash']} for d in input_documents],
                    'relations': input_relations, 'sources': sources, 'outputs': []}
             run['inputPath'] = '.prototype-flow/run-inputs/' + run['id']
+            if change is not None:
+                run['change'] = copy.deepcopy(change)
             run.update(demo_inputs)
             fixed = self._safe(run['inputPath'])
             fixed.mkdir(parents=True)
@@ -1449,11 +1504,89 @@ class ProjectStore:
                 if design.is_file():
                     self._copy_file(design, fixed / 'DESIGN.md')
                 run['inputFileHashes'] = self._inventory(fixed)
+                run['metrics'] = {'inputPreparation': self._measurement(started, before)}
                 self._write('runs/' + run['id'] + '.json', run)
             except Exception:
                 shutil.rmtree(fixed)
                 raise
             return run
+
+    def _measurement(self, started, before):
+        return dict({key: self.metrics[key] - before.get(key, 0) for key in self.metrics},
+                    elapsedMs=round((time.perf_counter() - started) * 1000, 3))
+
+    def finalize_demo(self, run_id, payload):
+        """Register, upsert evidence, validate and finish as one rollback-safe write."""
+        started, before = time.perf_counter(), dict(self.metrics)
+        if (not isinstance(payload, dict) or set(payload) - {'artifact', 'bindings', 'flows', 'outputs', 'measurements'}
+                or not isinstance(payload.get('artifact'), dict)):
+            raise FlowError('Demo finalization requires artifact and optional bindings, flows, outputs, measurements')
+        measurements = payload.get('measurements', {})
+        if (not isinstance(measurements, dict)
+                or set(measurements) - {'editingMs', 'browserVerificationMs', 'verifiedPages'}
+                or any(type(v) not in (int, float) or not math.isfinite(v) or v < 0
+                       for v in measurements.values())
+                or ('verifiedPages' in measurements and type(measurements['verifiedPages']) is not int)):
+            raise FlowError('Measurements must be observed nonnegative durations and an integer verifiedPages count')
+        with self._transaction(), self._rollback_writes():
+            run = self._read('runs/' + valid_id(run_id) + '.json')
+            if not run or run.get('stage') != 'demo' or run.get('status') != 'running':
+                raise FlowError('Finalization requires a running Demo task', 409)
+            data = copy.deepcopy(payload['artifact'])
+            if data.get('runId', run_id) != run_id:
+                raise FlowError('Artifact belongs to a different task')
+            data.update(runId=run_id)
+            data.setdefault('status', 'verified')
+            if data['status'] not in ('verified', 'current'):
+                raise FlowError('Finalize after actual scoped verification; use run-finish for partial work')
+            if run.get('change'):
+                data['change'] = copy.deepcopy(run['change'])
+            artifact = self.register_artifact(data)
+            if not artifact['activated']:
+                raise FlowError('Inputs changed; preserve the work and review the current PRD before finalizing', 409)
+            relations = self._read('relations.json')
+            changed_bindings = []
+            for group in ('bindings', 'flows'):
+                updates = payload.get(group, [])
+                if not isinstance(updates, list):
+                    raise FlowError(group + ' must be an array of updates')
+                seen = set()
+                records = {item['id']: item for item in relations[group]}
+                for item in updates:
+                    if not isinstance(item, dict):
+                        raise FlowError('Relation update must be an object')
+                    rid = valid_id(item.get('id'))
+                    if rid in seen:
+                        raise FlowError('Duplicate relation update ID')
+                    seen.add(rid)
+                    if group == 'bindings':
+                        if item.get('artifactId') != artifact['id']:
+                            raise FlowError('Finalized bindings must reference the new Demo')
+                        changed_bindings.append(rid)
+                    records[rid] = copy.deepcopy(item)
+                relations[group] = list(records.values())
+            if payload.get('bindings') or payload.get('flows'):
+                self.update_relations(relations, changed_binding_ids=set(changed_bindings))
+            validation = self.validate(artifact_ids=[artifact['id']])
+            if not validation['ok']:
+                raise FlowError('Scoped Demo validation failed; work directory preserved', 409, validation)
+            outputs = copy.deepcopy(payload.get('outputs', {}))
+            if not isinstance(outputs, dict) or set(outputs) - {'summary', 'paths'}:
+                raise FlowError('Finalization outputs support summary and paths')
+            outputs.update(artifactIds=[artifact['id']], bindingIds=changed_bindings)
+            outputs.setdefault('paths', (run.get('outputs') or {}).get('paths', []))
+            finished = self.finish_run(run_id, 'completed', outputs)
+            baseline_hashes = (run.get('baseArtifact') or {}).get('fileHashes', {})
+            finished['changedFiles'] = sorted(p for p in set(baseline_hashes) | set(artifact['fileHashes'])
+                                               if baseline_hashes.get(p) != artifact['fileHashes'].get(p))
+            finished.setdefault('metrics', {})['finalization'] = self._measurement(started, before)
+            if measurements:
+                finished['measurements'] = copy.deepcopy(measurements)
+            finished['validation'] = validation
+            self._write('runs/' + run_id + '.json', finished)
+            return {'runId': run_id, 'status': 'completed', 'artifactId': artifact['id'],
+                    'activated': True, 'bindingIds': changed_bindings, 'changedFiles': finished['changedFiles'],
+                    'validation': validation, 'metrics': finished['metrics']}
 
     def finish_run(self, run_id, status, outputs=None, error=None):
         valid_id(run_id)
@@ -1650,6 +1783,8 @@ class ProjectStore:
         self._safe(target.relative_to(self.root))
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+        self.metrics['copiedFiles'] += 1
+        self.metrics['copiedBytes'] += target.stat().st_size
 
     def _document_references(self, documents):
         paths = set()
@@ -1691,9 +1826,15 @@ class ProjectStore:
         return sorted(paths)
 
     def _copy_tree(self, source, target):
-        self._inventory(source)
+        # Validate paths without rereading every byte; callers own content checks.
+        self._safe(source.relative_to(self.root))
+        for path in source.rglob('*'):
+            self._safe(path.relative_to(self.root))
         self._safe(target.relative_to(self.root))
-        shutil.copytree(source, target, dirs_exist_ok=True)
+        def copy_file(origin, destination):
+            self._copy_file(Path(origin), Path(destination))
+            return destination
+        shutil.copytree(source, target, dirs_exist_ok=True, copy_function=copy_file)
 
     def _verify_snapshot(self, version_id):
         base = self.content_root(version_id)
@@ -1808,7 +1949,12 @@ class ProjectStore:
             self._maintain()
             return self._state()
 
-    def validate(self, stage='all', document_ids=None):
+    def validate(self, stage='all', document_ids=None, artifact_ids=None, binding_ids=None):
+        if artifact_ids is not None or binding_ids is not None:
+            if stage != 'all' or document_ids is not None:
+                raise FlowError('Demo selectors cannot be combined with PRD-only validation')
+            from pf_validation import validate_scope
+            return validate_scope(self, artifact_ids, binding_ids)
         if stage not in ('all', 'prd'):
             raise FlowError('Validation stage must be all or prd')
         with self._transaction(read_only=True):

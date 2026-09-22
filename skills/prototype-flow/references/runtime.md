@@ -36,7 +36,7 @@ project/
 - `artifacts.json`：完整产物与输入依据。单项注册格式见 `schemas/artifact.schema.json`。
 - `frameworks.json`：共享框架版本、文件哈希和当前框架指针；`framework` 登记候选，`run-start` 固定版本，`demo-prepare` 准备新的完整 Demo，已验证产物登记时同步启用。提取、升级和证据见[项目共享框架](demo-framework.md)。
 - `sources.json`：来源登记和已提取内容；文档依据引用来源 ID，不把登记当作已完成分析。
-- `runs/`：固定一次任务输入和实际进度；`run-start` / `run-finish` 管理，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
+- `runs/`：固定一次任务输入、修改范围和实际进度；`run-start` / `run-finish` 管理，Demo 可由 `demo-finalize` 一次收尾，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
 - `feishu.json` 和 `feishu-plans/`：实时同步账本和固定计划，恢复历史时保留。
 
 schema 是集成格式说明，Python 运行时还有路径、引用、哈希及版本一致性校验；只验证 JSON schema 不代表项目可用。
@@ -85,7 +85,7 @@ CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身�
 
 新建单份 PRD 使用 `intake <project-dir> --file <payload.json>`：一次保存新模块、来源、公共正文和需求块，设为 `draft`，收尾一次并返回维护及结构检查结果。候选格式见 [需求与资料](requirements.md#一次入库)。该命令不更新已有模块；更新正文或拆合已有需求继续使用下面的操作。
 
-`intake` 自带本次 PRD 的结构检查。单独补检文档使用 `validate <project-dir> --stage prd`，检查文档、需求 ID、来源与引用；默认 `validate <project-dir>` 检查当前工作稿的文档、Demo 关联和资源，不遍历历史快照。历史完整性在读取、比较和恢复对应版本时校验。按本次范围选择，纯 PRD 入库不因尚无页面截图而进入 Demo 工作。
+`intake` 自带本次 PRD 的结构检查。单独补检文档使用 `validate <project-dir> --stage prd`，检查文档、需求 ID、来源与引用。局部 Demo 使用 `validate <project-dir> --artifacts <IDs...>` 或 `--bindings <IDs...>`，检查指定对象及其必要依据，不复验无关旧产物；可以同时指定两者。默认 `validate <project-dir>` 保留全项目检查，不遍历历史快照。历史完整性在读取、比较和恢复对应版本时校验。`demo-finalize` 已检查本次对象，成功后无新改动不再重复运行。纯 PRD 入库不因尚无页面截图而进入 Demo 工作。
 
 `document <root> <id>` 返回当前完整内容及修订。候选正文保存到项目临时文件，再执行：
 
@@ -103,7 +103,38 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 {"id":"DEMO-ORDERS-1", "title":"订单跨模块演示", "path":"demos/DEMO-ORDERS-1", "entryHtml":"index.html", "runId":"RUN-实际任务ID", "status":"candidate", "evidence":{}}
 ```
 
-普通 Demo 先在工作目录完成修改和验证，再一次性 `artifact --file` 登记。注册后的文件和身份不可变，包括上面的 candidate；后续更新保留原目录，使用新目录和新 ID，不能原地修改候选或重用 ID。未完成成果通过 `run-finish --outputs-file` 的 `paths` 保存即可。`runId` 关联真实任务输入；不杜撰占位 runId。只有观察与证据支持才能标 current。将当前产物切换和更新关联作为同一任务完成。
+普通 Demo 先在工作目录完成修改和适用检查，优先用下面的 `demo-finalize` 一次收尾；也保留 `artifact --file` 分步登记。注册后的文件和身份不可变，包括上面的 candidate；后续更新保留原目录，使用新目录和新 ID，不能原地修改候选或重用 ID。未完成成果通过 `run-finish --outputs-file` 的 `paths` 保存即可。`runId` 关联真实任务输入；不杜撰占位 runId。只有适用证据支持才能标 current。
+
+## Demo 一次收尾
+
+`run-start --change-file <change.json>` 可保存 `tier`（0 至 3）、`summary` 和 `affectedBindingIds`；按[修改分级](demo-and-change.md#先限定本次修改)填写。旧任务无此字段仍兼容。完成修改和适用检查后：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py demo-finalize <project-dir> <run-id> --file <payload.json>
+```
+
+```json
+{
+  "artifact": {
+    "id": "DEMO-ORDERS-2", "title": "订单间距调整",
+    "path": "demos/DEMO-ORDERS-2", "entryHtml": "index.html",
+    "status": "current", "evidence": {"frameworkReview": {
+      "mode": "inherited", "fromArtifactId": "DEMO-ORDERS-1",
+      "summary": "框架及使用方式未变；本次只检查订单按钮所在区域",
+      "source": "demos/DEMO-ORDERS-2/evidence/framework-review.md"
+    }}
+  },
+  "bindings": [],
+  "flows": [],
+  "outputs": {"summary": "填写实际检查、继承证据及待复核范围", "paths": []}
+}
+```
+
+示例中的状态和证据必须换成实际结果。`artifact` 沿用原登记字段，命令补入 `runId`。`bindings` 只提供本次新增或更新项，`flows` 可选且同样按 ID 合并，不要求复制整份关系；空数组保留现有条目。需要删除或重组关联时继续使用完整 `relations` 操作。绑定字段、依赖范围与 `inheritVerificationFrom` 见[页面状态入口](demo-and-change.md#页面状态入口)，框架继承见[共享框架](demo-framework.md#需求推动框架更新)。
+
+命令原子执行产物登记、关联更新、定向校验与任务结束；失败回滚登记状态并保留 Demo 工作目录，警告如实返回。单独的 `artifact` 仍不自动结束任务。不可变产物、输入过期和基线冲突规则均保留。
+
+Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时，`inventoryCalls/hashedBytes` 是目录完整性检查次数与读取字节，`copiedFiles/copiedBytes` 是复制量，不代表全部文件 I/O。任务的 `metrics` 保存准备输入、准备 Demo 和收尾的阶段记录。若实际计量，可在 payload 添加 `measurements:{"editingMs":1234,"browserVerificationMs":5678,"verifiedPages":1}`，省略未计量项。命令时间不包括 Agent 思考、进程启动与工具外的浏览器操作，不能据此推算完整任务耗时。
 
 ## 版本与恢复
 

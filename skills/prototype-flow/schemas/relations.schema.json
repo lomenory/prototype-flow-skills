@@ -74,9 +74,23 @@
                 }
               },
               "anyOf": [
-                {"required": ["bindingId"]},
-                {"required": ["requirementId"]},
-                {"required": ["artifactId", "screenId", "stateId"]}
+                {
+                  "required": [
+                    "bindingId"
+                  ]
+                },
+                {
+                  "required": [
+                    "requirementId"
+                  ]
+                },
+                {
+                  "required": [
+                    "artifactId",
+                    "screenId",
+                    "stateId"
+                  ]
+                }
               ],
               "additionalProperties": true
             }
@@ -150,13 +164,16 @@
             "type": "object"
           },
           "verificationHash": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^[a-f0-9]{64}$",
             "description": "运行时固定的截图、产物、需求、入口及状态指纹；旧数据缺失时待复核"
           },
           "verificationStatus": {
             "type": "string",
-            "description": "运行时验证原因：verified、missing-fingerprint（旧记录缺少指纹）、fingerprint-changed（截图或绑定内容变化）；保留旧状态兼容"
+            "description": "verified、inherited，或 missing-fingerprint、fingerprint-changed、dependency-changed；保留旧状态兼容"
           },
           "reverify": {
             "type": "boolean",
@@ -167,6 +184,57 @@
           },
           "status": {
             "type": "string"
+          },
+          "verificationScope": {
+            "type": "object",
+            "required": [
+              "files",
+              "complete"
+            ],
+            "properties": {
+              "files": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "complete": {
+                "const": true
+              }
+            },
+            "additionalProperties": false,
+            "description": "实际验证时确认完整的页面依赖，路径相对 Demo；运行时补充入口、共享代码与框架。未知动态依赖不能跨产物继承。"
+          },
+          "inheritVerificationFrom": {
+            "type": "string",
+            "description": "请求继承现有已验证 binding ID 的证据；可与本 binding ID 相同，运行时检查后消费。"
+          },
+          "verificationInheritedFrom": {
+            "type": "object",
+            "required": [
+              "bindingId",
+              "artifactId",
+              "verificationHash",
+              "inheritedAt"
+            ],
+            "properties": {
+              "bindingId": {
+                "type": "string"
+              },
+              "artifactId": {
+                "type": "string"
+              },
+              "verificationHash": {
+                "type": "string"
+              },
+              "inheritedAt": {
+                "type": "string"
+              }
+            },
+            "description": "运行时记录的继承来源，不表示本次重新执行浏览器验证。"
           }
         },
         "allOf": [

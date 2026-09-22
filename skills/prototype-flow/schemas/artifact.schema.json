@@ -37,7 +37,10 @@
       "readOnly": true
     },
     "baseArtifactId": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "readOnly": true,
       "description": "继承业务页面的完整 Demo ID"
     },
@@ -77,10 +80,34 @@
       "properties": {
         "frameworkReview": {
           "type": "object",
-          "required": ["summary", "source"],
+          "required": [
+            "summary",
+            "source"
+          ],
           "properties": {
-            "summary": {"type": "string", "minLength": 1},
-            "source": {"type": "string", "minLength": 1, "description": "实际验证报告或截图的项目相对路径，文件必须位于本 Demo 目录内并随产物冻结"}
+            "summary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "description": "实际验证报告或截图的项目相对路径，文件必须位于本 Demo 目录内并随产物冻结"
+            },
+            "mode": {
+              "enum": [
+                "observed",
+                "inherited"
+              ],
+              "description": "省略时沿用 observed；inherited 需相同框架及已验证固定基线。"
+            },
+            "fromArtifactId": {
+              "type": "string"
+            },
+            "inheritedFrameworkId": {
+              "type": "string",
+              "description": "继承时由运行时固定。"
+            }
           },
           "description": "框架任务的 verified/current 产物必须提供实际复用检查记录；由运行时结合 runId 检查"
         }
@@ -95,6 +122,32 @@
     },
     "createdAt": {
       "type": "string"
+    },
+    "change": {
+      "type": "object",
+      "required": [
+        "tier",
+        "summary"
+      ],
+      "properties": {
+        "tier": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "affectedBindingIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "anyOf": [

@@ -7,6 +7,7 @@ import json
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -93,7 +94,8 @@ def compact_result(command, value):
         return result
     if command in ('run-start', 'run-finish', 'run-resume'):
         result = selected(value, 'id', 'stage', 'status', 'inputRevision', 'inputPath', 'requirementIds',
-                          'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds', 'contextScope')
+                          'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds', 'contextScope',
+                          'change', 'metrics', 'measurements', 'changedFiles')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
         if value.get('framework'):
@@ -182,6 +184,9 @@ def parser():
     cmd.add_argument('id', help='固定输入的任务 ID')
     cmd.add_argument('--path', required=True, help='尚不存在的 demos/<新目录>')
     cmd.add_argument('--from-output', help='从该续作任务 recoveredOutputs 中的目录继续准备完整 Demo')
+    cmd = command('demo-finalize', '一次登记完整产物、更新关联、定向检查并结束任务；失败回滚登记')
+    cmd.add_argument('id', help='当前运行中的 Demo 任务 ID')
+    cmd.add_argument('--file', required=True, help='artifact、bindings、flows 和可选 measurements JSON')
     cmd = command('requirement', '显式新增、拆分、合并、移动或移除需求')
     cmd.add_argument('--operation', required=True, choices=['add', 'split', 'merge', 'move', 'remove'])
     cmd.add_argument('--ids', nargs='*', default=[])
@@ -200,6 +205,8 @@ def parser():
     cmd = command('validate', '检查当前稿稳定 ID、关联与资源；历史版本在读取和恢复时校验')
     cmd.add_argument('--stage', choices=['all', 'prd'], default='all',
                      help='prd 仅检查 PRD 来源、引用和稳定 ID；默认 all 保留完整检查')
+    cmd.add_argument('--artifacts', nargs='+', help='只检查这些 Demo、相关绑定与必要依赖')
+    cmd.add_argument('--bindings', nargs='+', help='只检查这些绑定及其 Demo，不附带同 Demo 的其他绑定')
     command('refresh', '发现外部修改并刷新文档库和需求索引')
     cmd = command('run-start', '固定一次 AI 工作的输入修订和需求范围')
     cmd.add_argument('--stage', required=True)
@@ -210,6 +217,7 @@ def parser():
     cmd.add_argument('--base-artifact', help='保留业务成果的完整 Demo；默认当前版本或唯一已有产物')
     cmd.add_argument('--base-demo', help='首次接入尚未登记的 demos/<目录>；与 --base-artifact 互斥')
     cmd.add_argument('--base-entry', default='index.html', help='首次接入 Demo 的 HTML 入口，默认 index.html')
+    cmd.add_argument('--change-file', help='本次修改范围 JSON：tier、summary、affectedBindingIds')
     cmd = command('run-resume', '从当前或历史任务固定输入创建独立续作，不覆盖原任务')
     cmd.add_argument('id')
     cmd.add_argument('--version', help='从指定历史版本读取任务；省略时读取当前任务')
@@ -251,6 +259,7 @@ def main(argv=None):
             output(result)
             return 0 if result['ok'] else 1
         store = ProjectStore(Path(args.root).expanduser().resolve())
+        started = time.perf_counter()
         command = args.command
         if command == 'init':
             result = store.init(args.name, args.mode, args.library_root, args.maintainer_path,
@@ -312,6 +321,8 @@ def main(argv=None):
             result = store.register_framework(read_json(args.file))
         elif command == 'demo-prepare':
             result = store.prepare_demo(args.id, args.path, recovered_output=args.from_output)
+        elif command == 'demo-finalize':
+            result = store.finalize_demo(args.id, read_json(args.file))
         elif command == 'requirement':
             result = store.transform_requirements(args.operation, args.ids,
                 read_json(args.parts_file) if args.parts_file else None,
@@ -325,7 +336,8 @@ def main(argv=None):
         elif command == 'restore':
             result = store.restore(args.version)
         elif command == 'validate':
-            result = store.validate(stage=args.stage)
+            result = store.validate(stage=args.stage, artifact_ids=args.artifacts, binding_ids=args.bindings)
+            result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
             output(result)
             return 0 if result.get('ok') else 1
         elif command == 'refresh':
@@ -333,7 +345,8 @@ def main(argv=None):
         elif command == 'run-start':
             result = store.start_run(args.stage, args.requirements, args.documents, full_context=args.full_context,
                                      framework_id=args.framework, base_artifact_id=args.base_artifact,
-                                     base_demo_path=args.base_demo, base_entry=args.base_entry)
+                                     base_demo_path=args.base_demo, base_entry=args.base_entry,
+                                     change=read_json(args.change_file) if args.change_file else None)
         elif command == 'run-resume':
             result = store.resume_run(args.id, args.version)
         elif command == 'run-finish':
@@ -355,7 +368,11 @@ def main(argv=None):
                 result = sync.status()
         else:
             raise FlowError('未知操作')
-        output(result if args.full else compact_result(command, result))
+        result = result if args.full else compact_result(command, result)
+        if isinstance(result, dict) and command in ('run-start', 'demo-prepare', 'artifact', 'relations',
+                                                   'run-finish', 'demo-finalize'):
+            result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
+        output(result)
         return 0
     except (FlowError, ValueError, FileNotFoundError, PermissionError) as exc:
         details = getattr(exc, 'details', None)

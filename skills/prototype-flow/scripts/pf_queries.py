@@ -10,6 +10,7 @@ def _run_summary(run):
     result = _selected(run, 'id', 'stage', 'status', 'createdAt', 'finishedAt', 'error',
                        'inputRevision', 'inputPath', 'requirementIds', 'sharedDocumentIds',
                        'contextScope', 'resumedFrom', 'recoveredOutputs', 'snapshotOutputs')
+    result.update(_selected(run, 'change', 'metrics', 'measurements', 'changedFiles'))
     result['inputRequirementIds'] = sorted(run.get('requirementHashes', {}))
     result['documents'] = [_selected(document, 'id', 'title', 'moduleId', 'path', 'revision')
                            for document in run.get('documents', [])]
