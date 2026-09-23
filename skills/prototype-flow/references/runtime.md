@@ -78,9 +78,9 @@ Python 对应 `ProjectStore.set_module_stage(module_id, stage, evidence=None)`�
 
 ## 保存与变更
 
-CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身份、修订和结果；需要原完整返回时追加 `--full`。工作台仍使用完整数据接口，不受 CLI 输出精简影响。通过摘要或 `DOC_MAP.md` 选定相关文档后按需读取，无需逐层加载多份全库导航。
+CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身份、修订和结果；需要原完整返回时追加 `--full`。工作台默认读取展示摘要，PRD 正文按需读取，进入 Demo 时检查目标产物与页面证据；未检查的完整性明确显示待检查，不冒充当前已验证。通过摘要或 `DOC_MAP.md` 选定相关文档后按需读取，无需逐层加载多份全库导航。
 
-查询任务或产物使用 `state <project-dir> --section runs|artifacts`，单项加 `--id <id>`，历史加 `--version <version-id>`。此时 `--full` 只展开所选记录。任务查询不加载 PRD 或 Demo；产物查询只检查所选产物及其依赖文档。返回的 `project.revision` 是已落盘修订，不包含全项目 `refreshRequired`；检查全局外部变化仍用普通 `state`。历史查询保留整份快照的完整性检查。
+查询任务、产物或页面绑定使用 `state <project-dir> --section runs|artifacts|bindings`，单项加 `--id <id>`，历史加 `--version <version-id>`。此时 `--full` 只展开所选记录。任务查询不加载 PRD 或 Demo；产物查询只检查所选产物及其依赖文档；绑定查询返回 `relations.bindings`，仅评估选中页面的当前证据。返回的 `project.revision` 是已落盘修订，不包含全项目 `refreshRequired`；检查全局外部变化仍用普通 `state`。历史查询保留整份快照的完整性检查。
 
 `state`、`document`、`compare` 和 `validate` 不创建或写回项目文件。`state` 的项目及模块状态按当前文件计算；`storedRevision` 是已落盘修订，`refreshRequired:true` 表示返回的变化尚未持久化。只读检查到此报告；获准维护后执行 `refresh` 才更新索引、项目修订和确认阶段。工作台 GET 查询同样只读。
 
@@ -112,12 +112,15 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 ```bash
 python3 -B <skill-dir>/scripts/flow.py demo-edit <project-dir> --requirements <IDs...> --change-file <change.json>
+python3 -B <skill-dir>/scripts/flow.py demo-edit <project-dir> --bindings <binding-IDs...> --change-file <change.json>
 python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <payload.json>
 ```
 
 `demo-edit` 创建任务并返回 `draftId`、`artifactId`、`draftRevision`、`beforeRevision` 和 `path`；`draftRevision` 是修改前的修订，初始为 0，首次保存后为 1。首次复制原冻结产物，后续复用同一工作稿编号和路径。按命令返回路径修改文件，不修改原冻结目录。本轮任务记录 `kind:"draft-edit"`；工作稿产物记录 `kind:"working-draft"`、`draftRevision`、`activeRunId` 和 `editStatus`（`editing`、`ready`，或中断后有未保存改动的 `needs-review`）。一个工作稿同时只允许一个编辑任务，发生冲突时检查当前任务，不用旧输入覆盖。
 
 `change.json` 与旧路径的 `run-start --change-file` 相同。Tier 3 开始前，若当前已保存修订尚未冻结，运行时自动保存检查点。未保存改动应先完成当前任务或明确恢复，不把它们冒充已保存修订。额外业务依据用 `--documents` 加入；输入变化仍需判断影响。
+
+CLI 必须通过 `--requirements`、`--bindings` 或 `change.affectedBindingIds` 明确本次范围；全项目使用 `--all-requirements`。未传 change 时 `--bindings` 只记录显式范围，不推断 Tier。命令返回 `affectedModules`、`bindings` 摘要和 `saveTemplate`，可直接在模板补实际结果。Python `edit_demo()` 的无参数调用保持原有全量兼容，回执以 `scopeExpandedToAll:true` 明示；旧 CLI 无范围调用应补显式选项。
 
 `demo-save` 可使用空对象 `{}` 保存修改；`artifact` 可选，`id`、`path`、`runId` 由任务固定，不可改成另一产物。省略 `status` 时保存为 `candidate`，不新增验证结论；明确保存为 `verified/current` 必须提供适用的 `evidence.frameworkReview`。框架依据仍有效时可以复用其真实来源，不能声称本轮重新观察。例如仅修改文案：
 
@@ -130,9 +133,27 @@ python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <
 }
 ```
 
-`bindings`、`flows` 只提供本次新增或更新条目，按 ID 合并；空数组保留已有条目。实际重新验证的绑定使用真实 evidence、`verified:true` 和 `reverify:true`；完整依赖范围及继承规则见[页面状态入口](demo-and-change.md#页面状态入口)。运行时以 `verificationDraftRevision` 记录工作稿证据的修订，受影响页面不会因重新保存而继续标为已验证。Tier 0 可保存静态检查结果并保留截图待复核。
+`bindings`、`flows` 只提供本次新增或更新条目，按 ID 替换完整记录；空数组保留已有条目。已有页面优先使用 `bindingPatches`，按 ID 只提交变化字段，不能同时在 `bindings` 中更新同一个 ID，也不能改产物身份、验证指纹或修订字段。实际重新验证时，当前 patch 必须明确提供真实 `evidence`、`verified:true` 和 `reverify:true`；仅重复旧字段不会更新验证结论。完整依赖范围及继承规则见[页面状态入口](demo-and-change.md#页面状态入口)。运行时以 `verificationDraftRevision` 记录工作稿证据的修订，受影响页面不会因重新保存而继续标为已验证。Tier 0 可保存静态检查结果并保留截图待复核。
 
-保存产生新 `draftRevision`，返回 `artifactId`、`path`、`validation` 并结束本次任务；失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。它提供恢复依据，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
+例如单个页面已经完成本次浏览器检查，可在实际保存文件中提交以下字段（编号、截图和证据替换为本轮结果）：
+
+```json
+{
+  "bindingPatches": [{
+    "id": "BIND-ORDER-UNPAID",
+    "screenshot": "demos/实际工作稿/screenshots/order-unpaid.png",
+    "verified": true,
+    "reverify": true,
+    "evidence": {"method": "browser", "summary": "在实际目标视口检查调整区域及对应状态"}
+  }],
+  "moduleStages": [{"id": "实际模块ID", "stage": "validation"}],
+  "outputs": {"summary": "调整并检查订单详情间距"}
+}
+```
+
+`moduleStages` 只允许本轮需求所属模块，未指定保持原阶段；相同阶段且确认依据未变不新增历史或重写导航。真实阶段变化批量处理一次，PRD 未变时复用已有需求索引；外部 PRD 变化仍更新索引及影响。`confirmed` 仍需每条更新提供用户确认 `evidence`，不能由任务完成或浏览器检查推断。
+
+保存产生新 `draftRevision`，返回 `artifactId`、`path`、`validation`、`affectedModules` 和 `evidenceSummary` 并结束本次任务。`evidenceSummary` 区分已验证、待复核及本轮复验绑定，回执可直接作为收尾依据；无后续改动不重复查询或校验。失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。同次操作复用文件读取、哈希和已有恢复对象，最终检查文件是否在读取期间变化；缓存不跨命令，不跳过外部篡改检查。修订用于恢复，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
 
 冻结与恢复：
 
@@ -176,7 +197,7 @@ python3 -B <skill-dir>/scripts/flow.py demo-finalize <project-dir> <run-id> --fi
 
 命令原子执行产物登记、关联更新、定向校验与任务结束；失败回滚登记状态并保留 Demo 工作目录，警告如实返回。单独的 `artifact` 仍不自动结束任务。不可变产物、输入过期和基线冲突规则均保留。
 
-Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时，`inventoryCalls/hashedBytes` 是目录完整性检查次数与读取字节，`copiedFiles/copiedBytes` 是复制量，不代表全部文件 I/O。任务的 `metrics` 保存准备输入、准备 Demo 和收尾的阶段记录。若实际计量，可在 payload 添加 `measurements:{"editingMs":1234,"browserVerificationMs":5678,"verifiedPages":1}`，省略未计量项。命令时间不包括 Agent 思考、进程启动与工具外的浏览器操作，不能据此推算完整任务耗时。
+Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时，`inventoryCalls` 是目录清单请求次数；`readCalls/readBytes` 记录经运行时读取接口的实际读取量，`hashedBytes` 记录文件哈希接口处理量，`readCacheHits/hashCacheHits` 记录本次操作复用次数；`copiedFiles/copiedBytes` 是复制量。这些不覆盖所有底层文件操作或 Agent 工具调用。任务 `metrics.draftSave` 包含恢复对象保存，`phaseTimes` 分列实际执行的 `inventoryMs/recoveryReadMs/evidenceMs/validationMs/captureMs`，发生模块阶段更新时另有 `moduleStagesMs`。若实际计量，可在 payload 添加 `measurements:{"editingMs":1234,"browserVerificationMs":5678,"verifiedPages":1}`，省略未计量项。命令时间不包括 Agent 思考、进程启动与工具外的浏览器操作，工作台可见延迟也需单独计量。
 
 ## 版本与恢复
 
@@ -202,4 +223,4 @@ Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时�
 
 拖动位置和视口仅保存在当前浏览器的项目/版本隔离布局中，不改变 PRD、关系、快照或飞书内容。该偏好不跨浏览器来源（含本地端口）共享。历史内容只读，历史画布仍可临时浏览和排布。切换版本时等待对应数据后再展示，避免混用当前与历史页面。
 
-工作台低频检查轻量变化标识，回到页面时也检查；有变化才重新读取项目，保留仍有效的审查位置。历史版本保持固定内容。最近读取时间、连接失败提示与复制审查上下文仅显示在需求结构画布右下角固定浮层，不随平移缩放；其他视图不显示这组辅助操作。连接失败时保留旧内容。复制审查上下文包含版本、需求和本机定位链接；链接仅供当前电脑使用，且需要对应服务仍在运行。内部 PRD 链接在阅读器定位，来源资料按当前或历史版本读取。所有这些操作均不落盘项目业务数据。
+当前工作台每 2 秒检查已登记状态的元数据及选中 Demo 的内容标识，每 30 秒或窗口聚焦时检查更广的外部变化；频繁检查不遍历未打开 Demo 和历史资源树。有变化才重新读取展示摘要，正文按需加载。只有当前 Demo 内容变化才重载其预览，未保存工作稿也可更新画面，无关状态刷新保持演示位置。进入预览时执行目标完整性及页面证据检查；摘要中的待检查与已失效明确区分。历史版本保持固定内容。最近读取时间、连接失败提示与复制审查上下文仅显示在需求结构画布右下角固定浮层，不随平移缩放；其他视图不显示这组辅助操作。连接失败时保留旧内容。复制审查上下文包含版本、需求和本机定位链接；链接仅供当前电脑使用，且需要对应服务仍在运行。内部 PRD 链接在阅读器定位，来源资料按当前或历史版本读取。所有这些操作均不落盘项目业务数据。

@@ -38,7 +38,7 @@ def _inputs(store, project, artifacts, bindings, index):
             path = store._safe(module['documentPath'])
             if not path.is_file():
                 continue
-            content = path.read_text(encoding='utf-8')
+            content = store._file_bytes(path).decode('utf-8')
             metadata, _, _ = split_frontmatter(content)
             if metadata.get('documentId') != document_id or metadata.get('moduleId') != module['id']:
                 raise FlowError('Document identity changed outside an explicit operation', 409,
@@ -78,7 +78,7 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
     requested_bindings = _selector(binding_ids, 'binding_ids')
     if not requested_artifacts and not requested_bindings:
         raise FlowError('Scoped validation requires artifact IDs or binding IDs')
-    with store._transaction(read_only=True):
+    with store._transaction(read_only=True), store._read_session():
         project = store._project()
         artifacts_by_id = {artifact['id']: artifact for artifact in store._read('artifacts.json')['items']}
         relations = store._read('relations.json')
@@ -132,13 +132,16 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                 path = store._safe(framework['path'])
                 if not path.is_dir() or store._inventory(path) != framework['fileHashes']:
                     errors.append({'code': 'framework-mutated', 'id': fid})
+            artifact_inventories = {}
             for artifact in artifacts:
                 aid = artifact['id']
                 path = store._safe(artifact['path'])
                 if not path.is_dir():
+                    artifact_inventories[aid] = {}
                     errors.append({'code': 'artifact-missing', 'id': aid})
                 else:
                     hashes = store._inventory(path)
+                    artifact_inventories[aid] = hashes
                     if hashes != artifact.get('fileHashes'):
                         if artifact.get('kind') == 'working-draft':
                             warnings.append({'code': 'draft-unsaved', 'id': aid})
@@ -173,7 +176,8 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                 if not artifact.get('evidence'):
                     warnings.append({'code': 'artifact-unverified', 'id': aid})
 
-            evaluated = store._evaluated_relations(binding_ids=selected_bindings)
+            evaluated = store._evaluated_relations(binding_ids=selected_bindings,
+                                                   artifact_inventories=artifact_inventories)
             bindings = [binding for binding in evaluated.get('bindings', []) if binding['id'] in selected_bindings]
             for artifact, saved in frozen:
                 for binding in saved.get('bindings', []):

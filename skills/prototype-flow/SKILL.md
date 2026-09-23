@@ -1,6 +1,6 @@
 ---
 name: prototype-flow
-description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进需求拆分、高保真 Demo 和只读本地项目看板，维护需求到页面截图的关联、跨模块流程及版本历史；可选单向同步到飞书展示。按请求只执行所需阶段，单独页面视觉修改使用 demo-design。
+description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进需求拆分、高保真 Demo 和只读本地项目看板，维护需求到页面截图的关联、跨模块流程及版本历史；可选单向同步到飞书展示。已纳入工作台的 Demo 细节调整使用本技能的工作稿流程，页面实现使用 demo-design；独立 Demo 直接使用 demo-design。
 ---
 
 # Prototype Flow
@@ -17,7 +17,7 @@ description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进
 
 1. 识别用户要检查、讨论方案、实施、继续、保存版本还是同步飞书；沿用同一任务已有授权，按请求处理对应阶段。请求明确时直接进入，不要求重新选择流程；已有 PRD 或 Demo 可中途接入。
 2. 核对实际项目目录和当前宿主适用的项目规则（如 AGENTS.md、CLAUDE.md 或 Cursor 规则），保留现有文件，不假定宿主自动互读这些规则。PRD、本地工作台及飞书 `configure/prepare/status` 使用内建运行时，无需准备外部 Skill。首次进入 Demo 工作时运行 `dependencies --stage demo --project <project-dir>`；同一任务中路径与能力仍有效时复用，不在每次调整后重复准备。飞书云端操作 `bind/sync` 选 `feishu`，读取返回的依赖 `path/SKILL.md`。缺失 Skill 按固定提交校验安装；只读或禁止安装的任务追加 `--check`，遵守宿主权限。
-3. 已初始化时用只读的 `state` 摘要定位模块，再用 `document` 读取相关 PRD；也可直接从 `00-ai-context/DOC_MAP.md` 定位，不串行重复阅读全库和多份导航。任务或产物查询用 `state --section runs|artifacts`，已知编号加 `--id <id>`；只有确需全部状态时才用无 section 的 `state --full`。普通 `state` 的 `refreshRequired` 表示尚未落盘的外部变化；检查任务仅报告，已授权维护时再 `refresh`。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
+3. 已初始化时用只读的 `state` 摘要定位模块，再用 `document` 读取相关 PRD；也可直接从 `00-ai-context/DOC_MAP.md` 定位，不串行重复阅读全库和多份导航。任务、产物或页面绑定查询用 `state --section runs|artifacts|bindings`，已知编号加 `--id <id>`；只有确需全部状态时才用无 section 的 `state --full`。普通 `state` 的 `refreshRequired` 表示尚未落盘的外部变化；检查任务仅报告，已授权维护时再 `refresh`。未初始化且用户授权建立项目时运行 `init`。本步骤不更新已有 Skill、不全局同步、不修改项目规则。
 4. 只读本阶段命中的参考文件；已读且仍适用的内容直接复用。Demo 调整先按 [Demo 与变化](references/demo-and-change.md#先限定本次修改) 确定 Tier、影响范围和检查范围，再读取对应路径，不重新加载完整设计与交付流程：
 
 | 请求 | 按需读取 |
@@ -65,7 +65,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 
 - PRD 的每个需求块具有稳定 ID；改名或移动保留 ID，拆分、合并和移除使用显式操作并保存承接关系。一个需求可跨页面，一个页面可承载多需求。
 - 需求索引可重建；业务依赖、页面映射和证据是独立关联，不由刷新目录重新猜测。关联文件示例与格式见 `references/runtime.md` 及 `schemas/`。
-- Demo 日常调整使用 `demo-edit` 固定本轮输入并接续同一工作稿，完成适用检查后用 `demo-save` 保存修订、关联和任务结果，不每轮复制完整 Demo。首次生成、框架升级与旧流程仍可使用 `run-start`、`demo-prepare`、`demo-finalize`。所属文档及已声明依赖自动作为有效性依据，额外共享规则用 `--documents` 指定；输入闭包不等于本次复验范围。用户随后修改 PRD 时不覆盖新正文、不把旧输入 Demo 标为最新。Agent 继续判断未声明的共享规则影响，中断用 `run-finish` 保留实际成果。
+- 已纳入项目的 Demo 日常调整先用 `demo-edit --requirements <IDs...>` 或 `--bindings <IDs...>` 固定局部输入，再由 demo-design 完成页面修改；全项目明确使用 `--all-requirements`。复用命令返回的工作稿、受影响绑定和 `saveTemplate`，完成适用检查后一次 `demo-save` 保存修订、证据、必要模块阶段和任务结果，不每轮复制完整 Demo。首次生成、框架升级与旧流程仍可使用 `run-start`、`demo-prepare`、`demo-finalize`。所属文档及已声明依赖自动作为有效性依据，额外共享规则用 `--documents` 指定；输入闭包不等于本次复验范围。用户随后修改 PRD 时不覆盖新正文、不把旧输入 Demo 标为最新。Agent 继续判断未声明的共享规则影响，中断用 `run-finish` 保留实际成果。
 - 每张截图绑定实际 Demo 产物、页面、业务状态、演示数据入口与验证结果。点击后必须直达、刷新可恢复并能继续跨模块流程；声明范围必须由实际观察支持。
 - 用 `module-stage <project-dir> <module-id> --stage <stage>` 如实记录模块阶段，让看板跟随实际工作变化。已生成或测试通过不能自动成为 `confirmed`；该阶段必须通过 `--evidence-file` 提供实际用户确认记录。已确认模块的需求或已知依赖变化后自动回到待确认，保留原确认，其他手动阶段不被覆盖。字段与命令见 [运行时与数据](references/runtime.md#模块工作阶段)。
 - 工作稿持续调整，修订记录用于恢复；首次可用 Demo、提交评审、确认里程碑或用户明确保存 Demo 版本时，用 `demo-freeze` 冻结完整不可变产物；首次已由 `demo-finalize` 登记的完整产物直接沿用。重大改版前，若工作稿与最近冻结版不同，先保存检查点。冻结不代表用户确认或发布，也不自动保存项目快照。项目快照另行冻结整套 PRD、关系、Demo、截图和证据；历史只读，恢复形成新修订并保留当前飞书实时账本。
@@ -73,7 +73,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 
 ## 完成本次请求
 
-完成所请求阶段的产物与必要检查，如实更新受影响模块的阶段；批量入库已设置阶段时无需重复操作。
+完成所请求阶段的产物与必要检查，如实更新受影响模块的阶段。Demo 调整优先在 `demo-save.moduleStages` 中提交确有变化的阶段，未变化不重复登记；批量入库已设置阶段时无需重复操作。`demo-save` 成功回执已包含修订、检查、模块阶段和待复核证据，可直接据此交付；没有新改动或失败时，不追加 `run-finish`、`validate`、全量 `state` 或 `refresh`。Tier 0 允许受影响截图待复核，不为消除工作台标签扩大验证。
 
 需求整理拆分完成、PRD 与需求及来源已保存且必要检查通过后，自动运行 `python3 -B <skill-dir>/scripts/flow.py serve <project-dir> --reuse`，无需用户再次提出打开请求；复用时命令返回已有地址，新启动时通过宿主支持的后台或持久会话保持服务运行。确认返回的 `projectRoot` 是当前项目，使用宿主可用的浏览器能力打开返回的 `url`，并在交付中提供该本机链接。用户明确要求不启动时遵从；宿主权限或能力限制导致无法启动或打开时，如实说明实际状态及可用的启动命令或链接。
 

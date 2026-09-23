@@ -47,6 +47,15 @@ def metadata_signature(root, ignored=()):
     return hashlib.sha256(json.dumps(entries, separators=(',', ':')).encode()).hexdigest()
 
 
+def entry_signature(path):
+    """One filesystem entry only; directory children are deliberately not read."""
+    try:
+        value = Path(path).lstat()
+        return (value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns, value.st_ino)
+    except FileNotFoundError:
+        return 'missing'
+
+
 class ServiceRegistry:
     """Private per-user discovery outside project data and project snapshots."""
     def __init__(self, project_root):
@@ -202,7 +211,27 @@ class WorkbenchServer:
             raise FlowError('本地工作台服务尚未就绪', 503)
         return dict(self.info(), instanceId=self.instance_id, protocolVersion=1)
 
-    def revision(self):
+    def revision(self, scope='all', artifact_id=None):
+        if scope not in ('active', 'all'):
+            raise FlowError('变化检查范围无效', 400)
+        # Saved mutations replace these files atomically. Reading their metadata and
+        # the runs directory catches saves without walking old artifacts or runs.
+        self.store._project()
+        fast_paths = ('project.json', 'artifacts.json', 'relations.json', 'sources.json',
+                      'frameworks.json', 'maintenance.json', 'impact.json', 'feishu.json',
+                      'requirement-index.json', 'runs')
+        fast = {name: entry_signature(self.store.meta / name) for name in fast_paths}
+        state_token = hashlib.sha256(json.dumps(fast, sort_keys=True).encode()).hexdigest()
+        result = {'revisionToken': state_token, 'stateRevisionToken': state_token,
+                  'projectRoot': str(self.store.root)}
+        if artifact_id:
+            artifact = next((a for a in self.store._read('artifacts.json', {'items': []})['items']
+                             if a['id'] == artifact_id), None)
+            result['previewArtifactId'] = artifact_id
+            result['previewContentToken'] = (metadata_signature(self.store._safe(artifact['path']))
+                                             if artifact else 'missing')
+        if scope == 'active':
+            return result
         # Scan only metadata. Integrity is checked separately before content is used.
         project = self.store._project()
         paths = {project['libraryRoot'], 'DESIGN.md'}
@@ -227,8 +256,7 @@ class WorkbenchServer:
         signatures['versions'] = {path.name: metadata_signature(path / 'manifest.json')
                                   for path in sorted(versions.iterdir()) if path.is_dir() and not path.is_symlink()} if versions.exists() else {}
         token = hashlib.sha256(json.dumps(signatures, sort_keys=True).encode()).hexdigest()
-        return {'revisionToken': token,
-                'projectRoot': str(self.store.root)}
+        return dict(result, revisionToken=token, externalRevisionToken=token)
 
     def _checked_history(self, version):
         if not version:
@@ -304,7 +332,7 @@ class WorkbenchServer:
             '?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else '')
 
     def enriched_state(self, version=None):
-        state = copy.deepcopy(self.store.state(version=version))
+        state = copy.deepcopy(self.store.workbench_state(version=version))
         state['previewOrigin'] = self.preview_origin
         state['historical'] = bool(version)
         state['selectedVersion'] = version
@@ -326,6 +354,10 @@ class WorkbenchServer:
 
     def demo_entry(self, version=None, binding_id=None, artifact_id=None):
         """Check a registered entry before embedding; never accept a client URL."""
+        with self.store._transaction(read_only=True), self.store._read_session():
+            return self._demo_entry(version, binding_id, artifact_id)
+
+    def _demo_entry(self, version=None, binding_id=None, artifact_id=None):
         root = self._checked_history(version)
         binding = None
         if binding_id:
@@ -342,7 +374,19 @@ class WorkbenchServer:
         file = safe_file(artifact_root, relative)
         if file.suffix.lower() not in ('.html', '.htm'):
             raise FlowError('页面状态未指向 HTML 演示入口', 400)
-        return {'url': url}
+        checked = {key: artifact[key] for key in ('id', 'kind', 'draftRevision', 'editStatus') if key in artifact}
+        registered = next(a for a in self.store._read('artifacts.json', {'items': []}, base=root)['items']
+                          if a['id'] == artifact['id'])
+        editing = artifact.get('kind') == 'working-draft' and (
+            artifact.get('fileHashes') != registered.get('fileHashes') or artifact.get('activeRunId')
+            or artifact.get('editStatus') != 'ready')
+        checked['integrityStatus'] = 'editing' if editing else 'intact'
+        result = {'url': url, 'artifact': checked}
+        if binding:
+            evaluated = self.store._evaluated_relations(root, binding_ids={binding['id']},
+                                                        artifact_inventories={artifact['id']: artifact['fileHashes']})
+            result['binding'] = next(item for item in evaluated['bindings'] if item['id'] == binding['id'])
+        return result
 
     def _base_handler(self):
         class Handler(BaseHTTPRequestHandler):
@@ -429,7 +473,7 @@ class WorkbenchServer:
                         if path == '/api/state':
                             return self.json(owner.enriched_state(version))
                         if path == '/api/revision':
-                            return self.json(owner.revision())
+                            return self.json(owner.revision(query.get('scope', ['all'])[0], query.get('artifact', [None])[0]))
                         if path == '/api/health':
                             return self.json(owner.health())
                         if path == '/api/demo-entry':

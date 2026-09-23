@@ -1,4 +1,4 @@
-"""Read selected task or artifact records without building full project state."""
+"""Read selected task, artifact or binding records without full project state."""
 from pf_core import FlowError, business_text, digest, parse_requirements, split_frontmatter, valid_id
 
 
@@ -11,6 +11,7 @@ def _run_summary(run):
                        'inputRevision', 'inputPath', 'requirementIds', 'sharedDocumentIds',
                        'contextScope', 'resumedFrom', 'recoveredOutputs', 'snapshotOutputs')
     result.update(_selected(run, 'change', 'metrics', 'measurements', 'changedFiles',
+                            'affectedBindingIds', 'affectedModules', 'evidenceSummary', 'scopeExpandedToAll',
                             'draft', 'draftId', 'artifactId', 'draftRevision', 'beforeRevision',
                             'kind', 'path', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision'))
     result['inputRequirementIds'] = sorted(run.get('requirementHashes', {}))
@@ -42,7 +43,7 @@ def _artifact_inputs(store, base, project, artifacts):
         path = store._safe(module['documentPath'], base=base)
         if not path.is_file():
             continue
-        content = path.read_text(encoding='utf-8')
+        content = store._file_bytes(path).decode('utf-8')
         metadata, _, _ = split_frontmatter(content)
         if metadata.get('documentId') != module['documentId'] or metadata.get('moduleId') != module['id']:
             raise FlowError('Document identity changed outside an explicit operation', 409,
@@ -82,14 +83,22 @@ def _artifact_record(store, base, artifact, documents, requirements, full):
     return result
 
 
+def _binding_record(binding, full):
+    if full:
+        return binding
+    return _selected(binding, 'id', 'artifactId', 'screenId', 'stateId', 'route', 'fixtureId',
+        'requirementIds', 'screenshot', 'verified', 'status', 'verificationStatus',
+        'verificationScope', 'verificationDraftRevision', 'evidence', 'verificationInheritedFrom')
+
+
 def query_state(store, section, record_id=None, version=None, full=False):
     """Preserve state section shapes, with optional identity filtering and full records."""
-    if section not in ('runs', 'artifacts'):
-        raise FlowError('State section must be runs or artifacts')
+    if section not in ('runs', 'artifacts', 'bindings'):
+        raise FlowError('State section must be runs, artifacts or bindings')
     if record_id is not None:
         valid_id(record_id)
     historical = version not in (None, '', 'working')
-    with store._transaction(read_only=True):
+    with store._transaction(read_only=True), store._read_session():
         base = store._verify_snapshot(version)[0] if historical else store.root
         project = store._project(base)
         result = {'project': _selected(project, 'id', 'name', 'revision'), 'section': section,
@@ -105,6 +114,15 @@ def query_state(store, section, record_id=None, version=None, full=False):
             if record_id is not None and not runs:
                 raise FlowError('Run is not available in this version', 404, {'id': record_id})
             result['runs'] = runs if full else [_run_summary(run) for run in runs]
+        elif section == 'bindings':
+            bindings = store._read('relations.json', {'bindings': []}, base=base)['bindings']
+            binding_ids = {binding['id'] for binding in bindings
+                           if record_id is None or binding['id'] == record_id}
+            if record_id is not None and not binding_ids:
+                raise FlowError('Binding is not available in this version', 404, {'id': record_id})
+            evaluated = store._evaluated_relations(base=base, binding_ids=binding_ids)
+            result['relations'] = {'bindings': [_binding_record(binding, full)
+                                               for binding in evaluated['bindings']]}
         else:
             collection = store._read('artifacts.json', {'items': [], 'currentArtifactId': None}, base=base)
             artifacts = [artifact for artifact in collection['items']

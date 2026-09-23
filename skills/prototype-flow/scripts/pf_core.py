@@ -201,7 +201,102 @@ class ProjectStore:
         self._lock = threading.RLock()
         self._depth = 0
         self._write_journals = []
-        self.metrics = {'inventoryCalls': 0, 'hashedBytes': 0, 'copiedFiles': 0, 'copiedBytes': 0}
+        self._reads = None
+        self.metrics = {'inventoryCalls': 0, 'hashedBytes': 0, 'copiedFiles': 0, 'copiedBytes': 0,
+                        'readCalls': 0, 'readBytes': 0, 'readCacheHits': 0, 'hashCacheHits': 0}
+
+    @staticmethod
+    def _file_stamp(path):
+        stat = path.stat()
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+    @contextlib.contextmanager
+    def _read_session(self):
+        """Reuse reads only within one locked operation; reject concurrent external edits.
+
+        File metadata is an invalidation signal, never persisted proof of integrity.
+        Byte retention is bounded; hashes can be reused for larger resources too.
+        Enter inside the rollback context so a consistency failure rolls writes back.
+        """
+        with self._lock:
+            if self._reads is not None:
+                yield
+                return
+            session = {'files': {}, 'bytes': 0, 'trees': {}}
+            self._reads = session
+            try:
+                yield
+                for path, record in session['files'].items():
+                    try:
+                        unchanged = self._file_stamp(path) == record['stamp']
+                    except OSError:
+                        unchanged = False
+                    if not unchanged:
+                        raise FlowError('File changed during this operation; retry', 409,
+                                        {'path': str(path.relative_to(self.root))})
+                for directory, expected in session['trees'].items():
+                    if self._inventory_entries(directory) != expected:
+                        raise FlowError('Directory changed during this operation; retry', 409,
+                                        {'path': str(directory.relative_to(self.root))})
+            finally:
+                self._reads = None
+
+    def _forget_read(self, path):
+        if self._reads is None:
+            return
+        record = self._reads['files'].pop(path, None)
+        if record and 'data' in record:
+            self._reads['bytes'] -= len(record['data'])
+        for directory in list(self._reads['trees']):
+            if directory == path or directory in path.parents:
+                del self._reads['trees'][directory]
+
+    def _file_bytes(self, path):
+        path = Path(path)
+        stamp = self._file_stamp(path)
+        record = self._reads['files'].get(path) if self._reads is not None else None
+        if record is not None and record['stamp'] != stamp:
+            raise FlowError('File changed during this operation; retry', 409,
+                            {'path': str(path.relative_to(self.root))})
+        if record is not None and 'data' in record:
+            self.metrics['readCacheHits'] += 1
+            return record['data']
+        data = path.read_bytes()
+        self.metrics['readCalls'] += 1
+        self.metrics['readBytes'] += len(data)
+        if self._file_stamp(path) != stamp:
+            raise FlowError('File changed while reading; retry', 409,
+                            {'path': str(path.relative_to(self.root))})
+        if self._reads is not None:
+            record = self._reads['files'].setdefault(path, {'stamp': stamp})
+            if self._reads['bytes'] + len(data) <= 8 * 1024 * 1024:
+                record['data'] = data
+                self._reads['bytes'] += len(data)
+        return data
+
+    def _file_digest(self, path):
+        path = Path(path)
+        record = self._reads['files'].get(path) if self._reads is not None else None
+        if record is not None and 'hash' in record:
+            if self._file_stamp(path) != record['stamp']:
+                raise FlowError('File changed during this operation; retry', 409,
+                                {'path': str(path.relative_to(self.root))})
+            self.metrics['hashCacheHits'] += 1
+            return record['hash']
+        data = self._file_bytes(path)
+        result = digest(data)
+        self.metrics['hashedBytes'] += len(data)
+        if self._reads is not None:
+            self._reads['files'][path]['hash'] = result
+        return result
+
+    def _inventory_entries(self, directory):
+        entries = []
+        for path in sorted(directory.rglob('*')):
+            self._safe(path.relative_to(self.root))
+            entries.append((path.relative_to(directory).as_posix(),
+                            self._file_stamp(path) if path.is_file() else None))
+        return entries
 
     @contextlib.contextmanager
     def _rollback_writes(self):
@@ -272,7 +367,7 @@ class ProjectStore:
         if not path.exists():
             return copy.deepcopy(default)
         try:
-            return json.loads(path.read_text(encoding='utf-8'))
+            return json.loads(self._file_bytes(path).decode('utf-8'))
         except (ValueError, OSError) as exc:
             raise FlowError('Cannot read project data: ' + name, 500, str(exc))
 
@@ -286,6 +381,7 @@ class ProjectStore:
             if path not in journal:
                 journal[path] = (path.read_bytes(), path.stat()) if path.is_file() else None
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._forget_read(path)
         fd, tmp = tempfile.mkstemp(prefix='.pf-write-', dir=str(path.parent))
         try:
             with os.fdopen(fd, 'wb') as stream:
@@ -360,7 +456,7 @@ class ProjectStore:
         for path in sorted(library.rglob('*.md')):
             self._safe(path.relative_to(self.root))
             rel = path.relative_to(library)
-            content = path.read_text(encoding='utf-8')
+            content = self._file_bytes(path).decode('utf-8')
             meta, _, body = split_frontmatter(content)
             if not meta.get('documentId') and (any(p in skipped for p in rel.parts) or path.name in ('README.md', 'INDEX.md', 'CHANGELOG.md', 'AGENTS.md', 'CLAUDE.md')):
                 continue
@@ -389,7 +485,7 @@ class ProjectStore:
         documents, requirements, ids = [], [], set()
         for module in project['modules']:
             path = self._safe(module['documentPath'], base=base, must_exist=True)
-            content = path.read_text(encoding='utf-8')
+            content = self._file_bytes(path).decode('utf-8')
             meta, _, _ = split_frontmatter(content)
             if meta.get('documentId') != module['documentId'] or meta.get('moduleId') != module['id']:
                 raise FlowError('Document identity changed outside an explicit operation', 409, {'path': module['documentPath']})
@@ -534,6 +630,10 @@ class ProjectStore:
 
     def _reindex(self):
         view = self._index_changes()
+        self._persist_index_view(view)
+        return view['documents'], view['requirements'], view['impactedRequirementIds']
+
+    def _persist_index_view(self, view):
         documents, requirements = view['documents'], view['requirements']
         self._write('project.json', view['project'])
         prior = self._read('impact.json', {})
@@ -542,7 +642,6 @@ class ProjectStore:
         self._write('requirement-index.json', {'schemaVersion': 1, 'items': requirements,
                     'documents': [dict((k, v) for k, v in d.items() if k != 'content') |
                                   {'outsideHash': digest(REQ.sub('', business_text(d['content'])))} for d in documents]})
-        return documents, requirements, view['impactedRequirementIds']
 
     def refresh(self):
         with self._transaction(), self._rollback_writes():
@@ -561,13 +660,30 @@ class ProjectStore:
         return self._safe('versions/' + version + '/project', must_exist=True)
 
     def state(self, version=None, summary=False):
-        with self._transaction(read_only=True):
+        with self._transaction(read_only=True), self._read_session():
             view = None
             if not version or version == 'working':
                 view = self._index_changes()
             else:
                 self._verify_snapshot(version)
             result = self._summary(version, view) if summary else self._state(version, view)
+            if view:
+                result.update(refreshRequired=view['refreshRequired'], storedRevision=view['storedRevision'],
+                              changedRequirementIds=view['impactedRequirementIds'])
+            return result
+
+    def workbench_state(self, version=None):
+        """Read the board without auditing every historical Demo on each refresh.
+
+        Live evidence is explicitly unchecked until the selected entry is inspected.
+        The full state/validate APIs retain their existing integrity guarantees.
+        """
+        with self._transaction(read_only=True), self._read_session():
+            historical = version not in (None, '', 'working')
+            view = None if historical else self._index_changes()
+            if historical:
+                self._verify_snapshot(version)
+            result = self._state(version, view, inspect_artifacts=False)
             if view:
                 result.update(refreshRequired=view['refreshRequired'], storedRevision=view['storedRevision'],
                               changedRequirementIds=view['impactedRequirementIds'])
@@ -593,7 +709,7 @@ class ProjectStore:
                 'frameworks': self._framework_summary(base),
                 'historical': base != self.root, 'versionId': version if base != self.root else None}
 
-    def _state(self, version=None, view=None):
+    def _state(self, version=None, view=None, inspect_artifacts=True):
         base = self.content_root(version)
         documents, requirements = (view['documents'], view['requirements']) if view else self._scan(base)
         artifacts = self._read('artifacts.json', {'items': []}, base=base)
@@ -608,8 +724,15 @@ class ProjectStore:
             artifact['staleDocumentIds'] = sorted(d for d, h in artifact.get('documentHashes', {}).items() if current_documents.get(d) != h)
             artifact['syncStatus'] = 'stale' if artifact['staleRequirementIds'] or artifact['staleDocumentIds'] else 'current'
             artifact_path = self._safe(artifact['path'], base=base)
-            artifact['integrityStatus'] = 'intact' if artifact_path.is_dir() and self._inventory(artifact_path) == artifact.get('fileHashes') else 'changed'
-            if artifact['integrityStatus'] != 'intact':
+            artifact['integrityStatus'] = ('intact' if artifact_path.is_dir() and self._inventory(artifact_path) == artifact.get('fileHashes')
+                                           else 'changed') if inspect_artifacts else 'unchecked'
+            if not inspect_artifacts:
+                if artifact.get('kind') == 'working-draft' and (artifact.get('activeRunId') or
+                        artifact.get('editStatus') in ('editing', 'needs-review')):
+                    artifact['integrityStatus'] = 'editing'
+                for field in ('fileHashes', 'inputFileHashes', 'inputDocuments', 'frozenRelations'):
+                    artifact.pop(field, None)
+            elif artifact['integrityStatus'] != 'intact':
                 if artifact.get('kind') == 'working-draft' and base == self.root and artifact_path.is_dir():
                     artifact['integrityStatus'] = 'editing'
                     artifact['syncStatus'] = 'editing'
@@ -622,9 +745,27 @@ class ProjectStore:
         if runs_dir.exists():
             for path in sorted(runs_dir.glob('*.json')):
                 self._safe(path.relative_to(base), base=base)
-                runs.append(json.loads(path.read_text(encoding='utf-8')))
+                record = json.loads(self._file_bytes(path).decode('utf-8'))
+                if not inspect_artifacts:
+                    from pf_queries import _run_summary
+                    record = _run_summary(record)
+                runs.append(record)
+        relations = self._evaluated_relations(base) if inspect_artifacts else self._read('relations.json', base=base)
+        if not inspect_artifacts:
+            for binding in relations.get('bindings', []):
+                if binding.get('verified'):
+                    binding.update(registeredVerified=True, verified=False, verificationStatus='unchecked')
+            summaries = []
+            for document in documents:
+                body = re.sub(r'<!--[\s\S]*?-->', '', split_frontmatter(document['content'])[2])
+                body = re.sub(r'(?m)^(`{3,}|~{3,}).*\n[\s\S]*?^\1[^\n]*$', '', body)
+                description = next((paragraph.strip() for paragraph in re.split(r'\n\s*\n', body)
+                                    if paragraph.strip() and not re.match(r'\s*(?:#|[-*+]\s|\d+\.\s|[>|`~])', paragraph)), '')
+                summaries.append({**{key: value for key, value in document.items() if key != 'content'},
+                                  'description': description[:2000]})
+            documents = summaries
         return {'project': view['project'] if view else self._project(base), 'documents': documents, 'requirements': requirements,
-                'relations': self._evaluated_relations(base), 'artifacts': artifacts,
+                'relations': relations, 'artifacts': artifacts,
                 'frameworks': self._frameworks(base),
                 'sources': self._read('sources.json', {'items': []}, base=base),
                 'versions': self.versions(), 'feishu': self._read('feishu.json', {}, base=base),
@@ -811,39 +952,74 @@ class ProjectStore:
 
     def set_module_stage(self, module_id, stage, evidence=None):
         """Record workflow progress; user confirmation is explicit, never inferred."""
-        valid_id(module_id)
-        if stage not in MODULE_STAGES:
-            raise FlowError('Unknown module stage', details={'allowedStages': list(MODULE_STAGES)})
-        if evidence is not None and not isinstance(evidence, dict):
-            raise FlowError('Stage evidence must be a JSON object')
-        if stage == 'confirmed':
-            if not evidence or evidence.get('type') != 'user-confirmation' or any(
-                    not isinstance(evidence.get(key), str) or not evidence[key].strip()
-                    for key in ('summary', 'source')):
+        return self.set_module_stages([{'id': module_id, 'stage': stage, 'evidence': evidence}])[0]
+
+    def set_module_stages(self, updates):
+        """Apply explicit stage changes together, with one scan and navigation update."""
+        if not isinstance(updates, list):
+            raise FlowError('Module stages must be an array')
+        ids = set()
+        for update in updates:
+            if not isinstance(update, dict) or set(update) - {'id', 'stage', 'evidence'}:
+                raise FlowError('Module stage updates support id, stage and evidence')
+            module_id = valid_id(update.get('id'))
+            if module_id in ids:
+                raise FlowError('Duplicate module stage update')
+            ids.add(module_id)
+            stage, evidence = update.get('stage'), update.get('evidence')
+            if stage not in MODULE_STAGES:
+                raise FlowError('Unknown module stage', details={'allowedStages': list(MODULE_STAGES)})
+            if evidence is not None and not isinstance(evidence, dict):
+                raise FlowError('Stage evidence must be a JSON object')
+            if stage == 'confirmed' and (not evidence or evidence.get('type') != 'user-confirmation' or any(
+                    not isinstance(evidence.get(key), str) or not evidence[key].strip() for key in ('summary', 'source'))):
                 raise FlowError('Confirmed stage requires a user-confirmation record with summary and source',
                                 details={'requiredEvidence': {'type': 'user-confirmation',
                                          'summary': '用户明确确认的内容', 'source': '对话或评审记录定位'}})
-        with self._transaction():
-            self._reindex()
-            project = self._project()
-            module = next((m for m in project['modules'] if m['id'] == module_id), None)
-            if not module:
-                raise FlowError('Unknown module: ' + module_id, 404)
-            document = self.document(module['documentId'])
-            requirements = [r for r in self._scan()[1] if r['moduleId'] == module_id]
-            record = copy.deepcopy(evidence or {})
-            record.update(inputRevision=project['revision'], documentRevision=document['revision'],
-                          businessHash=document['businessHash'],
-                          requirementHashes={r['id']: r['hash'] for r in requirements})
-            timestamp = now()
-            module.setdefault('stageHistory', []).append({'from': module.get('stage'), 'to': stage,
-                'changedAt': timestamp, 'reason': 'explicit-update', 'evidence': copy.deepcopy(record)})
-            module.update(stage=stage, stageEvidence=record, stageUpdatedAt=timestamp)
-            project.update(revision=project['revision'] + 1, updatedAt=timestamp)
-            self._write('project.json', project)
-            self._reindex()
-            self._maintain()
-            return copy.deepcopy(module)
+        if not updates:
+            return []
+        with self._transaction(), self._rollback_writes(), self._read_session():
+            view = self._index_changes()
+            project = view['project']
+            modules = {module['id']: module for module in project['modules']}
+            if ids - set(modules):
+                raise FlowError('Unknown module: ' + ', '.join(sorted(ids - set(modules))), 404)
+            documents = {document['id']: document for document in view['documents']}
+            requirements = view['requirements']
+            changed = False
+            for update in updates:
+                module = modules[update['id']]
+                stage, evidence = update['stage'], update.get('evidence')
+                document = documents[module['documentId']]
+                hashes = {r['id']: r['hash'] for r in requirements if r['moduleId'] == module['id']}
+                previous = module.get('stageEvidence', {})
+                same_evidence = evidence is None or (
+                    all(previous.get(key) == value for key, value in evidence.items())
+                    and previous.get('businessHash') == document['businessHash']
+                    and previous.get('requirementHashes') == hashes)
+                if module.get('stage') == stage and same_evidence:
+                    continue
+                record = copy.deepcopy(evidence or {})
+                record.update(inputRevision=project['revision'], documentRevision=document['revision'],
+                              businessHash=document['businessHash'], requirementHashes=hashes)
+                timestamp = now()
+                module.setdefault('stageHistory', []).append({'from': module.get('stage'), 'to': stage,
+                    'changedAt': timestamp, 'reason': 'explicit-update', 'evidence': copy.deepcopy(record)})
+                module.update(stage=stage, stageEvidence=record, stageUpdatedAt=timestamp)
+                changed = True
+            if view['refreshRequired']:
+                # Real PRD changes still persist their impact and current requirement index.
+                self._persist_index_view(view)
+            if changed:
+                project.update(revision=project['revision'] + 1, updatedAt=now())
+                self._write('project.json', project)
+            if changed or view['refreshRequired']:
+                pending = self._pending_after_confirmation(project, view['documents'], requirements,
+                                                            view['pendingRequirementIds'])
+                if self._read('impact.json', {}).get('requirementIds') != pending:
+                    self._write('impact.json', {'requirementIds': pending, 'updatedAt': now()})
+                self._maintain()
+            return [copy.deepcopy(modules[update['id']]) for update in updates]
 
     def _flow_step_errors(self, relations, requirement_ids):
         """The same reference checks serve both writes and project validation."""
@@ -896,11 +1072,11 @@ class ProjectStore:
             return digest(canonical({'artifactId': artifact['id'],
                 **({'draftRevision': artifact['draftRevision']} if draft else {}),
                 'page': page_content(self, binding, artifact, base)}))
-        value['screenshotHash'] = digest(path.read_bytes())
+        value['screenshotHash'] = self._file_digest(path)
         value['artifactFiles'] = artifact.get('fileHashes')
         return digest(canonical(value))
 
-    def _evaluated_relations(self, base=None, binding_ids=None):
+    def _evaluated_relations(self, base=None, binding_ids=None, artifact_inventories=None):
         relations = self._read('relations.json', base=base)
         if binding_ids is not None:
             relations['bindings'] = [b for b in relations.get('bindings', []) if b['id'] in binding_ids]
@@ -911,8 +1087,10 @@ class ProjectStore:
                 artifact = artifacts.get(binding.get('artifactId'), {})
                 if artifact.get('kind') == 'working-draft' and artifact['id'] not in draft_dirty:
                     draft_path = self._safe(artifact['path'], base=base)
-                    draft_dirty[artifact['id']] = (not draft_path.is_dir() or
-                        self._inventory(draft_path) != artifact.get('fileHashes'))
+                    inventory = (artifact_inventories[artifact['id']]
+                                 if artifact_inventories is not None and artifact['id'] in artifact_inventories
+                                 else self._inventory(draft_path))
+                    draft_dirty[artifact['id']] = (not draft_path.is_dir() or inventory != artifact.get('fileHashes'))
                 if artifact.get('kind') == 'working-draft' and (
                         draft_dirty.get(artifact['id']) or artifact.get('activeRunId') or artifact.get('editStatus') != 'ready'
                         or binding.get('verificationDraftRevision') != artifact.get('draftRevision')):
@@ -1015,12 +1193,16 @@ class ProjectStore:
         if not directory.exists():
             return {}
         inventory = {}
-        for path in sorted(directory.rglob('*')):
-            self._safe(path.relative_to(self.root))
-            if path.is_file():
-                content = path.read_bytes()
-                self.metrics['hashedBytes'] += len(content)
-                inventory[path.relative_to(directory).as_posix()] = digest(content)
+        entries = self._inventory_entries(directory)
+        for relative, stamp in entries:
+            if stamp is not None:
+                inventory[relative] = self._file_digest(directory / relative)
+        if self._reads is not None:
+            previous = self._reads['trees'].get(directory)
+            if previous is not None and previous != entries:
+                raise FlowError('Directory changed during this operation; retry', 409,
+                                {'path': str(directory.relative_to(self.root))})
+            self._reads['trees'][directory] = entries
         return inventory
 
     def register_artifact(self, data):
@@ -1552,9 +1734,10 @@ class ProjectStore:
         return dict({key: self.metrics[key] - before.get(key, 0) for key in self.metrics},
                     elapsedMs=round((time.perf_counter() - started) * 1000, 3))
 
-    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None):
+    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None, binding_ids=None, all_requirements=False):
         from pf_drafts import edit_demo
-        return edit_demo(self, requirement_ids, shared_document_ids, change)
+        return edit_demo(self, requirement_ids, shared_document_ids, change,
+                         binding_ids=binding_ids, all_requirements=all_requirements)
 
     def save_demo(self, run_id, payload):
         from pf_drafts import save_demo

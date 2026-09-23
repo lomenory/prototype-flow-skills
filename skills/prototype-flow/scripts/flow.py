@@ -98,7 +98,8 @@ def compact_result(command, value):
                           'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds', 'contextScope',
                           'change', 'metrics', 'measurements', 'changedFiles', 'draft',
                           'draftId', 'artifactId', 'draftRevision', 'beforeRevision', 'path',
-                          'kind', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision')
+                          'kind', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision',
+                          'scopeExpandedToAll', 'affectedBindingIds', 'affectedModules', 'bindings', 'saveTemplate')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
         if value.get('framework'):
@@ -155,8 +156,8 @@ def parser():
     cmd.add_argument('--reuse', action='store_true', help='验证并复用同项目的现有服务；没有可用服务时启动')
     cmd = command('state', '读取项目摘要或指定任务/产物；--full 返回所选范围完整记录，支持历史版本')
     cmd.add_argument('--version')
-    cmd.add_argument('--section', choices=['runs', 'artifacts'], help='只读取任务或产物，省略无关 PRD 正文')
-    cmd.add_argument('--id', help='只读取指定任务或产物；必须同时提供 --section')
+    cmd.add_argument('--section', choices=['runs', 'artifacts', 'bindings'], help='只读取任务、产物或页面绑定，省略无关 PRD 正文')
+    cmd.add_argument('--id', help='只读取指定任务、产物或绑定；必须同时提供 --section')
     cmd = command('document', '读取完整 PRD 及保存基线')
     cmd.add_argument('id')
     cmd.add_argument('--version')
@@ -184,12 +185,15 @@ def parser():
     cmd = command('framework', '登记不可变共享框架候选；随已验证 Demo 一起启用')
     cmd.add_argument('--file', required=True)
     cmd = command('demo-edit', '固定本轮需求并接续同一 Demo 工作稿；不创建完整历史版本')
-    cmd.add_argument('--requirements', nargs='*')
+    scope = cmd.add_mutually_exclusive_group()
+    scope.add_argument('--requirements', nargs='+', help='本次直接修改的需求 ID')
+    scope.add_argument('--bindings', nargs='+', help='从指定页面绑定推导本次需求范围')
+    scope.add_argument('--all-requirements', action='store_true', help='明确选择全项目需求')
     cmd.add_argument('--documents', nargs='*', help='额外影响本次工作稿的共享规则文档 ID')
     cmd.add_argument('--change-file', help='本次修改范围 JSON：tier、summary、affectedBindingIds')
     cmd = command('demo-save', '保存工作稿修订、更新受影响证据并结束本轮任务')
     cmd.add_argument('id', help='demo-edit 返回的任务 ID')
-    cmd.add_argument('--file', required=True, help='保存内容 JSON；artifact、bindings、flows、outputs、measurements 均可选')
+    cmd.add_argument('--file', required=True, help='保存内容 JSON；artifact、bindings、bindingPatches、flows、moduleStages、outputs、measurements 均可选')
     cmd = command('demo-freeze', '将已保存工作稿冻结为独立完整 Demo 版本')
     cmd.add_argument('--artifact', help='工作稿 ID；默认当前工作稿')
     cmd.add_argument('--title', help='冻结版本的可读标题')
@@ -312,7 +316,7 @@ def main(argv=None):
             return 0
         elif command == 'state':
             if args.id is not None and not args.section:
-                raise FlowError('state --id requires --section runs or artifacts')
+                raise FlowError('state --id requires --section runs, artifacts or bindings')
             if args.section:
                 from pf_queries import query_state
                 result = query_state(store, args.section, args.id, args.version, full=args.full)
@@ -336,8 +340,13 @@ def main(argv=None):
         elif command == 'framework':
             result = store.register_framework(read_json(args.file))
         elif command == 'demo-edit':
+            change = read_json(args.change_file) if args.change_file else None
+            inferred = isinstance(change, dict) and bool(change.get('affectedBindingIds'))
+            if not (args.requirements or args.bindings or args.all_requirements or inferred):
+                raise FlowError('demo-edit 需要明确范围：使用 --requirements、--bindings、change.affectedBindingIds 或 --all-requirements')
             result = store.edit_demo(args.requirements, args.documents,
-                                     change=read_json(args.change_file) if args.change_file else None)
+                                     change=change, binding_ids=args.bindings,
+                                     all_requirements=args.all_requirements)
         elif command == 'demo-save':
             result = store.save_demo(args.id, read_json(args.file))
         elif command == 'demo-freeze':

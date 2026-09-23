@@ -50,10 +50,22 @@ def _blob(store, content):
     hash_ = digest(content)
     path = store._safe('.prototype-flow/draft-blobs/' + hash_)
     if path.exists():
-        if digest(path.read_bytes()) != hash_:
+        if store._file_digest(path) != hash_:
             raise FlowError('Draft recovery blob changed on disk', 409)
     else:
         store._write_bytes(path, content)
+    return hash_
+
+
+def _capture_file(store, path):
+    """Reuse a validated CAS object; read source bytes only for new content."""
+    hash_ = store._file_digest(path)
+    blob = store._safe('.prototype-flow/draft-blobs/' + hash_)
+    if blob.is_file():
+        if store._file_digest(blob) != hash_:
+            raise FlowError('Draft recovery blob changed on disk', 409)
+    elif _blob(store, store._file_bytes(path)) != hash_:
+        raise FlowError('Draft changed while saving recovery revision; retry', 409)
     return hash_
 
 
@@ -64,7 +76,7 @@ def _capture(store, artifact, name=None):
     for path in sorted(directory.rglob('*')):
         store._safe(path.relative_to(store.root))
         if path.is_file():
-            hashes[path.relative_to(directory).as_posix()] = _blob(store, path.read_bytes())
+            hashes[path.relative_to(directory).as_posix()] = _capture_file(store, path)
     if hashes != artifact['fileHashes']:
         raise FlowError('Draft changed while saving recovery revision; retry', 409)
     relations = store._read('relations.json')
@@ -78,7 +90,7 @@ def _capture(store, artifact, name=None):
         if binding.get('screenshot'):
             path = store._safe(binding['screenshot'])
             if path.is_file():
-                external[binding['screenshot']] = _blob(store, path.read_bytes())
+                external[binding['screenshot']] = _capture_file(store, path)
         if binding.get('verified') and binding.get('verificationScope'):
             try:
                 if binding.get('verificationHash') == store._binding_fingerprint(binding):
@@ -103,7 +115,7 @@ def _read_revision(store, aid, revision):
     for relative, expected in manifest.get('fileHashes', {}).items():
         store._safe(relative, base=store._safe(manifest['artifact']['path']))
         path = store._safe('.prototype-flow/draft-blobs/' + expected)
-        if not path.is_file() or digest(path.read_bytes()) != expected:
+        if not path.is_file() or store._file_digest(path) != expected:
             raise FlowError('Draft recovery data is missing or changed', 409)
     return manifest
 
@@ -225,9 +237,62 @@ def _create_draft(store):
         raise
 
 
-def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None):
+def _resolve_edit_scope(store, requirement_ids, binding_ids, change, all_requirements):
+    if change is not None and not isinstance(change, dict):
+        raise FlowError('Demo change must be an object')
+    affected = (change or {}).get('affectedBindingIds', []) if isinstance(change, dict) else []
+    if not isinstance(affected, list):
+        raise FlowError('Demo affectedBindingIds must be an array of stable IDs')
+    selected_bindings = binding_ids if binding_ids is not None else affected
+    if not isinstance(selected_bindings, list):
+        raise FlowError('Demo bindings must be an array of stable IDs')
+    selected_bindings = list(dict.fromkeys(valid_id(bid) for bid in selected_bindings))
+    known = {b['id']: b for b in store._read('relations.json')['bindings']}
+    if set(selected_bindings) - set(known):
+        raise FlowError('Unknown affected binding', 404, sorted(set(selected_bindings) - set(known)))
+    if requirement_ids is not None and (binding_ids is not None or all_requirements):
+        raise FlowError('Choose requirements, bindings or all requirements')
+    if binding_ids is not None and all_requirements:
+        raise FlowError('Choose bindings or all requirements')
+    if requirement_ids is None and selected_bindings and not all_requirements:
+        requirement_ids = sorted({rid for bid in selected_bindings for rid in known[bid].get('requirementIds', [])})
+        if not requirement_ids:
+            raise FlowError('Selected bindings have no requirements; use --requirements to set an explicit scope')
+    if binding_ids is not None and change is not None:
+        change = copy.deepcopy(change)
+        change['affectedBindingIds'] = sorted(set(affected) | set(selected_bindings))
+    return requirement_ids, change, selected_bindings
+
+
+def _affected_modules(store, requirement_ids):
+    selected = set(requirement_ids)
+    index = store._read('requirement-index.json', {'items': []})
+    module_ids = {r['moduleId'] for r in index['items'] if r['id'] in selected}
+    return [{key: m[key] for key in ('id', 'title', 'documentId', 'stage') if key in m}
+            for m in store._project()['modules'] if m['id'] in module_ids]
+
+
+def _edit_receipt(store, run, draft):
+    declared = set(run.get('affectedBindingIds', [])) | set((run.get('change') or {}).get('affectedBindingIds', []))
+    selected = set(run['requirementIds'])
+    bindings = [b for b in store._read('relations.json')['bindings'] if b['artifactId'] == draft['id']
+                and (b['id'] in declared if declared else selected.intersection(b.get('requirementIds', [])))]
+    keys = ('id', 'artifactId', 'requirementIds', 'screenId', 'stateId', 'route', 'fixtureId',
+            'screenshot', 'verified', 'verificationStatus')
+    run['affectedModules'] = _affected_modules(store, run['requirementIds'])
+    run['bindings'] = [{key: b[key] for key in keys if key in b} for b in bindings]
+    run['saveTemplate'] = {'outputs': {'summary': (run.get('change') or {}).get('summary', '')}}
+    if bindings:
+        run['saveTemplate']['bindingPatches'] = [{'id': b['id']} for b in bindings]
+
+
+def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None,
+              binding_ids=None, all_requirements=False):
     started, before = time.perf_counter(), dict(store.metrics)
-    with store._transaction(), store._rollback_writes():
+    with store._transaction(), store._rollback_writes(), store._read_session():
+        requirement_ids, change, selected_bindings = _resolve_edit_scope(
+            store, requirement_ids, binding_ids, change, all_requirements)
+        expanded_to_all = requirement_ids is None
         registry = store._read('artifacts.json')
         current_id = registry.get('currentDraftId')
         created = not current_id or registry.get('currentArtifactId') != current_id
@@ -257,6 +322,9 @@ def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None
             run.update(kind='draft-edit', draftId=draft['id'], artifactId=draft['id'],
                        draftRevision=draft['draftRevision'], beforeRevision=draft['draftRevision'],
                        path=draft['path'], outputs={'draftRevisions': []})
+            run['scopeExpandedToAll'] = expanded_to_all
+            run['affectedBindingIds'] = selected_bindings
+            _edit_receipt(store, run, draft)
             if recovery:
                 run['recoveryCheckpoint'] = recovery
                 run['recoveryRevision'] = recovery_revision
@@ -274,8 +342,9 @@ def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None
 
 
 def _payload(payload):
-    if not isinstance(payload, dict) or set(payload) - {'artifact', 'bindings', 'flows', 'outputs', 'measurements'}:
-        raise FlowError('Draft save supports artifact, bindings, flows, outputs and measurements')
+    if not isinstance(payload, dict) or set(payload) - {
+            'artifact', 'bindings', 'bindingPatches', 'flows', 'moduleStages', 'outputs', 'measurements'}:
+        raise FlowError('Draft save supports artifact, bindings, bindingPatches, flows, moduleStages, outputs and measurements')
     if not isinstance(payload.get('artifact', {}), dict):
         raise FlowError('Draft artifact must be an object')
     measurements = payload.get('measurements', {})
@@ -288,6 +357,36 @@ def _payload(payload):
         raise FlowError('Draft outputs support summary and paths')
     if not isinstance(outputs.get('paths', []), list) or any(not isinstance(p, str) for p in outputs.get('paths', [])):
         raise FlowError('Draft output paths must be strings')
+    if not isinstance(payload.get('moduleStages', []), list):
+        raise FlowError('Draft moduleStages must be an array')
+
+
+def _binding_updates(relations, draft, payload):
+    updates = copy.deepcopy(payload.get('bindings', []))
+    patches = payload.get('bindingPatches', [])
+    if not isinstance(updates, list) or not isinstance(patches, list):
+        raise FlowError('bindings and bindingPatches must be arrays')
+    existing = {b['id']: b for b in relations['bindings']}
+    used = {b.get('id') for b in updates if isinstance(b, dict)}
+    allowed = {'id', 'requirementIds', 'screenId', 'stateId', 'route', 'fixtureId', 'screenshot',
+               'verified', 'verificationScope', 'evidence', 'reverify', 'inheritVerificationFrom', 'contractRefs'}
+    for patch in patches:
+        if not isinstance(patch, dict) or set(patch) - allowed:
+            raise FlowError('Binding patches accept editable fields only; identity, fingerprints and revisions are runtime-managed')
+        bid = valid_id(patch.get('id'))
+        if bid in used:
+            raise FlowError('Duplicate binding update across bindings and bindingPatches')
+        used.add(bid)
+        original = existing.get(bid)
+        if not original or original.get('artifactId') != draft['id']:
+            raise FlowError('Binding patch must select an existing binding in this working draft', 404, bid)
+        if patch.get('reverify') and (patch.get('verified') is not True or
+                not isinstance(patch.get('evidence'), dict) or not patch['evidence']):
+            raise FlowError('Binding reverify requires verified:true and new actual evidence in this patch')
+        updated = copy.deepcopy(original)
+        updated.update(copy.deepcopy(patch))
+        updates.append(updated)
+    return updates
 
 
 def _save_bindings(store, draft, previous, payload, run):
@@ -297,7 +396,7 @@ def _save_bindings(store, draft, previous, payload, run):
     explicitly_unverified = set()
     for group in ('bindings', 'flows'):
         records = {item['id']: item for item in relations[group]}
-        updates = payload.get(group, [])
+        updates = _binding_updates(relations, draft, payload) if group == 'bindings' else payload.get(group, [])
         if not isinstance(updates, list):
             raise FlowError(group + ' must be an array of updates')
         seen = set()
@@ -322,7 +421,7 @@ def _save_bindings(store, draft, previous, payload, run):
     store.update_relations(relations, changed_binding_ids=all_draft)
     relations = store._read('relations.json')
     old = {b['id']: b for b in previous['bindings']}
-    affected = set((run.get('change') or {}).get('affectedBindingIds', []))
+    affected = set(run.get('affectedBindingIds', [])) | set((run.get('change') or {}).get('affectedBindingIds', []))
     for binding in relations['bindings']:
         if binding['artifactId'] != draft['id'] or binding['id'] in actual:
             continue
@@ -339,7 +438,7 @@ def _save_bindings(store, draft, previous, payload, run):
                     old_fields = {k: prior.get(k) for k in ('screenId', 'stateId', 'route', 'fixtureId', 'screenshot', 'requirementIds')}
                     screenshot = store._safe(binding.get('screenshot', 'missing-screenshot'))
                     inherited = (old_fields == {k: binding.get(k) for k in old_fields}
-                        and screenshot.is_file() and digest(screenshot.read_bytes()) ==
+                        and screenshot.is_file() and store._file_digest(screenshot) ==
                             previous.get('externalFiles', {}).get(prior.get('screenshot')))
             except (FlowError, OSError, UnicodeError):
                 inherited = False
@@ -361,17 +460,31 @@ def _save_bindings(store, draft, previous, payload, run):
 def save_demo(store, run_id, payload):
     _payload(payload)
     started, before = time.perf_counter(), dict(store.metrics)
-    with store._transaction(), store._rollback_writes():
+    phase_times = {}
+
+    def measured(name, operation):
+        phase_started = time.perf_counter()
+        try:
+            return operation()
+        finally:
+            phase_times[name] = round(phase_times.get(name, 0) + (time.perf_counter() - phase_started) * 1000, 3)
+
+    with store._transaction(), store._rollback_writes(), store._read_session():
         run = store._read('runs/' + valid_id(run_id) + '.json')
         if not run or run.get('kind') != 'draft-edit' or run.get('status') != 'running':
             raise FlowError('Draft save requires a running draft edit task', 409)
+        affected_modules = _affected_modules(store, run['requirementIds'])
+        allowed_modules = {module['id'] for module in affected_modules}
+        for update in payload.get('moduleStages', []):
+            if not isinstance(update, dict) or update.get('id') not in allowed_modules:
+                raise FlowError('Demo moduleStages must target modules in this edit scope', 409)
         registry, draft = _draft(store, run['draftId'])
         if (draft.get('activeRunId') != run_id or draft['draftRevision'] != run['beforeRevision']
                 or registry.get('currentArtifactId') != draft['id']):
             raise FlowError('Draft baseline changed during this task', 409)
-        if store._inventory(store._safe(run['inputPath'])) != run['inputFileHashes']:
+        if measured('inventoryMs', lambda: store._inventory(store._safe(run['inputPath']))) != run['inputFileHashes']:
             raise FlowError('Fixed generation input changed on disk', 409)
-        previous = _read_revision(store, draft['id'], draft['draftRevision'])
+        previous = measured('recoveryReadMs', lambda: _read_revision(store, draft['id'], draft['draftRevision']))
         data = copy.deepcopy(payload.get('artifact', {}))
         if (data.get('id', draft['id']) != draft['id'] or data.get('path', draft['path']) != draft['path']
                 or data.get('runId', run_id) != run_id):
@@ -388,7 +501,7 @@ def save_demo(store, run_id, payload):
                                       **run['requirementHashes']}
         draft['documentHashes'] = {**draft['documentHashes'], **run['documentHashes']}
         directory = store._safe(draft['path'])
-        draft['fileHashes'] = store._inventory(directory)
+        draft['fileHashes'] = measured('inventoryMs', lambda: store._inventory(directory))
         draft['status'] = data.get('status', 'candidate')
         if draft['status'] not in ('candidate', 'verified', 'current'):
             raise FlowError('Draft status must be candidate or verified')
@@ -404,8 +517,8 @@ def save_demo(store, run_id, payload):
             if not data.get('evidence'):
                 raise FlowError('Verified draft requires evidence for this save')
         _set_artifact(store, draft)
-        bindings = _save_bindings(store, draft, previous, payload, run)
-        validation = store.validate(artifact_ids=[draft['id']])
+        bindings = measured('evidenceMs', lambda: _save_bindings(store, draft, previous, payload, run))
+        validation = measured('validationMs', lambda: store.validate(artifact_ids=[draft['id']]))
         if not validation['ok']:
             raise FlowError('Scoped draft validation failed; edited files and recovery revision preserved', 409, validation)
         # Framework activation still compares the fixed baseline, including concurrent runs.
@@ -415,6 +528,15 @@ def save_demo(store, run_id, payload):
         if draft['status'] in ('verified', 'current'):
             store._activate_demo_framework(draft)
         _set_artifact(store, draft)
+        if payload.get('moduleStages'):
+            measured('moduleStagesMs', lambda: store.set_module_stages(payload['moduleStages']))
+        affected_modules = _affected_modules(store, run['requirementIds'])
+        current_bindings = [b for b in store._read('relations.json')['bindings'] if b['artifactId'] == draft['id']]
+        evidence_summary = {
+            'verifiedBindingIds': sorted(b['id'] for b in current_bindings if b.get('verified')),
+            'needsReviewBindingIds': sorted(b['id'] for b in current_bindings if not b.get('verified')),
+            'reverifiedBindingIds': sorted(b['id'] for b in current_bindings
+                if b.get('verified') and b.get('verificationStatus') == 'verified')}
         outputs = copy.deepcopy(payload.get('outputs', {}))
         paths = outputs.pop('paths', [])
         # A mutable Demo path is a revision reference, never a historical output copy.
@@ -424,16 +546,18 @@ def save_demo(store, run_id, payload):
         finished = store.finish_run(run_id, 'completed', outputs)
         changed = sorted(p for p in set(previous['fileHashes']) | set(draft['fileHashes'])
                          if previous['fileHashes'].get(p) != draft['fileHashes'].get(p))
-        finished.update(draftRevision=draft['draftRevision'], changedFiles=changed, validation=validation)
-        finished.setdefault('metrics', {})['draftSave'] = store._measurement(started, before)
+        finished.update(draftRevision=draft['draftRevision'], changedFiles=changed, validation=validation,
+                        affectedModules=affected_modules, evidenceSummary=evidence_summary)
         if payload.get('measurements'):
             finished['measurements'] = copy.deepcopy(payload['measurements'])
-        store._write('runs/' + run_id + '.json', finished)
-        _capture(store, draft)
+        measured('captureMs', lambda: _capture(store, draft))
         store._bump()
+        finished.setdefault('metrics', {})['draftSave'] = dict(store._measurement(started, before), phaseTimes=phase_times)
+        store._write('runs/' + run_id + '.json', finished)
         return {'runId': run_id, 'status': 'completed', 'artifactId': draft['id'], 'draftId': draft['id'],
                 'draftRevision': draft['draftRevision'], 'path': draft['path'], 'activated': True,
-                'bindingIds': bindings, 'changedFiles': changed, 'validation': validation, 'metrics': finished['metrics']}
+                'bindingIds': bindings, 'changedFiles': changed, 'validation': validation, 'metrics': finished['metrics'],
+                'affectedModules': affected_modules, 'evidenceSummary': evidence_summary}
 
 
 def finish_edit(store, run, status):
@@ -485,7 +609,7 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
                     continue
                 source = store._safe(binding['screenshot'])
                 if source.is_file() and not binding['screenshot'].startswith(draft['path'] + '/'):
-                    relative_shot = '_evidence/' + digest(source.read_bytes()) + source.suffix.lower()
+                    relative_shot = '_evidence/' + store._file_digest(source) + source.suffix.lower()
                     store._copy_file(source, target / relative_shot)
                     screenshot_paths[binding['screenshot']] = relative + '/' + relative_shot
             artifact['fileHashes'] = store._inventory(target)
@@ -541,10 +665,10 @@ def restore_demo_revision(store, artifact_id, revision):
             screenshot_map = {}
             for path_, hash_ in manifest.get('externalFiles', {}).items():
                 source = store._safe(path_)
-                if path_.startswith(draft['path'] + '/') or (source.is_file() and digest(source.read_bytes()) == hash_):
+                if path_.startswith(draft['path'] + '/') or (source.is_file() and store._file_digest(source) == hash_):
                     continue
                 blob = store._safe('.prototype-flow/draft-blobs/' + hash_)
-                if not blob.is_file() or digest(blob.read_bytes()) != hash_:
+                if not blob.is_file() or store._file_digest(blob) != hash_:
                     raise FlowError('Draft screenshot recovery data is missing or changed', 409)
                 relative = '_evidence/' + hash_ + Path(path_).suffix.lower()
                 store._copy_file(blob, directory / relative)

@@ -6,7 +6,7 @@ import posixpath
 import re
 from urllib.parse import unquote, urlsplit
 
-from pf_core import FlowError, canonical, digest, now
+from pf_core import FlowError, canonical, now
 
 
 class Resources(HTMLParser):
@@ -40,6 +40,11 @@ def page_content(store, binding, artifact, base=None):
     Unknown dynamic or external dependencies retain a whole-artifact dependency.
     They can be verified normally, but cannot be inherited into a new artifact.
     """
+    with store._read_session():
+        return _page_content(store, binding, artifact, base)
+
+
+def _page_content(store, binding, artifact, base=None):
     scope = binding.get('verificationScope')
     if (not isinstance(scope, dict) or scope.get('complete') is not True
             or set(scope) - {'files', 'complete'} or not isinstance(scope.get('files'), list)
@@ -67,8 +72,8 @@ def page_content(store, binding, artifact, base=None):
         suffix = path.suffix.lower()
         if suffix not in ('.html', '.htm', '.css', '.js', '.mjs', '.cjs'):
             continue
-        raw = path.read_bytes()
-        if digest(raw) != manifest[relative]:
+        raw = store._file_bytes(path)
+        if store._file_digest(path) != manifest[relative]:
             raise FlowError('Verification dependency changed on disk', 409, {'path': relative})
         text = raw.decode('utf-8')
         urls = css_urls(text)
@@ -100,7 +105,7 @@ def page_content(store, binding, artifact, base=None):
     # Shared prose can affect a page even when its own requirement block is unchanged.
     content['documentHashes'] = artifact.get('documentHashes', {})
     screenshot = store._safe(binding['screenshot'], base=base, must_exist=True)
-    content['screenshotHash'] = digest(screenshot.read_bytes())
+    content['screenshotHash'] = store._file_digest(screenshot)
     if uncertain:
         content['unresolvedDependencies'] = (artifact['id'] + '@' + str(artifact['draftRevision'])
                                              if artifact.get('kind') == 'working-draft' else artifact['id'])
