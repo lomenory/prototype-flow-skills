@@ -102,7 +102,8 @@ def page_content(store, binding, artifact, base=None):
     screenshot = store._safe(binding['screenshot'], base=base, must_exist=True)
     content['screenshotHash'] = digest(screenshot.read_bytes())
     if uncertain:
-        content['unresolvedDependencies'] = artifact['id']
+        content['unresolvedDependencies'] = (artifact['id'] + '@' + str(artifact['draftRevision'])
+                                             if artifact.get('kind') == 'working-draft' else artifact['id'])
     return content
 
 

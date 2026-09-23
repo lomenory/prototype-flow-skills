@@ -610,7 +610,11 @@ class ProjectStore:
             artifact_path = self._safe(artifact['path'], base=base)
             artifact['integrityStatus'] = 'intact' if artifact_path.is_dir() and self._inventory(artifact_path) == artifact.get('fileHashes') else 'changed'
             if artifact['integrityStatus'] != 'intact':
-                artifact['syncStatus'] = 'invalid'
+                if artifact.get('kind') == 'working-draft' and base == self.root and artifact_path.is_dir():
+                    artifact['integrityStatus'] = 'editing'
+                    artifact['syncStatus'] = 'editing'
+                else:
+                    artifact['syncStatus'] = 'invalid'
         for req in requirements:
             req['analysisStatus'] = 'pending' if req['id'] in pending else 'current'
         runs_dir = base / '.prototype-flow/runs'
@@ -882,9 +886,15 @@ class ProjectStore:
         path = self._safe(binding['screenshot'], base=base)
         if not path.is_file():
             return None
+        draft = artifact.get('kind') == 'working-draft'
+        if draft:
+            value.update(draftRevision=artifact.get('draftRevision'),
+                         requirementHashes=artifact.get('requirementHashes'),
+                         documentHashes=artifact.get('documentHashes'))
         if binding.get('verificationScope'):
             from pf_evidence import page_content
             return digest(canonical({'artifactId': artifact['id'],
+                **({'draftRevision': artifact['draftRevision']} if draft else {}),
                 'page': page_content(self, binding, artifact, base)}))
         value['screenshotHash'] = digest(path.read_bytes())
         value['artifactFiles'] = artifact.get('fileHashes')
@@ -895,8 +905,19 @@ class ProjectStore:
         if binding_ids is not None:
             relations['bindings'] = [b for b in relations.get('bindings', []) if b['id'] in binding_ids]
         artifacts = {a['id']: a for a in self._read('artifacts.json', {'items': []}, base=base)['items']}
+        draft_dirty = {}
         for binding in relations.get('bindings', []):
             if binding.get('verified'):
+                artifact = artifacts.get(binding.get('artifactId'), {})
+                if artifact.get('kind') == 'working-draft' and artifact['id'] not in draft_dirty:
+                    draft_path = self._safe(artifact['path'], base=base)
+                    draft_dirty[artifact['id']] = (not draft_path.is_dir() or
+                        self._inventory(draft_path) != artifact.get('fileHashes'))
+                if artifact.get('kind') == 'working-draft' and (
+                        draft_dirty.get(artifact['id']) or artifact.get('activeRunId') or artifact.get('editStatus') != 'ready'
+                        or binding.get('verificationDraftRevision') != artifact.get('draftRevision')):
+                    binding.update(verified=False, status='needs-review', verificationStatus='draft-editing')
+                    continue
                 try:
                     reason = ('missing-fingerprint' if not binding.get('verificationHash') else
                               'fingerprint-changed' if binding['verificationHash'] != self._binding_fingerprint(
@@ -963,6 +984,8 @@ class ProjectStore:
                                     item.update(verified=False, status='needs-review', verificationStatus=reason)
                             else:
                                 item.update(verificationHash=fingerprint, verificationStatus='verified')
+                                if artifacts[item['artifactId']].get('kind') == 'working-draft':
+                                    item['verificationDraftRevision'] = artifacts[item['artifactId']]['draftRevision']
                                 item.pop('verificationInheritedFrom', None)
                                 if item.get('status') == 'needs-review':
                                     item.pop('status')
@@ -1004,6 +1027,8 @@ class ProjectStore:
         with self._transaction(), self._rollback_writes():
             documents_now, requirements_now, _ = self._reindex()
             data = copy.deepcopy(data)
+            if data.get('kind') == 'working-draft' or any(key in data for key in ('draftRevision', 'activeRunId')):
+                raise FlowError('Working drafts require demo-edit and demo-save')
             artifact_id = valid_id(data.get('id') or uid('DEMO'))
             artifacts = self._read('artifacts.json')
             if any(a['id'] == artifact_id for a in artifacts['items']):
@@ -1412,7 +1437,7 @@ class ProjectStore:
             return {'path': relative, 'markdownPath': os.path.relpath(target, self._safe(document['path']).parent).replace(os.sep, '/')}
 
     def start_run(self, stage, requirement_ids=None, shared_document_ids=None, full_context=False,
-                  framework_id=None, base_artifact_id=None, base_demo_path=None, base_entry='index.html', change=None):
+                  framework_id=None, base_artifact_id=None, base_demo_path=None, base_entry='index.html', change=None, _pin_demo_files=True, _draft_baseline=None):
         started, before = time.perf_counter(), dict(self.metrics)
         with self._transaction(), self._rollback_writes():
             if change is not None:
@@ -1426,7 +1451,16 @@ class ProjectStore:
                 for bid in change.get('affectedBindingIds', []):
                     if valid_id(bid) not in known:
                         raise FlowError('Unknown affected binding', 404, bid)
-            demo_inputs = self._demo_inputs(framework_id, base_artifact_id, base_demo_path, base_entry) if stage == 'demo' else {}
+            if _draft_baseline is not None:
+                registry = self._frameworks()
+                framework = next((f for f in registry['items'] if f['id'] == _draft_baseline['frameworkId']), None)
+                if not framework or self._inventory(self._safe(framework['path'])) != framework['fileHashes']:
+                    raise FlowError('Registered framework changed on disk', 409)
+                demo_inputs = {'framework': copy.deepcopy(framework), 'baseArtifact': copy.deepcopy(_draft_baseline),
+                    'frameworkBaselineId': registry['currentFrameworkId'],
+                    'artifactBaselineId': self._read('artifacts.json')['currentArtifactId']}
+            else:
+                demo_inputs = self._demo_inputs(framework_id, base_artifact_id, base_demo_path, base_entry) if stage == 'demo' else {}
             if stage != 'demo' and (framework_id or base_artifact_id or base_demo_path):
                 raise FlowError('Framework and baseline selection require stage demo')
             documents, requirements, _ = self._reindex()
@@ -1493,14 +1527,17 @@ class ProjectStore:
                     self._save_revision(document)
                     self._copy_file(self._safe(document['path']), fixed / document['path'])
                 for relative in self._referenced_files(input_documents, sources, input_relations):
+                    if not _pin_demo_files and Path(relative).parts[0] in ('demos', 'demo-framework'):
+                        continue
                     source = self._safe(relative)
                     if source.is_file():
                         self._copy_file(source, fixed / relative)
                 for resource in (demo_inputs.get('framework'), demo_inputs.get('baseArtifact')):
-                    if resource:
+                    if resource and _pin_demo_files:
                         self._snapshot_directory(resource['path'], fixed, resource['fileHashes'], False, [])
                 # Framework DESIGN.md is authoritative, including when nested in an imported Demo.
-                design = fixed / demo_inputs['framework']['path'] / 'DESIGN.md' if demo_inputs else self._safe('DESIGN.md')
+                design_base = fixed if _pin_demo_files else self.root
+                design = design_base / demo_inputs['framework']['path'] / 'DESIGN.md' if demo_inputs else self._safe('DESIGN.md')
                 if design.is_file():
                     self._copy_file(design, fixed / 'DESIGN.md')
                 run['inputFileHashes'] = self._inventory(fixed)
@@ -1514,6 +1551,22 @@ class ProjectStore:
     def _measurement(self, started, before):
         return dict({key: self.metrics[key] - before.get(key, 0) for key in self.metrics},
                     elapsedMs=round((time.perf_counter() - started) * 1000, 3))
+
+    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None):
+        from pf_drafts import edit_demo
+        return edit_demo(self, requirement_ids, shared_document_ids, change)
+
+    def save_demo(self, run_id, payload):
+        from pf_drafts import save_demo
+        return save_demo(self, run_id, payload)
+
+    def freeze_demo(self, artifact_id=None, title=None):
+        from pf_drafts import freeze_demo
+        return freeze_demo(self, artifact_id, title)
+
+    def restore_demo_revision(self, artifact_id, revision):
+        from pf_drafts import restore_demo_revision
+        return restore_demo_revision(self, artifact_id, revision)
 
     def finalize_demo(self, run_id, payload):
         """Register, upsert evidence, validate and finish as one rollback-safe write."""
@@ -1598,6 +1651,9 @@ class ProjectStore:
                 raise FlowError('Unknown run', 404)
             if run['status'] != 'running':
                 raise FlowError('Run is already finished', 409)
+            if run.get('kind') == 'draft-edit':
+                from pf_drafts import finish_edit
+                finish_edit(self, run, status)
             recorded_outputs = run.get('outputs', []) if outputs is None else outputs
             self._run_output_paths({'outputs': recorded_outputs})
             run.update(status=status, outputs=recorded_outputs, error=error, finishedAt=now())
@@ -1630,6 +1686,10 @@ class ProjectStore:
             original = self._read('runs/' + run_id + '.json', base=base)
             if not original:
                 raise FlowError('Run is not available in this version', 404)
+            if original.get('kind') == 'draft-edit':
+                raise FlowError('Use demo-edit to continue the working draft, or demo-restore for a saved revision', 409,
+                                {'artifactId': original.get('draftId'),
+                                 'draftRevision': original.get('draftRevision')})
             source = self._safe(original['inputPath'], base=base, must_exist=True)
             if self._inventory(source) != original.get('inputFileHashes', {}):
                 raise FlowError('Fixed run input changed; cannot resume', 409)
@@ -1702,6 +1762,7 @@ class ProjectStore:
                     valid_id(run['id'])
                     self._snapshot_directory(run['inputPath'], stage, run.get('inputFileHashes', {}), recovery, issues)
                     run['snapshotOutputs'] = []
+                    # Draft outputs identify a CAS-backed revision, never today's mutable bytes.
                     for relative in self._run_output_paths(run):
                         source = self._safe(relative)
                         captured = '.prototype-flow/run-outputs/' + run['id'] + '/' + relative
@@ -1733,6 +1794,10 @@ class ProjectStore:
                         target = stage / '.prototype-flow' / filename
                         target.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(origin, target)
+                for name_ in ('draft-revisions', 'draft-blobs'):
+                    origin = self._safe('.prototype-flow/' + name_)
+                    if origin.is_dir():
+                        self._copy_tree(origin, stage / '.prototype-flow' / name_)
                 # Capture presentation status only. Live bindings/baselines never enter snapshots.
                 feishu = self._read('feishu.json', {})
                 if feishu:
@@ -1918,6 +1983,10 @@ class ProjectStore:
             revision_directory = base / '.prototype-flow/revisions'
             if revision_directory.exists():
                 self._copy_tree(revision_directory, self._safe('.prototype-flow/revisions'))
+            for name_ in ('draft-revisions', 'draft-blobs'):
+                origin = self._safe('.prototype-flow/' + name_, base=base)
+                if origin.is_dir():
+                    self._copy_tree(origin, self._safe('.prototype-flow/' + name_))
             input_directory = base / '.prototype-flow/run-inputs'
             if input_directory.exists():
                 for source in sorted(input_directory.iterdir()):
@@ -2029,7 +2098,10 @@ class ProjectStore:
                         if not path.is_dir():
                             errors.append({'code': 'artifact-missing', 'id': artifact['id']})
                         elif self._inventory(path) != artifact['fileHashes']:
-                            errors.append({'code': 'artifact-mutated', 'id': artifact['id']})
+                            if artifact.get('kind') == 'working-draft':
+                                warnings.append({'code': 'draft-unsaved', 'id': artifact['id']})
+                            else:
+                                errors.append({'code': 'artifact-mutated', 'id': artifact['id']})
                         if not artifact.get('evidence'):
                             warnings.append({'code': 'artifact-unverified', 'id': artifact['id']})
                     for group in ('flows', 'bindings'):

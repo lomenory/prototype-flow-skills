@@ -221,7 +221,8 @@ class WorkbenchServer:
         signatures = {relative: metadata_signature(self.store._safe(relative), {'__pycache__', '.DS_Store'})
                       for relative in scopes}
         signatures['.prototype-flow'] = metadata_signature(self.store.meta,
-            {'store.lock', 'revisions', 'run-inputs', 'run-outputs', 'feishu-plans', '__pycache__'})
+            {'store.lock', 'revisions', 'run-inputs', 'run-outputs', 'draft-revisions', 'draft-blobs',
+             'feishu-plans', '__pycache__'})
         versions = self.store._safe('versions')
         signatures['versions'] = {path.name: metadata_signature(path / 'manifest.json')
                                   for path in sorted(versions.iterdir()) if path.is_dir() and not path.is_symlink()} if versions.exists() else {}
@@ -256,6 +257,19 @@ class WorkbenchServer:
                 raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
             expected = artifact.get('fileHashes', {})
             with self._integrity_lock:
+                if artifact.get('kind') == 'working-draft' and not version:
+                    # A live draft is an editable preview. Historical snapshots and
+                    # frozen artifacts still require their registered byte hashes.
+                    signature = metadata_signature(artifact_root)
+                    key = ('live-draft', artifact_id, str(artifact_root))
+                    cached = self._integrity_cache.get(key)
+                    if not cached or cached[0] != signature:
+                        hashes = self.store._inventory(artifact_root)
+                        if signature != metadata_signature(artifact_root):
+                            raise FlowError('工作稿在读取期间发生变化，请重试', 409)
+                        cached = (signature, hashes)
+                        self._integrity_cache[key] = cached
+                    return dict(artifact, fileHashes=cached[1]), artifact_root
                 signature = (metadata_signature(artifact_root), json.dumps(expected, sort_keys=True))
                 key = ('artifact', version, artifact_id, str(artifact_root))
                 if self._integrity_cache.get(key) != signature:

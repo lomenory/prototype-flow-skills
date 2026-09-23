@@ -43,6 +43,24 @@ def module_package(store, module_id, version=None):
                              and ids.issubset(a.get('requirementHashes', {}))), [])
         if not selected:
             raise FlowError('该模块尚无对应 Demo，请先生成并登记完整 Demo 后下载。', 409)
+        deliverable = []
+        by_id = {artifact['id']: artifact for artifact in artifacts}
+        for artifact in selected:
+            if artifact.get('kind') == 'working-draft':
+                frozen = by_id.get(artifact.get('lastFrozenArtifactId'))
+                preserved_source = (frozen is not None and artifact.get('draftRevision') == 0
+                    and artifact.get('lastFrozenRevision') == 0
+                    and artifact.get('draftSourceArtifactId') == frozen['id']
+                    and artifact.get('fileHashes') == frozen.get('fileHashes'))
+                if (artifact.get('editStatus') == 'editing' or artifact.get('integrityStatus') != 'intact'
+                        or not frozen or frozen.get('kind') == 'working-draft'
+                        or (not preserved_source and frozen.get('frozenFrom') != {
+                            'artifactId': artifact['id'], 'revision': artifact.get('draftRevision')})):
+                    raise FlowError('工作稿尚未冻结为交付版本，请让 Agent 保存并冻结当前 Demo 后下载。', 409)
+                artifact = frozen
+            if artifact['id'] not in {item['id'] for item in deliverable}:
+                deliverable.append(artifact)
+        selected = deliverable
         covered = set()
         for artifact in selected:
             if artifact.get('syncStatus') != 'current' or artifact.get('integrityStatus') != 'intact':

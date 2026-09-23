@@ -78,9 +78,10 @@ def compact_result(command, value):
         return {'counts': {key: len(value.get(key, [])) for key in ('flows', 'bindings', 'supersessions')},
                 'ids': {key: [item['id'] for item in value.get(key, [])]
                         for key in ('flows', 'bindings', 'supersessions')}}
-    if command == 'artifact':
+    if command in ('artifact', 'demo-freeze'):
         result = selected(value, 'id', 'title', 'path', 'entryHtml', 'status', 'runId', 'inputRevision',
-                          'frameworkId', 'baseArtifactId', 'sourceDemoPath', 'activated')
+                          'frameworkId', 'baseArtifactId', 'sourceDemoPath', 'activated',
+                          'kind', 'draftRevision', 'frozenFrom', 'reused', 'validation')
         result['counts'] = {'requirements': len(value.get('requirementHashes', {})),
                             'documents': len(value.get('documentHashes', {})),
                             'files': len(value.get('fileHashes', {}))}
@@ -92,10 +93,12 @@ def compact_result(command, value):
         result['path'] = 'versions/' + value['id']
         result['counts'] = {'modules': len(value.get('modules', [])), 'files': len(value.get('files', {}))}
         return result
-    if command in ('run-start', 'run-finish', 'run-resume'):
+    if command in ('run-start', 'run-finish', 'run-resume', 'demo-edit'):
         result = selected(value, 'id', 'stage', 'status', 'inputRevision', 'inputPath', 'requirementIds',
                           'createdAt', 'finishedAt', 'error', 'resumedFrom', 'recoveredOutputs', 'sharedDocumentIds', 'contextScope',
-                          'change', 'metrics', 'measurements', 'changedFiles')
+                          'change', 'metrics', 'measurements', 'changedFiles', 'draft',
+                          'draftId', 'artifactId', 'draftRevision', 'beforeRevision', 'path',
+                          'kind', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
         if value.get('framework'):
@@ -180,6 +183,19 @@ def parser():
     cmd.add_argument('--file', required=True)
     cmd = command('framework', '登记不可变共享框架候选；随已验证 Demo 一起启用')
     cmd.add_argument('--file', required=True)
+    cmd = command('demo-edit', '固定本轮需求并接续同一 Demo 工作稿；不创建完整历史版本')
+    cmd.add_argument('--requirements', nargs='*')
+    cmd.add_argument('--documents', nargs='*', help='额外影响本次工作稿的共享规则文档 ID')
+    cmd.add_argument('--change-file', help='本次修改范围 JSON：tier、summary、affectedBindingIds')
+    cmd = command('demo-save', '保存工作稿修订、更新受影响证据并结束本轮任务')
+    cmd.add_argument('id', help='demo-edit 返回的任务 ID')
+    cmd.add_argument('--file', required=True, help='保存内容 JSON；artifact、bindings、flows、outputs、measurements 均可选')
+    cmd = command('demo-freeze', '将已保存工作稿冻结为独立完整 Demo 版本')
+    cmd.add_argument('--artifact', help='工作稿 ID；默认当前工作稿')
+    cmd.add_argument('--title', help='冻结版本的可读标题')
+    cmd = command('demo-restore', '从恢复记录还原工作稿，形成新的工作稿修订')
+    cmd.add_argument('id', help='工作稿 ID')
+    cmd.add_argument('--revision', required=True, type=int, help='要恢复的工作稿修订号')
     cmd = command('demo-prepare', '从任务固定的完整 Demo 和框架复制新的工作目录')
     cmd.add_argument('id', help='固定输入的任务 ID')
     cmd.add_argument('--path', required=True, help='尚不存在的 demos/<新目录>')
@@ -319,6 +335,15 @@ def main(argv=None):
             result = store.register_artifact(read_json(args.file))
         elif command == 'framework':
             result = store.register_framework(read_json(args.file))
+        elif command == 'demo-edit':
+            result = store.edit_demo(args.requirements, args.documents,
+                                     change=read_json(args.change_file) if args.change_file else None)
+        elif command == 'demo-save':
+            result = store.save_demo(args.id, read_json(args.file))
+        elif command == 'demo-freeze':
+            result = store.freeze_demo(args.artifact, args.title)
+        elif command == 'demo-restore':
+            result = store.restore_demo_revision(args.id, args.revision)
         elif command == 'demo-prepare':
             result = store.prepare_demo(args.id, args.path, recovered_output=args.from_output)
         elif command == 'demo-finalize':
@@ -370,7 +395,8 @@ def main(argv=None):
             raise FlowError('未知操作')
         result = result if args.full else compact_result(command, result)
         if isinstance(result, dict) and command in ('run-start', 'demo-prepare', 'artifact', 'relations',
-                                                   'run-finish', 'demo-finalize'):
+                                                   'run-finish', 'demo-finalize', 'demo-edit', 'demo-save',
+                                                   'demo-freeze', 'demo-restore'):
             result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
         output(result)
         return 0

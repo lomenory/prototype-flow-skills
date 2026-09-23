@@ -173,7 +173,13 @@
           },
           "verificationStatus": {
             "type": "string",
-            "description": "verified、inherited，或 missing-fingerprint、fingerprint-changed、dependency-changed；保留旧状态兼容"
+            "description": "verified、inherited、preserved、restored，或 missing-fingerprint、fingerprint-changed、dependency-changed、draft-editing、draft-changed；保留旧状态兼容"
+          },
+          "verificationDraftRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "readOnly": true,
+            "description": "运行时固定的工作稿证据修订；编辑中或修订不匹配时证据待复核，不能手填字段延长验证有效性。"
           },
           "reverify": {
             "type": "boolean",
@@ -226,6 +232,11 @@
               },
               "artifactId": {
                 "type": "string"
+              },
+              "draftRevision": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "继承工作稿证据时记录的来源修订。"
               },
               "verificationHash": {
                 "type": "string"

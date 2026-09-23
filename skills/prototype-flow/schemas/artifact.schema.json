@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://prototype-flow.local/schemas/artifact.schema.json",
-  "title": "完整 Demo 产物注册输入",
+  "title": "Demo 产物注册输入与运行时字段",
   "type": "object",
   "required": [
     "id",
@@ -92,7 +92,7 @@
             "source": {
               "type": "string",
               "minLength": 1,
-              "description": "实际验证报告或截图的项目相对路径，文件必须位于本 Demo 目录内并随产物冻结"
+              "description": "实际验证报告或截图的项目相对路径，文件必须位于本 Demo 目录内并随工作稿修订或冻结产物保存"
             },
             "mode": {
               "enum": [
@@ -122,6 +122,66 @@
     },
     "createdAt": {
       "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "readOnly": true,
+      "description": "working-draft 表示可经专用命令推进修订的工作稿，frozen 表示冻结版；历史不可变产物可没有此字段。不能用 artifact 注册覆盖工作稿。"
+    },
+    "draftRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "readOnly": true,
+      "description": "工作稿的已保存修订。保存与恢复均产生新修订。"
+    },
+    "activeRunId": {
+      "type": ["string", "null"],
+      "readOnly": true,
+      "description": "当前占用工作稿的编辑任务；同一工作稿不并行编辑。"
+    },
+    "editStatus": {
+      "enum": ["editing", "ready", "needs-review"],
+      "readOnly": true
+    },
+    "draftSourceArtifactId": {
+      "type": ["string", "null"],
+      "readOnly": true,
+      "description": "首次建立工作稿的来源产物，原冻结目录保持不变。"
+    },
+    "lastFrozenArtifactId": {
+      "type": ["string", "null"],
+      "readOnly": true
+    },
+    "lastFrozenRevision": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "readOnly": true
+    },
+    "restoredFromRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "readOnly": true,
+      "description": "本次恢复所依据的旧工作稿修订；draftRevision 仍递增。"
+    },
+    "frozenFrom": {
+      "type": "object",
+      "required": ["artifactId", "revision"],
+      "properties": {
+        "artifactId": {"type": "string"},
+        "revision": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false,
+      "readOnly": true,
+      "description": "冻结完整产物所对应的工作稿及已保存修订，不表示用户确认或发布。"
+    },
+    "frozenRelations": {
+      "type": "object",
+      "properties": {
+        "bindings": {"type": "array", "items": {"type": "object"}},
+        "flows": {"type": "array", "items": {"type": "object"}}
+      },
+      "readOnly": true,
+      "description": "该冻结产物对应的页面证据与流程副本；不会重新加入当前 relations.json。按产物定向校验时读取。"
     },
     "change": {
       "type": "object",

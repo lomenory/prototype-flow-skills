@@ -18,7 +18,7 @@ python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称" 
 project/
 ├── prd-library/               当前 PRD、来源资料与 DOC_MAP 导航
 ├── .prototype-flow/          当前项目清单、索引、关系、任务及同步账本
-├── demos/<artifact-id>/      独立完整 Demo 和资源
+├── demos/<artifact-id>/      可连续编辑的工作稿，以及完整冻结 Demo 和资源
 ├── demo-framework/<id>/     不可变共享框架版本，含 DESIGN.md 与可运行代码
 └── versions/<version-id>/    不可变项目快照
 ```
@@ -33,10 +33,11 @@ project/
 - 当前 Markdown：可编辑的业务要求。`document.revision` 是正文 SHA-256，`businessHash` 区分业务内容与已知工具维护字段。
 - 需求索引：从 `pf:req` 内容块重建。块元数据见 `schemas/requirement-block.schema.json`。
 - `relations.json`：人工语义关联；格式见 `schemas/relations.schema.json`。刷新需求不重新推断依赖。
-- `artifacts.json`：完整产物与输入依据。单项注册格式见 `schemas/artifact.schema.json`。
+- `artifacts.json`：工作稿、冻结产物与输入依据。`currentDraftId` 定位工作稿，`lastFrozenArtifactId` 定位最近冻结版；`currentArtifactId` 可指向工作稿。冻结物的页面与流程保存在 `frozenRelations`，不混入当前关联；用 `state --section artifacts --id <id> --full` 查看，`validate --artifacts <id>` 校验。单项字段见 `schemas/artifact.schema.json`。
 - `frameworks.json`：共享框架版本、文件哈希和当前框架指针；`framework` 登记候选，`run-start` 固定版本，`demo-prepare` 准备新的完整 Demo，已验证产物登记时同步启用。提取、升级和证据见[项目共享框架](demo-framework.md)。
 - `sources.json`：来源登记和已提取内容；文档依据引用来源 ID，不把登记当作已完成分析。
-- `runs/`：固定一次任务输入、修改范围和实际进度；`run-start` / `run-finish` 管理，Demo 可由 `demo-finalize` 一次收尾，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
+- `runs/`：固定一次任务输入、修改范围和实际进度；工作稿用 `demo-edit` / `demo-save` 管理，首次制作兼容 `run-start` / `demo-finalize`，中断用 `run-finish` 记录，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
+- `draft-revisions/<draft-id>/<n>.json` 与 `draft-blobs/<sha>`：工作稿各修订的恢复清单及按内容去重的文件字节；不为每次小改保存完整目录。由运行时维护，不能手改或自行删除仍被引用的数据。
 - `feishu.json` 和 `feishu-plans/`：实时同步账本和固定计划，恢复历史时保留。
 
 schema 是集成格式说明，Python 运行时还有路径、引用、哈希及版本一致性校验；只验证 JSON schema 不代表项目可用。
@@ -85,7 +86,7 @@ CLI 的 `state` 和变更操作默认返回摘要，含定位文档所需的身�
 
 新建单份 PRD 使用 `intake <project-dir> --file <payload.json>`：一次保存新模块、来源、公共正文和需求块，设为 `draft`，收尾一次并返回维护及结构检查结果。候选格式见 [需求与资料](requirements.md#一次入库)。该命令不更新已有模块；更新正文或拆合已有需求继续使用下面的操作。
 
-`intake` 自带本次 PRD 的结构检查。单独补检文档使用 `validate <project-dir> --stage prd`，检查文档、需求 ID、来源与引用。局部 Demo 使用 `validate <project-dir> --artifacts <IDs...>` 或 `--bindings <IDs...>`，检查指定对象及其必要依据，不复验无关旧产物；可以同时指定两者。默认 `validate <project-dir>` 保留全项目检查，不遍历历史快照。历史完整性在读取、比较和恢复对应版本时校验。`demo-finalize` 已检查本次对象，成功后无新改动不再重复运行。纯 PRD 入库不因尚无页面截图而进入 Demo 工作。
+`intake` 自带本次 PRD 的结构检查。单独补检文档使用 `validate <project-dir> --stage prd`，检查文档、需求 ID、来源与引用。局部 Demo 使用 `validate <project-dir> --artifacts <IDs...>` 或 `--bindings <IDs...>`，检查指定对象及其必要依据，不复验无关旧产物；可以同时指定两者。默认 `validate <project-dir>` 保留全项目检查，不遍历历史快照。历史完整性在读取、比较和恢复对应版本时校验。`demo-save` / `demo-finalize` 已检查本次对象，成功后无新改动不再重复运行。纯 PRD 入库不因尚无页面截图而进入 Demo 工作。
 
 `document <root> <id>` 返回当前完整内容及修订。候选正文保存到项目临时文件，再执行：
 
@@ -103,9 +104,50 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 {"id":"DEMO-ORDERS-1", "title":"订单跨模块演示", "path":"demos/DEMO-ORDERS-1", "entryHtml":"index.html", "runId":"RUN-实际任务ID", "status":"candidate", "evidence":{}}
 ```
 
-普通 Demo 先在工作目录完成修改和适用检查，优先用下面的 `demo-finalize` 一次收尾；也保留 `artifact --file` 分步登记。注册后的文件和身份不可变，包括上面的 candidate；后续更新保留原目录，使用新目录和新 ID，不能原地修改候选或重用 ID。未完成成果通过 `run-finish --outputs-file` 的 `paths` 保存即可。`runId` 关联真实任务输入；不杜撰占位 runId。只有适用证据支持才能标 current。
+上述 `artifact` 登记用于不可变完整产物，包括 candidate；注册后的文件和身份不能原地改写或重用。首次制作可用 `demo-finalize` 一次登记和收尾，后续普通调整优先使用下面的工作稿命令。工作稿只能经专用命令推进修订，不能用 `artifact` 覆盖登记。未完成成果通过 `run-finish --outputs-file` 的 `paths` 保存即可。`runId` 关联真实任务输入；不杜撰占位 runId。只有适用证据支持才能标 current。
+
+## Demo 工作稿
+
+已有 Demo 的日常修改使用同一工作稿，输入仍按轮次固定：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py demo-edit <project-dir> --requirements <IDs...> --change-file <change.json>
+python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <payload.json>
+```
+
+`demo-edit` 创建任务并返回 `draftId`、`artifactId`、`draftRevision`、`beforeRevision` 和 `path`；`draftRevision` 是修改前的修订，初始为 0，首次保存后为 1。首次复制原冻结产物，后续复用同一工作稿编号和路径。按命令返回路径修改文件，不修改原冻结目录。本轮任务记录 `kind:"draft-edit"`；工作稿产物记录 `kind:"working-draft"`、`draftRevision`、`activeRunId` 和 `editStatus`（`editing`、`ready`，或中断后有未保存改动的 `needs-review`）。一个工作稿同时只允许一个编辑任务，发生冲突时检查当前任务，不用旧输入覆盖。
+
+`change.json` 与旧路径的 `run-start --change-file` 相同。Tier 3 开始前，若当前已保存修订尚未冻结，运行时自动保存检查点。未保存改动应先完成当前任务或明确恢复，不把它们冒充已保存修订。额外业务依据用 `--documents` 加入；输入变化仍需判断影响。
+
+`demo-save` 可使用空对象 `{}` 保存修改；`artifact` 可选，`id`、`path`、`runId` 由任务固定，不可改成另一产物。省略 `status` 时保存为 `candidate`，不新增验证结论；明确保存为 `verified/current` 必须提供适用的 `evidence.frameworkReview`。框架依据仍有效时可以复用其真实来源，不能声称本轮重新观察。例如仅修改文案：
+
+```json
+{
+  "artifact": {"title": "订单工作稿", "entryHtml": "index.html"},
+  "bindings": [],
+  "flows": [],
+  "outputs": {"summary": "修改页面标题并完成静态检查；受影响旧截图待复核"}
+}
+```
+
+`bindings`、`flows` 只提供本次新增或更新条目，按 ID 合并；空数组保留已有条目。实际重新验证的绑定使用真实 evidence、`verified:true` 和 `reverify:true`；完整依赖范围及继承规则见[页面状态入口](demo-and-change.md#页面状态入口)。运行时以 `verificationDraftRevision` 记录工作稿证据的修订，受影响页面不会因重新保存而继续标为已验证。Tier 0 可保存静态检查结果并保留截图待复核。
+
+保存产生新 `draftRevision`，返回 `artifactId`、`path`、`validation` 并结束本次任务；失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。它提供恢复依据，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
+
+冻结与恢复：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py demo-freeze <project-dir> --artifact <draft-id> --title "订单评审版 v1"
+python3 -B <skill-dir>/scripts/flow.py demo-restore <project-dir> <draft-id> --revision <n>
+```
+
+首次可用、提交评审、确认里程碑或明确保存 Demo 版本时冻结。`demo-freeze` 复制已保存工作稿为不可变完整产物，记录 `frozenFrom:{artifactId,revision}`；同一修订已经冻结时复用并返回 `reused:true`。工作稿及当前指针保持原样，最近冻结版由 `lastFrozenArtifactId` 记录。冻结保留 candidate 或真实验证状态，不证明用户确认，不自动发布或保存项目快照。
+
+`demo-restore` 找回指定工作稿修订并形成新修订，旧修订不被覆盖，恢复后的 PRD 有效性仍需核对。修订号递增，包含恢复检查点时可以跳号。有活动编辑任务时，冻结、恢复和另起编辑均会拒绝；先完成保存，或用 `run-finish --status partial|failed` 结束当前任务再恢复。恢复前有未保存文件时，运行时先保存其去重恢复数据，并返回 `recoveryCheckpoint` 路径和可恢复的 `recoveryRevision`，不直接丢弃这些字节。
 
 ## Demo 一次收尾
+
+此路径保留给首次制作、框架升级和旧调用方；日常调整优先使用工作稿。`demo-finalize` 本身登记完整不可变产物，不必再为同一成果调用 `demo-freeze`。
 
 `run-start --change-file <change.json>` 可保存 `tier`（0 至 3）、`summary` 和 `affectedBindingIds`；按[修改分级](demo-and-change.md#先限定本次修改)填写。旧任务无此字段仍兼容。完成修改和适用检查后：
 
@@ -142,7 +184,7 @@ Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时�
 
 `restore <root> <version-id>` 先严格校验目标历史，再保存恢复前备份并形成新工作修订。恢复前备份允许当前 Demo 或固定输入损坏/缺失，保存实际可读字节、原登记记录及损坏说明，不要求先修好当前 Demo；普通快照仍拒绝篡改。备份标记 `recoveryBackup`，含损坏产物的备份仅供找回文件，不能作为完整恢复目标。历史自身不可编辑；当前飞书绑定、同步基线和实时任务保持不变。
 
-恢复 Demo 或中断任务时用 `state <project-dir> --section runs` 定位，已知编号加 `--id <run-id>`；查看历史任务加 `--version <version-id>`。`run-resume <project-dir> <run-id> --version <version-id>` 从历史固定输入和输出创建新任务，返回 `resumedFrom` 与 `recoveredOutputs`，不覆盖实时任务或原输出。省略版本则从当前任务续作。随后用 `demo-prepare` 将恢复的 Demo 准备到新的 `demos/` 目录，选择与约束见[共享框架](demo-framework.md#后续复用)。新任务输入仍可能落后于当前 PRD，登记产物时继续计算过期状态。旧版本若没有保存任务记录，会明确报缺失，不虚构恢复上下文。
+恢复 Demo 或中断任务时用 `state <project-dir> --section runs` 定位，已知编号加 `--id <run-id>`；查看历史任务加 `--version <version-id>`。工作稿任务用 `demo-edit` 接续或 `demo-restore` 恢复修订；`run-resume` 不接受 `kind:"draft-edit"`，避免复制出不持有工作稿编辑权的任务。旧流程的 `run-resume <project-dir> <run-id> --version <version-id>` 从历史固定输入和输出创建新任务，返回 `resumedFrom` 与 `recoveredOutputs`，不覆盖实时任务或原输出。省略版本则从当前任务续作。随后用 `demo-prepare` 将恢复的 Demo 准备到新的 `demos/` 目录，选择与约束见[共享框架](demo-framework.md#后续复用)。新任务输入仍可能落后于当前 PRD，登记产物时继续计算过期状态。旧版本若没有保存任务记录，会明确报缺失，不虚构恢复上下文。
 
 ## 用户流程画布
 

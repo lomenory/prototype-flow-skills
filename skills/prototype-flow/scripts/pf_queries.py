@@ -10,12 +10,14 @@ def _run_summary(run):
     result = _selected(run, 'id', 'stage', 'status', 'createdAt', 'finishedAt', 'error',
                        'inputRevision', 'inputPath', 'requirementIds', 'sharedDocumentIds',
                        'contextScope', 'resumedFrom', 'recoveredOutputs', 'snapshotOutputs')
-    result.update(_selected(run, 'change', 'metrics', 'measurements', 'changedFiles'))
+    result.update(_selected(run, 'change', 'metrics', 'measurements', 'changedFiles',
+                            'draft', 'draftId', 'artifactId', 'draftRevision', 'beforeRevision',
+                            'kind', 'path', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision'))
     result['inputRequirementIds'] = sorted(run.get('requirementHashes', {}))
     result['documents'] = [_selected(document, 'id', 'title', 'moduleId', 'path', 'revision')
                            for document in run.get('documents', [])]
     outputs = run.get('outputs', [])
-    result['outputs'] = (_selected(outputs, 'summary', 'paths', 'artifactIds', 'bindingIds')
+    result['outputs'] = (_selected(outputs, 'summary', 'paths', 'artifactIds', 'bindingIds', 'draftRevision', 'draftRevisions')
                          if isinstance(outputs, dict) else outputs)
     if run.get('framework'):
         result['framework'] = _selected(run['framework'], 'id', 'path', 'entryHtml')
@@ -57,7 +59,8 @@ def _artifact_inputs(store, base, project, artifacts):
 def _artifact_record(store, base, artifact, documents, requirements, full):
     result = dict(artifact) if full else _selected(artifact, 'id', 'title', 'path', 'entryHtml',
         'status', 'runId', 'createdAt', 'inputRevision', 'inputPath', 'requirementIds',
-        'frameworkId', 'baseArtifactId', 'sourceDemoPath')
+        'frameworkId', 'baseArtifactId', 'sourceDemoPath', 'kind', 'draftRevision',
+        'draftSourceArtifactId', 'activeRunId', 'editStatus', 'lastFrozenArtifactId', 'lastFrozenRevision', 'frozenFrom')
     result['staleRequirementIds'] = sorted(rid for rid, expected in artifact.get('requirementHashes', {}).items()
                                            if requirements.get(rid) != expected)
     result['staleDocumentIds'] = sorted(did for did, expected in artifact.get('documentHashes', {}).items()
@@ -67,7 +70,11 @@ def _artifact_record(store, base, artifact, documents, requirements, full):
     result['integrityStatus'] = ('intact' if path.is_dir() and store._inventory(path) == artifact.get('fileHashes')
                                   else 'changed')
     if result['integrityStatus'] != 'intact':
-        result['syncStatus'] = 'invalid'
+        if artifact.get('kind') == 'working-draft' and base == store.root and path.is_dir():
+            result['integrityStatus'] = 'editing'
+            result['syncStatus'] = 'editing'
+        else:
+            result['syncStatus'] = 'invalid'
     if not full:
         result['counts'] = {'requirements': len(artifact.get('requirementHashes', {})),
                             'documents': len(artifact.get('documentHashes', {})),
@@ -106,6 +113,7 @@ def query_state(store, section, record_id=None, version=None, full=False):
                 raise FlowError('Artifact is not available in this version', 404, {'id': record_id})
             documents, requirements = _artifact_inputs(store, base, project, artifacts) if artifacts else ({}, {})
             result['artifacts'] = {'currentArtifactId': collection.get('currentArtifactId'),
+                **_selected(collection, 'currentDraftId', 'lastFrozenArtifactId'),
                 'items': [_artifact_record(store, base, artifact, documents, requirements, full)
                           for artifact in artifacts]}
         return result

@@ -27,6 +27,8 @@
 
 ## 后续复用
 
+框架版本不变时，日常页面调整使用 `demo-edit` 接续工作稿，再用 `demo-save` 保存修订；详见[工作稿路径](demo-and-change.md#日常调整工作稿)。每轮仍固定框架和业务依据，但不为保存进度复制完整 Demo。以下完整复制路径用于首次制作、框架升级和既有调用方：
+
 ```bash
 python3 -B <skill-dir>/scripts/flow.py run-start <project-dir> --stage demo --requirements <IDs...>
 python3 -B <skill-dir>/scripts/flow.py demo-prepare <project-dir> <run-id> --path demos/<new-artifact-id>
@@ -59,9 +61,9 @@ python3 -B <skill-dir>/scripts/flow.py demo-prepare <project-dir> <run-id> --pat
 
 这只是格式示例，不能当作已完成验证。`source` 必须是本 Demo 包内实际截图或报告的项目相对路径，随产物哈希与快照冻结。已有外置报告在登记前复制进本 Demo 包。检查真实渲染、资源引用和适用交互；字节一致不证明页面正在使用框架。
 
-框架版本及使用方式都未变的局部调整，可继承固定基线的框架依据：在 `frameworkReview` 增加 `mode:"inherited"`、`fromArtifactId:"固定基线产物ID"`，并把本次说明保存在新包内的 `source`。说明原验证来源、框架与用法未受影响的依据，以及本次按 Tier 实际执行的检查；静态检查不能写成新的浏览器观察。运行时要求同一框架、完整来源产物与报告；无法证明仍适用时重新验证。框架继承不自动证明业务页面或截图仍有效，页面证据按[绑定继承规则](demo-and-change.md#页面状态入口)分别处理。
+框架版本及使用方式都未变的局部调整，可继承固定基线的框架依据：在 `frameworkReview` 增加 `mode:"inherited"`、`fromArtifactId:"固定基线产物ID"`，并把本次说明保存在本 Demo 包内的 `source`。工作稿后续修订沿用仍适用的框架依据，不为每轮编辑创建新的完整包。说明原验证来源、框架与用法未受影响的依据，以及本次按 Tier 实际执行的检查；静态检查不能写成新的浏览器观察。运行时要求同一框架、完整来源产物与报告；无法证明仍适用时重新验证。框架继承不自动证明业务页面或截图仍有效，页面证据按[绑定继承规则](demo-and-change.md#页面状态入口)分别处理。
 
-`artifact` 或 `demo-finalize` 从任务取得框架和基准 Demo ID，校验 `_framework/` 与固定框架的文件清单和内容完全一致、根级 `DESIGN.md` 一致；`verified/current` 需要上述本次或继承证据记录。具体 Demo 内对框架包的局部修改会被拒绝，应登记新框架版本。
+`artifact`、`demo-finalize` 和工作稿保存从任务取得框架和基准 Demo ID，校验 `_framework/` 与固定框架的文件清单和内容完全一致、根级 `DESIGN.md` 一致；`verified/current` 需要上述本次或继承证据记录。可变工作稿不改变框架的不可变约束，具体 Demo 内对框架包的局部修改会被拒绝，应登记新框架版本。
 
 仅当 PRD 输入仍有效、框架和基准 Demo 当前指针没有被其他任务推进时，登记已验证 Demo 会一起切换当前框架和当前 Demo；返回 `activated:true` 才说明切换成功。候选或输入过期的产物不推进指针。基线冲突保留当前版本及工作目录，先比较差异再创建新任务；写入失败会回滚登记文件，不留下仅框架已切换的状态。此切换是本地默认版本选择，不是部署或用户验收。
 
@@ -70,6 +72,7 @@ python3 -B <skill-dir>/scripts/flow.py demo-prepare <project-dir> <run-id> --pat
 ## 历史与兼容
 
 - 框架版本、当前选择、固定输入和 Demo 随快照保存；恢复先备份，任务续作沿用原框架和原业务 Demo。
+- 日常工作稿只在明确节点冻结完整 Demo；修订恢复采用去重内容与清单。已有框架、冻结产物和项目快照不会因接续工作稿而改变。
 - 历史 Demo 内置当时的 `_framework/`，不链接项目中的可变目录。整个 Demo 文件夹包含框架资源。
 - 旧项目和快照不自动改写；未绑定框架的 Demo 仍可查看、校验和恢复，显示 `framework-unbound` 提示。再次生成前提取框架，并以原 Demo 为业务基线。
 - 旧框架产物未将报告放入自身包内时，校验显示 `framework-review-unarchived`；保留原记录，按实际证据补齐新版产物，不伪造历史验证。

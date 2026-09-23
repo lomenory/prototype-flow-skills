@@ -13,16 +13,31 @@
 | 2 | 边界明确的局部业务规则、交互或状态 | 对应 PRD/契约差异、受影响动作及必要成功/错误路径 |
 | 3 | 主要业务模型或公共框架能力变化 | 适用完整流程、受影响代表页面及跨模块路径 |
 
-首次制作按 demo-design 的实际范围选择适用 Tier，并完成首次框架接入。将判断保存为 `run-start --change-file <change.json>`，例如 `{"tier":1,"summary":"调整订单详情按钮间距","affectedBindingIds":["BIND-ORDER-UNPAID"]}`。只列已存在且确实受影响的绑定；新页面可留空。Tier 是本次检查范围声明，不自动证明验证通过。
+首次制作按 demo-design 的实际范围选择适用 Tier，并完成首次框架接入。将判断保存为 `demo-edit --change-file <change.json>`；旧制作路径使用 `run-start --change-file`。例如 `{"tier":1,"summary":"调整订单详情按钮间距","affectedBindingIds":["BIND-ORDER-UNPAID"]}`。只列已存在且确实受影响的绑定；新页面可留空。Tier 是本次检查范围声明，不自动证明验证通过。
 
-关联需求、传递依赖、完整正文及来源是理解和固定输入的闭包，不自动成为全部复验对象。共享样式、脚本、数据或依赖变化时扩大受影响范围；无法判断时保守复验。局部修改仍准备新的完整 Demo，保留固定输入与不可变历史，不创建跨轮可变产物。依赖路径、框架用法和任务范围未变化时，复用已准备能力与已有依据，不重复读取全部参考或执行无关全量 `validate`。
+关联需求、传递依赖、完整正文及来源是理解和固定输入的闭包，不自动成为全部复验对象。共享样式、脚本、数据或依赖变化时扩大受影响范围；无法判断时保守复验。局部修改接续同一工作稿，保存轻量修订及恢复依据，不每轮生成长期保留的完整版本。已冻结 Demo 和框架仍不可变。依赖路径、框架用法和任务范围未变化时，复用已准备能力与已有依据，不重复读取全部参考或执行无关全量 `validate`。
 
-## 固定输入并生成
+## 工作稿与冻结时机
+
+日常文案、间距和局部交互在工作稿中连续调整，每轮保留任务输入、修改范围、修订与真实检查结果。首次从已有冻结产物进入工作稿时保留原产物；以后使用命令返回的同一目录和工作稿编号。不要直接编辑已冻结目录，也不要通过每轮 `artifact` 登记来保存工作进度。
+
+以下节点保存不可变完整 Demo：首次达到可演示状态、提交评审、确认里程碑，以及用户明确要求“保存 Demo 版本”。这些节点在已有任务授权内执行，无需为本地冻结另行询问。重大改版开始前，当前工作稿若不同于最近冻结版，先冻结检查点；内容未变则复用已有冻结版。工作稿修订用于撤回和恢复，冻结版本用于稳定评审与交接；项目快照用于同时归档 PRD、关系和 Demo。
+
+冻结保留实际验证状态，不自动补浏览器证据、升级为已确认或发布。普通修改结束时保存工作稿即可；Tier 0 的受影响截图可以保持待复核。
+
+## 日常调整工作稿
+
+1. 用 `demo-edit <project-dir> --requirements <IDs...> --change-file <change.json>` 固定本轮 PRD 输入并创建任务；额外共享文档使用 `--documents`。首次从冻结产物复制工作稿，之后接续同一工作稿编号和目录。只修改返回的 `path`，保留返回的任务 ID 和 `draftRevision`。Tier 3 开始前，运行时会为尚未冻结的已保存修订建立检查点。
+2. 按本次 Tier 完成修改和必要检查，更新真实需要变化的页面关联与证据。截图和验证对应工作稿的具体修订；受影响证据失效，依赖未变且能证明适用的证据才可延续。不要把旧截图或重存旧 evidence 当成本轮观察。
+3. 用 `demo-save <project-dir> <run-id> --file <payload.json>` 保存新修订、更新本次关联、定向检查并结束任务；格式见[工作稿保存](runtime.md#demo-工作稿)。保存不创建新的完整 Demo 目录或不可变产物。失败保留修改文件，先按错误修正再重试，不直接改登记哈希。
+4. 到达上面的冻结节点时用 `demo-freeze <project-dir> --artifact <draft-id> --title "评审版名称"`。冻结完整目录及其依据，记录来源修订，工作稿和当前指针保持原样，可继续下一轮调整。日常回退使用 `demo-restore <project-dir> <draft-id> --revision <n>`；恢复形成新修订，不倒写已有历史。
+
+## 首次生成与兼容路径
 
 1. 用 `state` 摘要定位模块，通过 `document` 读取本次需求、来源、验收和已知依赖；旧产物和任务用 `state --section artifacts|runs` 查询，单项加 `--id <id>`。按[项目共享框架](demo-framework.md)读取已有规范与完整 Demo；首次生成/接入先提取可执行框架，后续判断是否影响公共能力，需要时准备新框架候选。
 2. 用 `run-start --stage demo --requirements <IDs...>` 固定 PRD、需求哈希、项目修订、框架版本和完整基准 Demo；升级框架用 `--framework <id>`。默认保存选中需求、传递依赖、关联流程/页面及所属文档的完整正文与相关来源、图片；其他共享规则文档用 `--documents <document-ids...>` 明确加入。确需全库上下文时加 `--full-context`。运行 `demo-prepare <project-dir> <run-id> --path demos/<new-artifact-id>` 复制固定的框架和业务成果，再继续制作，保留上一套可演示产物。
 3. 按上述范围选择 demo-design 适用路径，完成设计、产品契约差异、实现和必要实际验证。独立模块共用导航、公共组件、数据对象身份和业务状态；涉及跨模块的修改验证其连续操作。
-4. 普通任务先完成修改和适用检查，再用 `demo-finalize <project-dir> <run-id> --file <payload.json>` 一次登记不可变完整产物、更新本次关联、定向校验并结束任务；格式见[运行时](runtime.md#demo-一次收尾)。填写本次检查或有来源的继承证据，框架依据见 `evidence.frameworkReview`。只有适用证据支持才用 `verified` 或 `current`；`activated:true` 表示本地默认框架和 Demo 已一起切换。输入过期不切换，基线被其他任务推进时先比较差异。产品契约场景、规则、状态、UI 的关系保存在旁路数据，不展示在产品 Demo 中。
+4. 首次制作或采用兼容路径的任务完成修改和适用检查后，用 `demo-finalize <project-dir> <run-id> --file <payload.json>` 一次登记不可变完整产物、更新本次关联、定向校验并结束任务；格式见[运行时](runtime.md#demo-一次收尾)。这已形成冻结产物，无需再复制同一成果。后续普通调整转入工作稿路径。填写本次检查或有来源的继承证据，框架依据见 `evidence.frameworkReview`。只有适用证据支持才用 `verified` 或 `current`；`activated:true` 表示本地默认框架和 Demo 已一起切换。输入过期不切换，基线被其他任务推进时先比较差异。产品契约场景、规则、状态、UI 的关系保存在旁路数据，不展示在产品 Demo 中。
 5. 一次收尾失败会回滚登记并保留工作目录。中断成果用 `run-finish --status partial|failed` 的 `outputs.paths` 保存，不必提前登记候选。确需单独登记 `artifact` 时，它不会自动结束任务，仍须更新关联并 `run-finish`；候选也冻结文件和身份，后续修改使用新目录和新 ID。输出可用 `{"artifactIds":["实际产物ID"],"bindingIds":["实际绑定ID"],"paths":["项目内输出路径"]}`，未登记的部分成果须在 `paths` 中声明，才能随快照保存。无框架的显式修订登记只保留旧数据兼容。
 
 `prototype-contract.json` 遵循 demo-design 当前 schema；新增项目需求 ID 和版本字段写入 prototype-flow 的清单，不能塞进下游 schema。
@@ -41,6 +56,8 @@
 
 首次登记已验证绑定时，运行时生成 `verificationHash`，固定截图字节、产物身份、需求、入口、页面状态与 fixture。后续变化或旧数据缺少指纹时，读取和检查均显示待复核；重存旧 evidence 不会刷新结论。实际重新验证后，在对应 binding 中提供新证据、`verified:true` 与一次性 `reverify:true`，运行时才建立新指纹。
 
+工作稿绑定另有运行时维护的 `verificationDraftRevision`，指明证据对应的工作稿修订。修改期间不把登记的旧证据视作新页面验证；保存后，受影响绑定保持待复核，符合依赖检查的未变化证据才延续到新修订。不要手填修订字段来掩盖证据过期。
+
 实际验证时可记录 `verificationScope:{"files":["index.html","styles/order.css","scripts/order.js"],"complete":true}`，文件为 Demo 内完整依赖闭包，须包括共享样式、脚本、数据和资源；不能仅列改动文件。只有能确认依赖完整时才写 `complete:true`。迁移未变化页面到新版 Demo 时，用 `inheritVerificationFrom:"旧绑定ID"` 请求继承，允许沿用同一绑定 ID；不使用 `reverify:true` 冒充新观察。运行时核对来源验证、依赖字节、框架、入口、截图与需求依据，不满足条件则拒绝继承。旧证据没有 scope、动态依赖不能确定或共享文件已改变时，需实际复验后建立新依据。
 
 继承保留原验证来源，本次报告明确哪些检查重新执行、哪些继承。页面文案、视觉或状态改变后，旧截图不能当作最新截图；Tier 0 可完成静态检查并将受影响截图保留为待复核，不为获得已验证标签扩大浏览器工作。
@@ -53,11 +70,11 @@
 
 用户在 R12 Demo 制作期间保存 R13 时，完成产物仍标明 R12。比较新旧输入，更新真正受影响部分后重新验证，不覆盖 R13 PRD 或沿用已过期证据。运行失败保留候选、任务输入、已完成输出和错误信息，以 `run-finish --status partial|failed` 记录。恢复从这些记录继续；未明确的业务问题只阻塞依赖它的部分。
 
-中断任务用 `run-resume <project-dir> <run-id>` 创建独立续作；从历史接续加 `--version <version-id>`。输入仍是原固定版本，已声明的输出复制到新任务工作目录，返回 `recoveredOutputs`；原任务、历史和当前同名文件保留。再运行 `demo-prepare` 到新的 `demos/<id>`，优先使用唯一恢复 Demo；多个恢复 Demo 用 `--from-output <recoveredOutputs.path>` 指定。恢复目录用于保留成果，登记使用新 Demo 目录。若最新 PRD 已改变，仍须判断影响，不能把续作自动视为最新。
+工作稿需要退回某次已保存状态时使用 `demo-restore`，保留后续修订记录；中断先用 `run-finish --status partial|failed` 如实记录成果。首次制作或历史快照中的中断任务仍可用 `run-resume <project-dir> <run-id>` 创建独立续作；从历史接续加 `--version <version-id>`。输入仍是原固定版本，已声明的输出复制到新任务工作目录，返回 `recoveredOutputs`；原任务、历史和当前同名文件保留。再运行 `demo-prepare` 到新的 `demos/<id>`，优先使用唯一恢复 Demo；多个恢复 Demo 用 `--from-output <recoveredOutputs.path>` 指定。若最新 PRD 已改变，仍须判断影响，不能把续作自动视为最新。
 
 ## 完成程度
 
-`validate --artifacts <IDs...>` / `--bindings <IDs...>` 只检查指定产物或绑定及其必要依据；默认 `validate` 仍检查全项目。`demo-finalize` 已执行本次定向校验，成功后不重复同一检查，除非又有改动或失败。结构检查不证明视觉质量；按 Tier 完成适用浏览器验证，记录实际平台、尺寸、路径、页面状态及截图，不扩大成真机、线上、完整场景或用户验收结论。
+`validate --artifacts <IDs...>` / `--bindings <IDs...>` 只检查指定产物或绑定及其必要依据；默认 `validate` 仍检查全项目。`demo-save` 和 `demo-finalize` 已执行本次定向校验，成功后不重复同一检查，除非又有改动或失败。结构检查不证明视觉质量；按 Tier 完成适用浏览器验证，记录实际平台、尺寸、路径、页面状态及截图，不扩大成真机、线上、完整场景或用户验收结论。
 
 CLI 的 `commandMetrics` 记录命令耗时及 I/O 次数、字节，任务的 `metrics` 保存阶段记录。人工修改和浏览器耗时只有实际计量时才在收尾的 `measurements` 填写；用相同改动范围比较结果，不把未计量时间写为零或承诺固定提速比例。
 

@@ -3,6 +3,7 @@
 This reports integrity and recorded evidence; it never executes a browser check
 or changes a binding's persisted verification status.
 """
+import copy
 from urllib.parse import unquote, urlsplit
 
 from pf_core import FlowError, business_text, digest, parse_requirements, split_frontmatter, valid_id
@@ -93,8 +94,13 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                                                     for bid in selected_bindings}
         artifacts = [artifact for aid, artifact in artifacts_by_id.items() if aid in selected_artifacts]
         bindings = [binding for bid, binding in bindings_by_id.items() if bid in selected_bindings]
+        frozen = [(artifact, copy.deepcopy(artifact['frozenRelations'])) for artifact in artifacts
+                  if artifact.get('frozenRelations') and artifact.get('kind') != 'working-draft']
+        frozen_bindings = [binding for _, saved in frozen for binding in saved.get('bindings', [])]
+        bindings += frozen_bindings
         scope = {'artifactIds': sorted(aid for aid in selected_artifacts if aid is not None),
-                 'bindingIds': sorted(selected_bindings), 'documentIds': [], 'frameworkIds': [], 'flowIds': []}
+                 'bindingIds': sorted(selected_bindings | {b['id'] for b in frozen_bindings}),
+                 'documentIds': [], 'frameworkIds': [], 'flowIds': []}
         errors, warnings = [], []
         try:
             index = store._read('requirement-index.json', {'items': []})
@@ -134,7 +140,10 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                 else:
                     hashes = store._inventory(path)
                     if hashes != artifact.get('fileHashes'):
-                        errors.append({'code': 'artifact-mutated', 'id': aid})
+                        if artifact.get('kind') == 'working-draft':
+                            warnings.append({'code': 'draft-unsaved', 'id': aid})
+                        else:
+                            errors.append({'code': 'artifact-mutated', 'id': aid})
                     framework = frameworks.get(artifact.get('frameworkId'))
                     if artifact.get('frameworkId'):
                         if not framework:
@@ -166,22 +175,45 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
 
             evaluated = store._evaluated_relations(binding_ids=selected_bindings)
             bindings = [binding for binding in evaluated.get('bindings', []) if binding['id'] in selected_bindings]
+            for artifact, saved in frozen:
+                for binding in saved.get('bindings', []):
+                    if binding.get('artifactId') != artifact['id']:
+                        errors.append({'code': 'frozen-binding-artifact-mismatch', 'id': binding['id']})
+                    if binding.get('verified'):
+                        try:
+                            valid = bool(binding.get('verificationHash')) and binding['verificationHash'] == store._binding_fingerprint(
+                                binding, artifacts=artifacts_by_id)
+                        except (FlowError, OSError, UnicodeError):
+                            valid = False
+                        if not valid:
+                            binding.update(verified=False, status='needs-review')
+                    bindings.append(binding)
             related_flows = []
+            frozen_ids = {artifact['id'] for artifact, _ in frozen}
+            live_artifacts = selected_artifacts - frozen_ids
+            live_requirements = wanted_requirements if live_artifacts or selected_bindings else set()
             for flow in relations.get('flows', []):
-                related = bool(wanted_requirements.intersection(flow.get('requirementIds', [])))
+                related = bool(live_requirements.intersection(flow.get('requirementIds', [])))
                 steps = flow.get('steps', [])
                 for step in steps if isinstance(steps, list) else []:
                     if not isinstance(step, dict):
                         continue
                     related = related or step.get('bindingId') in selected_bindings
-                    related = related or step.get('artifactId') in selected_artifacts
-                    related = related or bool(wanted_requirements.intersection(
+                    related = related or step.get('artifactId') in live_artifacts
+                    related = related or bool(live_requirements.intersection(
                         store._step_requirements(step, relations.get('bindings', []))))
                 if related:
                     related_flows.append(flow)
             scope['flowIds'] = [flow['id'] for flow in related_flows]
             errors.extend(store._flow_step_errors({'flows': related_flows,
                                                    'bindings': relations.get('bindings', [])}, known_ids))
+            for _, saved in frozen:
+                saved_ids = {binding['id'] for binding in saved.get('bindings', [])}
+                context = [binding for binding in relations.get('bindings', []) if binding['id'] not in saved_ids]
+                errors.extend(store._flow_step_errors({'flows': saved.get('flows', []),
+                    'bindings': context + saved.get('bindings', [])}, known_ids))
+                related_flows.extend(saved.get('flows', []))
+            scope['flowIds'] = sorted({flow['id'] for flow in related_flows})
             for item in bindings + related_flows:
                 if set(item.get('requirementIds', [])) - known_ids:
                     errors.append({'code': 'relation-requirement-missing', 'id': item['id']})
