@@ -36,7 +36,9 @@ python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称"
 python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 ```
 
-需要查看工作台时运行 `serve <project-dir> --reuse`，检查同项目服务并复用，或启动新的本机工作台和独立只读 Demo 预览。工作台展示已记录任务、待处理项、需求和产物，并可复制审查上下文；新增、编辑、上传及版本保存/恢复全部由当前 Agent 使用本地 CLI 执行。AI 生成和飞书同步由当前 Agent 对话发起；loopback 地址仅供当前电脑使用。
+默认在普通对话中读取、修改、验证和交付，不强制生成卡片或启动工作台。查看项目全貌、PRD、需求结构和历史时才运行 `serve <project-dir> --reuse`；Demo 查看或浏览器验证只运行 `preview <project-dir> --reuse`，再用 `demo-entry` 解析准确 URL。工作台与预览各自发现、复用和停止，loopback 地址仅供当前电脑使用。新增、编辑、上传及版本保存/恢复全部由当前 Agent 使用本地 CLI 执行。
+
+多对象选择、版本比较或复杂输入确有收益时，按 [对话与可选卡片](references/conversation-ui.md) 使用 `review-state` 和固定渲染器；能力缺失时继续普通对话，不自动打开工作台。卡片快照与未提交输入不是业务权威源，稳定 ID 和读取基线必须重新核对。
 
 ### 判断起点与接续工作
 
@@ -75,7 +77,9 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 
 完成所请求阶段的产物与必要检查，如实更新受影响模块的阶段。Demo 调整优先在 `demo-save.moduleStages` 中提交确有变化的阶段，未变化不重复登记；批量入库已设置阶段时无需重复操作。`demo-save` 成功回执已包含修订、检查、模块阶段和待复核证据，可直接据此交付；没有新改动或失败时，不追加 `run-finish`、`validate`、全量 `state` 或 `refresh`。Tier 0 允许受影响截图待复核，不为消除工作台标签扩大验证。
 
-需求整理拆分完成、PRD 与需求及来源已保存且必要检查通过后，自动运行 `python3 -B <skill-dir>/scripts/flow.py serve <project-dir> --reuse`，无需用户再次提出打开请求；复用时命令返回已有地址，新启动时通过宿主支持的后台或持久会话保持服务运行。确认返回的 `projectRoot` 是当前项目，使用宿主可用的浏览器能力打开返回的 `url`，并在交付中提供该本机链接。用户明确要求不启动时遵从；宿主权限或能力限制导致无法启动或打开时，如实说明实际状态及可用的启动命令或链接。
+需求整理拆分完成、PRD 与需求及来源已保存且必要检查通过后，直接交付真实保存回执、简明结果和文件入口；不自动运行 `serve --reuse`，不因任务大小或缺少卡片能力打开工作台。Demo 任务完成适用验证后提供独立预览入口，已有窗口由用户刷新或重新打开，不承诺自动更新。
+
+新建或已授权修改 Demo 时，依据明确业务起点在 binding 的 `primaryRequirementIds` 登记默认入口；旧数据只读查看不自动填充。多绑定无默认时保留精确关联链接，不猜第一项、不增加演示选择器。默认入口只是查看起点，不决定修改或复验范围。卡片 Demo 写请求通过 `demo-edit --expected-file` 核对原基线；PRD 与 Demo 同改时先保存正文，再以本轮回执形成新 Demo 基线，保留原请求来源。
 
 普通新资料入库不自动制作 Demo、截图或保存项目快照。说明实际文件、处理范围和待决项；结构检查、浏览器观察和真实云端读回分开表述，不把生成或测试通过写成用户已确认。
 

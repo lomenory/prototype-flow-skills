@@ -135,13 +135,17 @@ def _clone_relations(store, source, target, keep_current_ids=False):
     """Move live bindings to a draft, or preserve relations inside a frozen record."""
     relations = store._read('relations.json')
     originals = [copy.deepcopy(b) for b in relations['bindings'] if b['artifactId'] == source['id']]
-    if not originals:
+    if source.get('kind') != 'working-draft' and 'frozenRelations' in source:
+        originals = copy.deepcopy(source['frozenRelations'].get('bindings', []))
+    elif not originals:
         originals = copy.deepcopy(source.get('frozenRelations', {}).get('bindings', []))
     ids = {b['id'] for b in originals}
     flows = [copy.deepcopy(f) for f in relations['flows'] if any(
         step.get('bindingId') in ids or step.get('artifactId') == source['id']
         for step in f.get('steps', []) if isinstance(step, dict))]
-    if not flows:
+    if source.get('kind') != 'working-draft' and 'frozenRelations' in source:
+        flows = copy.deepcopy(source['frozenRelations'].get('flows', []))
+    elif not flows:
         flows = copy.deepcopy(source.get('frozenRelations', {}).get('flows', []))
     if keep_current_ids:
         source['frozenRelations'] = {'bindings': copy.deepcopy(originals), 'flows': copy.deepcopy(flows)}
@@ -278,7 +282,7 @@ def _edit_receipt(store, run, draft):
     bindings = [b for b in store._read('relations.json')['bindings'] if b['artifactId'] == draft['id']
                 and (b['id'] in declared if declared else selected.intersection(b.get('requirementIds', [])))]
     keys = ('id', 'artifactId', 'requirementIds', 'screenId', 'stateId', 'route', 'fixtureId',
-            'screenshot', 'verified', 'verificationStatus')
+            'primaryRequirementIds', 'screenshot', 'verified', 'verificationStatus')
     run['affectedModules'] = _affected_modules(store, run['requirementIds'])
     run['bindings'] = [{key: b[key] for key in keys if key in b} for b in bindings]
     run['saveTemplate'] = {'outputs': {'summary': (run.get('change') or {}).get('summary', '')}}
@@ -286,13 +290,153 @@ def _edit_receipt(store, run, draft):
         run['saveTemplate']['bindingPatches'] = [{'id': b['id']} for b in bindings]
 
 
+def demo_edit_basis(store, requirement_ids=None, shared_document_ids=None, binding_ids=None,
+                    all_requirements=False, change=None):
+    """Read a complete expected baseline without indexing or creating work.
+
+    The returned object can be passed verbatim to edit_demo(expected=...). It
+    deliberately contains real file hashes rather than trusting draftRevision.
+    """
+    with store._transaction(read_only=True), store._read_session():
+        selected, _, selected_bindings = _resolve_edit_scope(
+            store, requirement_ids, binding_ids, change, all_requirements)
+        return _demo_edit_basis(store, selected, shared_document_ids, selected_bindings,
+                                selected is None)
+
+
+def _demo_edit_basis(store, requirement_ids, shared_document_ids, binding_ids, expanded_to_all):
+    from pf_validation import _inputs
+    project = store._project()
+    index = store._read('requirement-index.json', {'items': []})
+    indexed = {req['id']: req for req in index.get('items', [])}
+    if requirement_ids is not None and (not isinstance(requirement_ids, list)
+            or any(not isinstance(rid, str) for rid in requirement_ids)):
+        raise FlowError('Demo requirements must be an array of stable IDs')
+    selected = sorted(indexed) if requirement_ids is None else sorted({valid_id(rid) for rid in requirement_ids})
+    shared_document_ids = shared_document_ids or []
+    if not isinstance(shared_document_ids, list):
+        raise FlowError('Demo shared documents must be an array of stable IDs')
+    shared = sorted({valid_id(did) for did in shared_document_ids})
+    if set(shared) - {module['documentId'] for module in project['modules']}:
+        raise FlowError('Run references unknown shared documents')
+    relations = store._read('relations.json')
+    wanted = set(selected)
+    documents, requirements = {}, {}
+    while True:
+        previous = set(wanted)
+        for relation in relations.get('flows', []) + relations.get('bindings', []):
+            references = store._relation_requirements(relation, relations.get('bindings', []))
+            if wanted & references:
+                wanted.update(references)
+        documents, requirements, _, wanted, _ = _inputs(store, project,
+            [{'documentHashes': {did: None for did in shared}}],
+            [{'requirementIds': sorted(wanted)}], index)
+        if wanted == previous:
+            break
+    if set(selected) - set(requirements) or wanted - set(requirements):
+        raise FlowError('Resolve missing requirement dependencies before starting a run', 409,
+                        {'requirementIds': sorted(wanted - set(requirements))})
+    related_flows = [flow for flow in relations.get('flows', [])
+                     if wanted.intersection(store._relation_requirements(flow, relations.get('bindings', [])))]
+    related_ids = set(binding_ids)
+    related_ids.update(binding['id'] for binding in relations.get('bindings', [])
+                       if wanted.intersection(binding.get('requirementIds', [])))
+    related_ids.update(binding['id'] for flow in related_flows for step in flow.get('steps', [])
+                       for binding in store._step_bindings(step, relations.get('bindings', [])))
+    related_bindings = sorted((binding for binding in relations.get('bindings', []) if binding['id'] in related_ids),
+                              key=lambda binding: binding['id'])
+    registry = store._read('artifacts.json')
+    current_draft_id = registry.get('currentDraftId')
+    reuse_draft = current_draft_id and current_draft_id == registry.get('currentArtifactId')
+    if reuse_draft:
+        _, artifact = _draft(store, current_draft_id)
+        _assert_idle(store, artifact)
+        frameworks = store._frameworks()
+        framework = next((item for item in frameworks['items'] if item['id'] == artifact.get('frameworkId')), None)
+        if not framework or store._inventory(store._safe(framework['path'])) != framework.get('fileHashes'):
+            raise FlowError('Registered framework changed on disk', 409)
+        framework_baseline_id = frameworks.get('currentFrameworkId')
+    else:
+        if current_draft_id:
+            _assert_idle(store, _draft(store, current_draft_id)[1])
+        inputs = store._demo_inputs()
+        artifact, framework = inputs.get('baseArtifact'), inputs['framework']
+        framework_baseline_id = inputs['frameworkBaselineId']
+    artifact_basis = None
+    if artifact:
+        # _demo_inputs and _assert_idle have already checked the actual bytes.
+        artifact_basis = {key: copy.deepcopy(artifact.get(key)) for key in
+                          ('id', 'kind', 'draftRevision', 'path', 'entryHtml', 'fileHashes')}
+        artifact_basis['recordHash'] = digest(canonical(artifact))
+        # Page evidence includes every shared input document of its artifact.
+        # Check those actual inputs as context without expanding the edit scope.
+        # A retired source requirement is an explicit absence, allowing the
+        # newly saved successor requirements to be used for the next edit.
+        context_docs, context_requirements, _, context_ids, context_document_ids = _inputs(
+            store, project, [artifact], [{'requirementIds': sorted(wanted)}], index)
+        documents.update(context_docs)
+        requirements.update(context_requirements)
+        wanted.update(context_ids)
+        for rid in wanted - set(requirements):
+            requirements[rid] = {'id': rid, 'hash': None, 'documentId': None, 'moduleId': None}
+        for did in context_document_ids - set(documents):
+            documents[did] = {'id': did, 'path': None, 'content': None, 'businessHash': None}
+        if artifact.get('kind') != 'working-draft' and 'frozenRelations' in artifact:
+            frozen = artifact['frozenRelations']
+            related_bindings += sorted((binding for binding in frozen.get('bindings', [])
+                if wanted.intersection(binding.get('requirementIds', []))), key=lambda binding: binding['id'])
+    basis = {'contract': 'prototype-flow.demo-edit-baseline/1',
+        'project': {'id': project['id'], 'root': str(store.root)}, 'versionId': 'working',
+        'scope': {'requirementIds': selected, 'sharedDocumentIds': shared,
+                  'bindingIds': sorted(binding_ids), 'allRequirements': bool(expanded_to_all)},
+        'documents': [{key: document[key] for key in ('id', 'path', 'businessHash')} |
+                      {'revision': digest(document['content']) if document['content'] is not None else None}
+                      for _, document in sorted(documents.items())],
+        'requirements': [{key: requirements[rid][key] for key in ('id', 'hash', 'documentId', 'moduleId')}
+                         for rid in sorted(wanted)],
+        'bindings': [{'id': binding['id'], 'artifactId': binding['artifactId'],
+                      'hash': digest(canonical(binding)),
+                      'screenshotHash': (store._file_digest(store._safe(binding['screenshot']))
+                          if binding.get('screenshot') and store._safe(binding['screenshot']).is_file() else None)}
+                     for binding in related_bindings],
+        'relationsHash': digest(canonical({'bindings': related_bindings, 'flows': related_flows,
+            'supersessions': [item for item in relations.get('supersessions', [])
+                if wanted.intersection(item.get('from', []) + item.get('to', []))]})),
+        'currentArtifactId': registry.get('currentArtifactId'), 'currentDraftId': current_draft_id,
+        'artifact': artifact_basis,
+        'framework': {'id': framework['id'], 'currentFrameworkId': framework_baseline_id,
+                      'fileHashes': copy.deepcopy(framework['fileHashes']),
+                      'recordHash': digest(canonical(framework))}}
+    basis['baselineHash'] = digest(canonical(basis))
+    return basis
+
+
+def _check_expected(store, expected, requirement_ids, shared_document_ids, binding_ids, expanded_to_all):
+    if not isinstance(expected, dict) or expected.get('contract') != 'prototype-flow.demo-edit-baseline/1':
+        raise FlowError('A complete Demo edit baseline is required; read the selected requirement details again', 409)
+    current = _demo_edit_basis(store, requirement_ids, shared_document_ids, binding_ids, expanded_to_all)
+    compact_keys = {'contract', 'baselineHash', 'project', 'scope', 'versionId'}
+    if set(expected) <= compact_keys and {'baselineHash', 'project', 'scope'} <= set(expected):
+        differences = sorted(key for key in expected if expected[key] != current.get(key))
+        if differences:
+            raise FlowError('Demo edit baseline changed; read the latest details before applying this request', 409,
+                            {'changedFields': differences, 'current': current})
+        return
+    differences = sorted(key for key in set(expected) | set(current) if expected.get(key) != current.get(key))
+    if differences:
+        raise FlowError('Demo edit baseline changed; read the latest details before applying this request', 409,
+                        {'changedFields': differences, 'current': current})
+
+
 def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None,
-              binding_ids=None, all_requirements=False):
+              binding_ids=None, all_requirements=False, expected=None):
     started, before = time.perf_counter(), dict(store.metrics)
     with store._transaction(), store._rollback_writes(), store._read_session():
         requirement_ids, change, selected_bindings = _resolve_edit_scope(
             store, requirement_ids, binding_ids, change, all_requirements)
         expanded_to_all = requirement_ids is None
+        if expected is not None:
+            _check_expected(store, expected, requirement_ids, shared_document_ids, selected_bindings, expanded_to_all)
         registry = store._read('artifacts.json')
         current_id = registry.get('currentDraftId')
         created = not current_id or registry.get('currentArtifactId') != current_id
@@ -368,7 +512,7 @@ def _binding_updates(relations, draft, payload):
         raise FlowError('bindings and bindingPatches must be arrays')
     existing = {b['id']: b for b in relations['bindings']}
     used = {b.get('id') for b in updates if isinstance(b, dict)}
-    allowed = {'id', 'requirementIds', 'screenId', 'stateId', 'route', 'fixtureId', 'screenshot',
+    allowed = {'id', 'requirementIds', 'primaryRequirementIds', 'screenId', 'stateId', 'route', 'fixtureId', 'screenshot',
                'verified', 'verificationScope', 'evidence', 'reverify', 'inheritVerificationFrom', 'contractRefs'}
     for patch in patches:
         if not isinstance(patch, dict) or set(patch) - allowed:
@@ -385,6 +529,9 @@ def _binding_updates(relations, draft, payload):
             raise FlowError('Binding reverify requires verified:true and new actual evidence in this patch')
         updated = copy.deepcopy(original)
         updated.update(copy.deepcopy(patch))
+        if 'primaryRequirementIds' not in patch and 'primaryRequirementIds' in original:
+            updated['primaryRequirementIds'] = [rid for rid in original['primaryRequirementIds']
+                                                if rid in updated.get('requirementIds', [])]
         updates.append(updated)
     return updates
 
@@ -577,10 +724,21 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
     with store._transaction(), store._rollback_writes():
         registry, draft = _draft(store, artifact_id)
         _assert_idle(store, draft)
+        relations = store._read('relations.json')
+        live_bindings = [binding for binding in relations['bindings'] if binding['artifactId'] == draft['id']]
+        primary_errors = store._primary_binding_errors(live_bindings)
+        if primary_errors:
+            raise FlowError('Invalid default Demo entry declarations', details=primary_errors)
         if draft.get('lastFrozenRevision') == draft['draftRevision']:
             existing = next((a for a in registry['items'] if a['id'] == draft.get('lastFrozenArtifactId')), None)
             if existing:
-                return dict(store._intact_artifact(existing['id']), reused=True)
+                frozen_bindings = (existing['frozenRelations'].get('bindings', [])
+                    if 'frozenRelations' in existing else
+                    [binding for binding in relations['bindings'] if binding['artifactId'] == existing['id']])
+                primary = lambda records: {binding['id']: binding['primaryRequirementIds'] for binding in records
+                                            if binding.get('primaryRequirementIds')}
+                if primary(live_bindings) == primary(frozen_bindings):
+                    return dict(store._intact_artifact(existing['id']), reused=True)
         validation = store.validate(artifact_ids=[draft['id']])
         blocking = [e for e in validation['errors'] if not (_checkpoint and e['code'] == 'artifact-stale')]
         if blocking:

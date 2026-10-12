@@ -103,6 +103,13 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                  'documentIds': [], 'frameworkIds': [], 'flowIds': []}
         errors, warnings = [], []
         try:
+            # Validate the complete selected artifact declaration set, even when
+            # a caller checks just one of its pages.
+            live_defaults = [b for b in relations.get('bindings', [])
+                             if b.get('artifactId') in selected_artifacts]
+            errors.extend(store._primary_binding_errors(live_defaults))
+            for _, saved in frozen:
+                errors.extend(store._primary_binding_errors(saved.get('bindings', [])))
             index = store._read('requirement-index.json', {'items': []})
             documents, requirements, known_ids, wanted_requirements, wanted_documents = _inputs(
                 store, project, artifacts, bindings, index)

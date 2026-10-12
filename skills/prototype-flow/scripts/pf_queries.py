@@ -87,7 +87,7 @@ def _binding_record(binding, full):
     if full:
         return binding
     return _selected(binding, 'id', 'artifactId', 'screenId', 'stateId', 'route', 'fixtureId',
-        'requirementIds', 'screenshot', 'verified', 'status', 'verificationStatus',
+        'requirementIds', 'primaryRequirementIds', 'screenshot', 'verified', 'status', 'verificationStatus',
         'verificationScope', 'verificationDraftRevision', 'evidence', 'verificationInheritedFrom')
 
 

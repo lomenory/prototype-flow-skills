@@ -150,7 +150,7 @@ def parser():
     cmd.add_argument('--empty', action='store_true', help='新项目不创建占位总览，供随后 intake 一次入库')
     cmd = command('intake', '一次保存新资料、完整 PRD 和批量需求，并维护和校验')
     cmd.add_argument('--file', required=True, help='包含 title、content、requirements 和可选 source 的 JSON')
-    cmd = command('serve', '启动本机工作台与独立只读 Demo 预览；Ctrl+C 停止')
+    cmd = command('serve', '按需启动本机项目工作台；Demo 点击时独立预览；Ctrl+C 仅停止工作台')
     cmd.add_argument('--port', type=int, default=0)
     cmd.add_argument('--preview-port', type=int, default=0)
     cmd.add_argument('--reuse', action='store_true', help='验证并复用同项目的现有服务；没有可用服务时启动')
@@ -158,6 +158,31 @@ def parser():
     cmd.add_argument('--version')
     cmd.add_argument('--section', choices=['runs', 'artifacts', 'bindings'], help='只读取任务、产物或页面绑定，省略无关 PRD 正文')
     cmd.add_argument('--id', help='只读取指定任务、产物或绑定；必须同时提供 --section')
+    cmd = command('review-state', '按范围读取可选对话卡片快照；不保存或启动服务')
+    cmd.add_argument('--view', choices=['overview', 'module', 'requirement', 'tasks', 'task', 'history', 'compare'], default='overview')
+    cmd.add_argument('--module')
+    cmd.add_argument('--requirement')
+    cmd.add_argument('--run')
+    cmd.add_argument('--version')
+    cmd.add_argument('--from', dest='from_version')
+    cmd.add_argument('--to', dest='to_version', default='working')
+    cmd.add_argument('--limit', type=int, default=20)
+    cmd.add_argument('--cursor')
+    cmd.add_argument('--query')
+    cmd = command('preview', '独立启动或复用只读 Demo 预览，不打开工作台')
+    cmd.add_argument('--reuse', action='store_true')
+    cmd.add_argument('--port', type=int, default=0)
+    cmd = command('demo-entry', '从已运行的独立预览解析准确 Demo URL')
+    target = cmd.add_mutually_exclusive_group(required=True)
+    target.add_argument('--requirement')
+    target.add_argument('--binding')
+    target.add_argument('--artifact')
+    cmd.add_argument('--within-artifact')
+    cmd.add_argument('--version')
+    cmd = command('export-module', '只读导出已确认模块的完整交付包')
+    cmd.add_argument('id')
+    cmd.add_argument('--output', required=True)
+    cmd.add_argument('--version')
     cmd = command('document', '读取完整 PRD 及保存基线')
     cmd.add_argument('id')
     cmd.add_argument('--version')
@@ -191,6 +216,7 @@ def parser():
     scope.add_argument('--all-requirements', action='store_true', help='明确选择全项目需求')
     cmd.add_argument('--documents', nargs='*', help='额外影响本次工作稿的共享规则文档 ID')
     cmd.add_argument('--change-file', help='本次修改范围 JSON：tier、summary、affectedBindingIds')
+    cmd.add_argument('--expected-file', help='Demo 读取基线 JSON；在同一事务内、创建任务或工作稿前核对')
     cmd = command('demo-save', '保存工作稿修订、更新受影响证据并结束本轮任务')
     cmd.add_argument('id', help='demo-edit 返回的任务 ID')
     cmd.add_argument('--file', required=True, help='保存内容 JSON；artifact、bindings、bindingPatches、flows、moduleStages、outputs、measurements 均可选')
@@ -294,7 +320,8 @@ def main(argv=None):
                 if existing:
                     output(existing)
                     return 0
-                store.state()  # Fail early if the project was not initialized.
+                with store._transaction(read_only=True):
+                    store._project()  # Identity only; management data is read on demand.
                 server = WorkbenchServer(store, args.port, args.preview_port)
                 info = server.start()
                 try:
@@ -314,6 +341,25 @@ def main(argv=None):
                 with registry.lock():
                     registry.forget(server.instance_id)
             return 0
+        elif command == 'preview':
+            from pf_server import preview
+            result = preview(store.root, reuse=args.reuse, port=args.port)
+        elif command == 'demo-entry':
+            from pf_server import demo_entry
+            if args.within_artifact and not args.binding:
+                raise FlowError('--within-artifact 只能与 --binding 一起使用')
+            result = demo_entry(store, version=args.version, requirement_id=args.requirement,
+                                binding_id=args.binding, artifact_id=args.artifact,
+                                within_artifact=args.within_artifact)
+        elif command == 'review-state':
+            from pf_review import review_state
+            result = review_state(store, view=args.view, module_id=args.module,
+                requirement_id=args.requirement, run_id=args.run, version=args.version,
+                from_version=args.from_version, to_version=args.to_version,
+                limit=args.limit, cursor=args.cursor, query=args.query)
+        elif command == 'export-module':
+            from pf_delivery import export_module
+            result = export_module(store, args.id, args.output, args.version)
         elif command == 'state':
             if args.id is not None and not args.section:
                 raise FlowError('state --id requires --section runs, artifacts or bindings')
@@ -346,7 +392,8 @@ def main(argv=None):
                 raise FlowError('demo-edit 需要明确范围：使用 --requirements、--bindings、change.affectedBindingIds 或 --all-requirements')
             result = store.edit_demo(args.requirements, args.documents,
                                      change=change, binding_ids=args.bindings,
-                                     all_requirements=args.all_requirements)
+                                     all_requirements=args.all_requirements,
+                                     expected=read_json(args.expected_file) if args.expected_file else None)
         elif command == 'demo-save':
             result = store.save_demo(args.id, read_json(args.file))
         elif command == 'demo-freeze':
@@ -405,11 +452,11 @@ def main(argv=None):
         result = result if args.full else compact_result(command, result)
         if isinstance(result, dict) and command in ('run-start', 'demo-prepare', 'artifact', 'relations',
                                                    'run-finish', 'demo-finalize', 'demo-edit', 'demo-save',
-                                                   'demo-freeze', 'demo-restore'):
+                                                   'demo-freeze', 'demo-restore', 'review-state', 'preview', 'demo-entry'):
             result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
         output(result)
         return 0
-    except (FlowError, ValueError, FileNotFoundError, PermissionError) as exc:
+    except (FlowError, ValueError, OSError) as exc:
         details = getattr(exc, 'details', None)
         output({'error': str(exc), 'status': getattr(exc, 'status', 400),
                 'details': details if getattr(args, 'full', False) else error_summary(details)})

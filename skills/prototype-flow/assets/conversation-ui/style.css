@@ -1,0 +1,5 @@
+[id^="pf-review-"] { overflow-wrap: anywhere; }
+[id^="pf-review-"] header { padding-right: 90px; }
+[id^="pf-review-"] pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+[id^="pf-review-"] .pf-item { margin-block: 12px; }
+[id^="pf-review-"] [data-role="actions"] { margin-top: 16px; }

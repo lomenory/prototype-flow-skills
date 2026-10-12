@@ -1106,6 +1106,34 @@ class ProjectStore:
                     binding.update(verified=False, status='needs-review', verificationStatus=reason)
         return relations
 
+    @staticmethod
+    def _primary_binding_errors(bindings):
+        """Navigation declarations are scoped to an artifact, never evidence."""
+        errors, declared = [], {}
+        for binding in bindings:
+            primary = binding.get('primaryRequirementIds', [])
+            if (not isinstance(primary, list) or any(not isinstance(rid, str) or not ID.fullmatch(rid)
+                    for rid in primary) or len(primary) != len(set(primary))):
+                errors.append({'code': 'default-entry-invalid', 'id': binding.get('id'),
+                               'message': 'primaryRequirementIds must be unique stable requirement IDs'})
+                continue
+            if set(primary) - set(binding.get('requirementIds', [])):
+                errors.append({'code': 'default-entry-not-bound', 'id': binding.get('id')})
+            for rid in primary:
+                key = (binding.get('artifactId'), rid)
+                if key in declared:
+                    errors.append({'code': 'default-entry-conflict', 'artifactId': key[0], 'requirementId': rid,
+                                   'bindingIds': [declared[key], binding.get('id')]})
+                else:
+                    declared[key] = binding.get('id')
+        return errors
+
+    @staticmethod
+    def _preserve_primary(binding, previous):
+        if 'primaryRequirementIds' not in binding and previous and 'primaryRequirementIds' in previous:
+            binding['primaryRequirementIds'] = [rid for rid in previous['primaryRequirementIds']
+                                                if rid in binding.get('requirementIds', [])]
+
     def update_relations(self, data, changed_binding_ids=None):
         with self._transaction():
             if not isinstance(data, dict):
@@ -1143,6 +1171,8 @@ class ProjectStore:
                             raise FlowError('Verified binding requires actual evidence')
                         reverify = item.pop('reverify', False)
                         previous = previous_bindings.get(item['id'])
+                        if previous and previous.get('artifactId') == item['artifactId']:
+                            self._preserve_primary(item, previous)
                         if (changed_binding_ids is not None and item['id'] not in changed_binding_ids
                                 and item == previous and not reverify and not inherit_from):
                             continue  # Atomic upsert leaves unrelated evidence untouched.
@@ -1150,7 +1180,9 @@ class ProjectStore:
                             if reverify:
                                 raise FlowError('Choose actual revalidation or evidence inheritance, not both')
                             from pf_evidence import inherit_binding
-                            inherit_binding(self, item, previous_bindings.get(valid_id(inherit_from)), artifacts, intact)
+                            source = previous_bindings.get(valid_id(inherit_from))
+                            inherit_binding(self, item, source, artifacts, intact)
+                            self._preserve_primary(item, source)
                         elif item.get('verified'):
                             fingerprint = self._binding_fingerprint(item, artifacts=artifacts)
                             if not fingerprint:
@@ -1167,6 +1199,9 @@ class ProjectStore:
                                 item.pop('verificationInheritedFrom', None)
                                 if item.get('status') == 'needs-review':
                                     item.pop('status')
+            primary_errors = self._primary_binding_errors(data['bindings'])
+            if primary_errors:
+                raise FlowError('Invalid default Demo entry declarations', details=primary_errors)
             step_errors = self._flow_step_errors(data, requirements)
             if step_errors:
                 raise FlowError('Invalid flow step references', details=step_errors)
@@ -1565,6 +1600,9 @@ class ProjectStore:
                             relation['status'] = 'needs-review'
                             if group == 'bindings':
                                 relation['verified'] = False
+                                if 'primaryRequirementIds' in relation:
+                                    relation['primaryRequirementIds'] = [rid for rid in relation['primaryRequirementIds']
+                                                                         if rid not in ids]
                         if group == 'flows':
                             for step in relation.get('steps', []):
                                 if self._step_requirements(step, original_bindings) & set(ids):
@@ -1734,10 +1772,10 @@ class ProjectStore:
         return dict({key: self.metrics[key] - before.get(key, 0) for key in self.metrics},
                     elapsedMs=round((time.perf_counter() - started) * 1000, 3))
 
-    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None, binding_ids=None, all_requirements=False):
+    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None, binding_ids=None, all_requirements=False, expected=None):
         from pf_drafts import edit_demo
         return edit_demo(self, requirement_ids, shared_document_ids, change,
-                         binding_ids=binding_ids, all_requirements=all_requirements)
+                         binding_ids=binding_ids, all_requirements=all_requirements, expected=expected)
 
     def save_demo(self, run_id, payload):
         from pf_drafts import save_demo
@@ -2287,6 +2325,10 @@ class ProjectStore:
                                 errors.append({'code': 'artifact-mutated', 'id': artifact['id']})
                         if not artifact.get('evidence'):
                             warnings.append({'code': 'artifact-unverified', 'id': artifact['id']})
+                    errors.extend(self._primary_binding_errors(relations['bindings']))
+                    for artifact in artifacts:
+                        if 'frozenRelations' in artifact:
+                            errors.extend(self._primary_binding_errors(artifact['frozenRelations'].get('bindings', [])))
                     for group in ('flows', 'bindings'):
                         for item in relations[group]:
                             if set(item.get('requirementIds', [])) - ids:

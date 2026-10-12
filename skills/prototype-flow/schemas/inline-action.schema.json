@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prototype Flow inline user request v1",
+  "type": "object",
+  "required": ["contract", "actionId", "snapshotId", "project", "view", "intent", "target"],
+  "properties": {
+    "contract": {"const": "prototype-flow.inline-action/1"},
+    "actionId": {"type": "string", "minLength": 1},
+    "snapshotId": {"type": "string", "minLength": 1},
+    "project": {"type": "object", "required": ["id", "rootHint"], "properties": {"id": {"type": "string"}, "rootHint": {"type": "string"}}},
+    "view": {"type": "object", "required": ["versionId", "observedAt"]},
+    "intent": {"enum": ["inspect", "change", "read-latest", "open-demo", "open-workbench", "compare", "continue-run", "export-module"]},
+    "target": {"type": "object", "properties": {"moduleId": {"type": "string"}, "requirementIds": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}, "bindingIds": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}}},
+    "base": {"type": "object", "properties": {"documents": {"type": "array"}, "requirements": {"type": "array"}, "demo": {"type": "object", "required": ["contract", "baselineHash", "project", "scope"]}}},
+    "input": {"type": "object", "required": ["scope", "instruction"], "properties": {"scope": {"enum": ["prd", "demo", "prd-and-demo"]}, "instruction": {"type": "string", "minLength": 1}}}
+  },
+  "allOf": [{"if": {"properties": {"intent": {"const": "change"}}}, "then": {"required": ["base", "input"]}}]
+}

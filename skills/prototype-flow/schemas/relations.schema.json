@@ -139,6 +139,15 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
           },
+          "primaryRequirementIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
+            },
+            "uniqueItems": true,
+            "description": "本页面作为同产物内哪些已绑定需求的默认 Demo 入口；必须是 requirementIds 子集，同产物同需求只允许一个默认 binding。缺失兼容为空，导航声明不参与页面证据指纹。"
+          },
           "screenId": {
             "type": "string",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"

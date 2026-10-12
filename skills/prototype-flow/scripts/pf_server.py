@@ -1,4 +1,4 @@
-"""Loopback-only workbench and an isolated read-only Demo origin."""
+"""Independent loopback services and one registered Demo entry resolver."""
 from __future__ import annotations
 
 import copy
@@ -11,18 +11,25 @@ import mimetypes
 import os
 import re
 import secrets
+import select
+import signal
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
-from pf_core import FlowError, ProjectStore
+from pf_core import FlowError, ProjectStore, parse_requirements, split_frontmatter
 from pf_export import module_package
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'}
 CONTENT_EXTENSIONS = IMAGE_EXTENSIONS | {'.pdf', '.txt', '.md', '.csv'}
+SERVICE_PROTOCOL = 2
+_PREVIEW_CHILDREN = {}
 
 
 def metadata_signature(root, ignored=()):
@@ -58,12 +65,17 @@ def entry_signature(path):
 
 class ServiceRegistry:
     """Private per-user discovery outside project data and project snapshots."""
-    def __init__(self, project_root):
+    def __init__(self, project_root, service_kind='workbench', directory=None):
+        if service_kind not in ('workbench', 'preview'):
+            raise FlowError('本地服务种类无效', 400)
         self.project_root = str(Path(project_root).resolve())
-        self.directory = Path(tempfile.gettempdir()) / ('prototype-flow-services-' + str(os.getuid()))
+        self.service_kind = service_kind
+        self.directory = Path(directory) if directory else Path(tempfile.gettempdir()) / ('prototype-flow-services-' + str(os.getuid()))
         key = hashlib.sha256(self.project_root.encode()).hexdigest()
-        self.path = self.directory / (key + '.json')
-        self.lock_path = self.directory / (key + '.lock')
+        # The old unsuffixed record belongs to the former combined server. It is
+        # deliberately left alone and cannot discover either new service.
+        self.path = self.directory / (key + '.' + service_kind + '.json')
+        self.lock_path = self.directory / (key + '.' + service_kind + '.lock')
 
     @contextlib.contextmanager
     def lock(self):
@@ -83,16 +95,31 @@ class ServiceRegistry:
         if self.path.is_symlink():
             raise FlowError('本地服务记录不允许符号链接', 403)
         try:
-            return json.loads(self.path.read_text('utf-8'))
+            value = json.loads(self.path.read_text('utf-8'))
+            return value if isinstance(value, dict) else {}
         except (FileNotFoundError, ValueError):
             return {}
 
     def reuse(self):
         record = self._read()
-        if record.get('projectRoot') != self.project_root:
+        if (record.get('projectRoot') != self.project_root or record.get('serviceKind') != self.service_kind
+                or record.get('protocolVersion') != SERVICE_PROTOCOL):
             return None
         connection = None
         try:
+            pid = record['pid']
+            if not isinstance(pid, int) or pid < 1:
+                return None
+            try:
+                os.kill(pid, 0)
+            except PermissionError:
+                # A later sandbox may be unable to signal an otherwise reachable
+                # process. Its authenticated health reply still has to prove the
+                # exact PID, instance, project, service kind, and protocol below.
+                pass
+            project_id = ProjectStore(self.project_root)._project()['id']
+            if record.get('projectId') != project_id:
+                return None
             address = urlsplit(record['url'])
             if (address.scheme != 'http' or address.hostname != '127.0.0.1' or not address.port
                     or address.path or address.query or address.fragment or address.username):
@@ -104,18 +131,21 @@ class ServiceRegistry:
                 return None
             result = json.loads(response.read(65536))
             if (result.get('projectRoot') != self.project_root or result.get('instanceId') != record.get('instanceId')
-                    or result.get('url') != record.get('url') or result.get('previewOrigin') != record.get('previewOrigin')
-                    or result.get('protocolVersion') != 1):
+                    or result.get('url') != record.get('url') or result.get('pid') != pid
+                    or result.get('projectId') != project_id or result.get('serviceKind') != self.service_kind
+                    or result.get('protocolVersion') != SERVICE_PROTOCOL):
                 return None
-            return {key: result[key] for key in ('url', 'previewOrigin', 'projectRoot', 'transport')} | {'reused': True}
-        except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
+            return {key: result[key] for key in ('url', 'previewOrigin', 'projectRoot', 'projectId', 'serviceKind', 'pid', 'transport')} | {'reused': True}
+        except (FlowError, OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
             return None
         finally:
             if connection:
                 connection.close()
 
     def publish(self, server):
-        data = dict(server.info(), token=server.token, instanceId=server.instance_id)
+        if server.service_kind != self.service_kind:
+            raise FlowError('不能登记不同种类的本地服务', 400)
+        data = dict(server.info(), token=server.token, instanceId=server.instance_id, protocolVersion=SERVICE_PROTOCOL)
         descriptor, name = tempfile.mkstemp(prefix='.service-', dir=self.directory)
         try:
             with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
@@ -176,87 +206,13 @@ class FlowServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-class WorkbenchServer:
-    def __init__(self, store: ProjectStore, port=0, preview_port=0, assets=None):
+class DemoAccess:
+    """Shared path and integrity checks; no workbench or process dependency."""
+
+    def _init_demo_access(self, store):
         self.store = store
-        self.token = secrets.token_urlsafe(32)
-        self.instance_id = secrets.token_urlsafe(24)
         self._integrity_cache = {}
         self._integrity_lock = threading.RLock()
-        self.assets = Path(assets or Path(__file__).resolve().parents[1] / 'assets' / 'workbench')
-        self.demo = FlowServer(('127.0.0.1', preview_port), self._demo_handler())
-        self.preview_origin = 'http://127.0.0.1:%s' % self.demo.server_port
-        try:
-            self.http = FlowServer(('127.0.0.1', port), self._workbench_handler())
-        except Exception:
-            self.demo.server_close()
-            raise
-        self.origin = 'http://127.0.0.1:%s' % self.http.server_port
-        self._threads = []
-
-    def start(self):
-        for server in (self.demo, self.http):
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            self._threads.append(thread)
-        return self.info()
-
-    def info(self):
-        return {'url': self.origin, 'previewOrigin': self.preview_origin,
-                'projectRoot': str(self.store.root), 'transport': 'loopback_http', 'reused': False}
-
-    def health(self):
-        self.store._project()
-        if not (self.assets / 'index.html').is_file() or not all(thread.is_alive() for thread in self._threads):
-            raise FlowError('本地工作台服务尚未就绪', 503)
-        return dict(self.info(), instanceId=self.instance_id, protocolVersion=1)
-
-    def revision(self, scope='all', artifact_id=None):
-        if scope not in ('active', 'all'):
-            raise FlowError('变化检查范围无效', 400)
-        # Saved mutations replace these files atomically. Reading their metadata and
-        # the runs directory catches saves without walking old artifacts or runs.
-        self.store._project()
-        fast_paths = ('project.json', 'artifacts.json', 'relations.json', 'sources.json',
-                      'frameworks.json', 'maintenance.json', 'impact.json', 'feishu.json',
-                      'requirement-index.json', 'runs')
-        fast = {name: entry_signature(self.store.meta / name) for name in fast_paths}
-        state_token = hashlib.sha256(json.dumps(fast, sort_keys=True).encode()).hexdigest()
-        result = {'revisionToken': state_token, 'stateRevisionToken': state_token,
-                  'projectRoot': str(self.store.root)}
-        if artifact_id:
-            artifact = next((a for a in self.store._read('artifacts.json', {'items': []})['items']
-                             if a['id'] == artifact_id), None)
-            result['previewArtifactId'] = artifact_id
-            result['previewContentToken'] = (metadata_signature(self.store._safe(artifact['path']))
-                                             if artifact else 'missing')
-        if scope == 'active':
-            return result
-        # Scan only metadata. Integrity is checked separately before content is used.
-        project = self.store._project()
-        paths = {project['libraryRoot'], 'DESIGN.md'}
-        paths.update(a['path'] for a in self.store._read('artifacts.json', {'items': []})['items'])
-        paths.update(f['path'] for f in self.store._frameworks()['items'])
-        paths.update(b['screenshot'] for b in self.store._read('relations.json', {'bindings': []})['bindings']
-                     if b.get('screenshot'))
-        for source in self.store._read('sources.json', {'items': []})['items']:
-            paths.update(source[key] for key in ('path', 'archivePath') if source.get(key))
-        # Skip nested paths already covered by their library or artifact directory.
-        roots = sorted(paths, key=lambda value: (len(Path(value).parts), value))
-        scopes = []
-        for relative in roots:
-            if not any(Path(parent) in Path(relative).parents for parent in scopes):
-                scopes.append(relative)
-        signatures = {relative: metadata_signature(self.store._safe(relative), {'__pycache__', '.DS_Store'})
-                      for relative in scopes}
-        signatures['.prototype-flow'] = metadata_signature(self.store.meta,
-            {'store.lock', 'revisions', 'run-inputs', 'run-outputs', 'draft-revisions', 'draft-blobs',
-             'feishu-plans', '__pycache__'})
-        versions = self.store._safe('versions')
-        signatures['versions'] = {path.name: metadata_signature(path / 'manifest.json')
-                                  for path in sorted(versions.iterdir()) if path.is_dir() and not path.is_symlink()} if versions.exists() else {}
-        token = hashlib.sha256(json.dumps(signatures, sort_keys=True).encode()).hexdigest()
-        return dict(result, revisionToken=token, externalRevisionToken=token)
 
     def _checked_history(self, version):
         if not version:
@@ -271,6 +227,7 @@ class WorkbenchServer:
                     raise FlowError('历史版本在检查期间发生变化，请重试', 409)
                 self._integrity_cache[key] = signature
         return root
+
 
     def _checked_artifact(self, artifact_id, version=None):
         """Check only this artifact; cache successful byte checks behind metadata."""
@@ -308,12 +265,6 @@ class WorkbenchServer:
                     self._integrity_cache[key] = signature
             return artifact, artifact_root
 
-    def close(self):
-        for server in (self.http, self.demo):
-            server.shutdown()
-            server.server_close()
-        for thread in self._threads:
-            thread.join(timeout=3)
 
     def demo_url(self, artifact, version=None, route=None):
         entry = artifact.get('entryHtml', 'index.html')
@@ -328,65 +279,171 @@ class WorkbenchServer:
         base = '%s/demo/%s/%s/' % (
             self.preview_origin, quote(version or 'working', safe=''),
             quote(artifact['id'], safe=''))
-        return base + quote(parsed.path or entry, safe='/') + (
+        return base + quote(unquote(parsed.path or entry), safe='/') + (
             '?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else '')
 
-    def enriched_state(self, version=None):
-        state = copy.deepcopy(self.store.workbench_state(version=version))
-        state['previewOrigin'] = self.preview_origin
-        state['historical'] = bool(version)
-        state['selectedVersion'] = version
-        artifacts = rows(state.get('artifacts'))
-        by_id = {a['id']: a for a in artifacts}
-        for artifact in artifacts:
-            artifact['demoUrl'] = self.demo_url(artifact, version)
-        relations = state.get('relations', {})
-        for binding in rows(relations, 'bindings'):
-            artifact = by_id.get(binding.get('artifactId'))
-            if artifact:
-                binding['demoUrl'] = self.demo_url(artifact, version, binding.get('route'))
-            if binding.get('screenshot'):
-                query = {'path': binding['screenshot']}
-                if version:
-                    query['version'] = version
-                binding['screenshotUrl'] = '/content?' + urlencode(query)
-        return state
+    @staticmethod
+    def _entry_error(message, code, status=409, **details):
+        raise FlowError(message, status, {'code': code, **details})
 
-    def demo_entry(self, version=None, binding_id=None, artifact_id=None):
-        """Check a registered entry before embedding; never accept a client URL."""
+    @staticmethod
+    def _artifact_bindings(artifact, live):
+        # An explicitly empty frozen namespace remains authoritative.
+        frozen = artifact.get('kind') != 'working-draft' and 'frozenRelations' in artifact
+        source = artifact['frozenRelations'].get('bindings', []) if frozen else live
+        return [copy.deepcopy(binding) for binding in source if binding.get('artifactId') == artifact['id']]
+
+    def _validate_primary_entries(self, bindings):
+        declarations = {}
+        for binding in bindings:
+            requirements = binding.get('requirementIds', [])
+            primary = binding.get('primaryRequirementIds', [])
+            if (not isinstance(primary, list) or any(not isinstance(value, str) for value in primary)
+                    or len(set(primary)) != len(primary) or not isinstance(requirements, list)
+                    or not set(primary).issubset(requirements)):
+                self._entry_error('默认 Demo 入口声明无效', 'default-entry-conflict', bindingId=binding.get('id'))
+            for requirement in primary:
+                if requirement in declarations:
+                    self._entry_error('同一需求存在冲突的默认 Demo 入口', 'default-entry-conflict', requirementId=requirement)
+                declarations[requirement] = binding
+        return declarations
+
+    def _entry_route(self, artifact, binding=None):
+        entry = artifact.get('entryHtml', 'index.html')
+        route = binding.get('route') if binding else entry
+        if not isinstance(route, str) or not route:
+            self._entry_error('页面状态的演示入口无效', 'entry-invalid', 400)
+        if route.startswith(('?', '#')):
+            route = entry + route
+        parsed = urlsplit(route)
+        relative = unquote(parsed.path or entry)
+        if (parsed.scheme or parsed.netloc or relative.startswith('/') or '..' in Path(relative).parts
+                or '\\' in relative or '\x00' in relative or any(part.startswith('.') for part in Path(relative).parts)):
+            self._entry_error('页面状态的演示入口无效', 'entry-invalid', 400)
+        if Path(relative).suffix.lower() not in ('.html', '.htm'):
+            self._entry_error('页面状态未指向 HTML 演示入口', 'entry-invalid', 400)
+        return route, relative
+
+    def _requirement_exists(self, root, project, requirement_id):
+        index = self.store._read('requirement-index.json', {'items': []}, base=root)
+        requirement = next((item for item in index['items'] if item['id'] == requirement_id), None)
+        module = next((item for item in project['modules'] if requirement
+                       and item['documentId'] == requirement['documentId']), None)
+        if not module:
+            self._entry_error('需求在此版本中不存在，请重新定位当前对象', 'requirement-missing', 404,
+                              requirementId=requirement_id)
+        path = self.store._safe(module['documentPath'], base=root, must_exist=True)
+        content = self.store._file_bytes(path).decode('utf-8')
+        metadata, _, _ = split_frontmatter(content)
+        if metadata.get('documentId') != module['documentId'] or metadata.get('moduleId') != module['id']:
+            self._entry_error('需求文档身份已变化，请重新核对对象', 'requirement-changed',
+                              requirementId=requirement_id)
+        if not any(item['id'] == requirement_id for item in parse_requirements(content, module['documentId'], module['id'])):
+            self._entry_error('需求已从当前文档移除，请重新定位当前对象', 'requirement-missing', 404,
+                              requirementId=requirement_id)
+
+    def resolve_entry(self, version=None, requirement_id=None, binding_id=None,
+                      artifact_id=None, within_artifact=None, check_files=True):
+        """Resolve stable objects without discovering or starting a service."""
+        if sum(bool(value) for value in (requirement_id, binding_id, artifact_id)) != 1:
+            self._entry_error('请指定且只指定一个需求、页面绑定或 Demo 产物', 'target-invalid', 400)
+        if within_artifact and not binding_id:
+            self._entry_error('所属产物仅可用于定位页面绑定', 'target-invalid', 400)
+        version = None if version in (None, '', 'working') else version
         with self.store._transaction(read_only=True), self.store._read_session():
-            return self._demo_entry(version, binding_id, artifact_id)
+            root = self._checked_history(version)
+            project = self.store._project(base=root)
+            registry = self.store._read('artifacts.json', {'items': []}, base=root)
+            artifacts = {artifact['id']: artifact for artifact in registry['items']}
+            live = self.store._read('relations.json', {'bindings': []}, base=root)['bindings']
+            binding = None
+            if requirement_id:
+                self._requirement_exists(root, project, requirement_id)
+                covering = [item for item in live if requirement_id in item.get('requirementIds', [])]
+                current = registry.get('currentArtifactId')
+                candidates = {item.get('artifactId') for item in covering}
+                if current in candidates:
+                    artifact_id = current
+                elif len(candidates) == 1:
+                    artifact_id = next(iter(candidates))
+                elif not candidates:
+                    self._entry_error('该需求尚未关联 Demo', 'demo-missing', 404, requirementId=requirement_id)
+                else:
+                    self._entry_error('该需求关联多个 Demo，请使用明确的产物或页面链接', 'artifact-ambiguous',
+                                      requirementId=requirement_id, artifactIds=sorted(candidates))
+            elif binding_id:
+                namespaces = [artifacts[within_artifact]] if within_artifact in artifacts else (
+                    [] if within_artifact else list(artifacts.values()))
+                matches = [(artifact['id'], item) for artifact in namespaces
+                           for item in self._artifact_bindings(artifact, live) if item.get('id') == binding_id]
+                if not matches:
+                    self._entry_error('该版本或指定产物没有这个页面状态', 'binding-missing', 404,
+                                      bindingId=binding_id, artifactId=within_artifact)
+                if len(matches) != 1:
+                    self._entry_error('该页面绑定存在于多个产物，请指定所属产物', 'binding-ambiguous',
+                                      bindingId=binding_id, artifactIds=sorted({item[0] for item in matches}))
+                artifact_id, binding = matches[0]
+            artifact = artifacts.get(artifact_id)
+            if not artifact:
+                self._entry_error('该版本没有这个 Demo', 'artifact-missing', 404, artifactId=artifact_id)
+            bindings = self._artifact_bindings(artifact, live)
+            declarations = self._validate_primary_entries(bindings)
+            if requirement_id:
+                binding = declarations.get(requirement_id)
+                if binding is None:
+                    legal = []
+                    for candidate in bindings:
+                        if requirement_id in candidate.get('requirementIds', []):
+                            try:
+                                self._entry_route(artifact, candidate)
+                            except FlowError:
+                                continue
+                            legal.append(candidate)
+                    if not legal:
+                        self._entry_error('该需求没有可用的 Demo 页面绑定', 'binding-missing', 404,
+                                          requirementId=requirement_id, artifactId=artifact_id)
+                    if len(legal) != 1:
+                        self._entry_error('尚未设置默认 Demo 入口', 'default-entry-missing',
+                                          requirementId=requirement_id, artifactId=artifact_id,
+                                          bindingIds=[item['id'] for item in legal])
+                    binding = legal[0]
+            route, relative = self._entry_route(artifact, binding)
+            registered = artifact
+            if check_files:
+                artifact, artifact_root = self._checked_artifact(artifact_id, version)
+                file = safe_file(artifact_root, relative)
+                if relative not in artifact.get('fileHashes', {}):
+                    self._entry_error('该入口未登记在 Demo 中', 'entry-invalid', 403)
+                if hashlib.sha256(file.read_bytes()).hexdigest() != artifact['fileHashes'][relative]:
+                    self._entry_error('请求文件与登记版本不一致，请重新验证产物', 'entry-invalid')
+            checked = {key: artifact[key] for key in ('id', 'kind', 'draftRevision', 'editStatus') if key in artifact}
+            editing = artifact.get('kind') == 'working-draft' and (artifact.get('fileHashes') != registered.get('fileHashes')
+                or artifact.get('activeRunId') or artifact.get('editStatus') != 'ready')
+            checked['integrityStatus'] = ('editing' if editing else 'intact') if check_files else 'unchecked'
+            result = {'versionId': version or 'working', 'historical': bool(version),
+                      'artifact': checked, 'route': route, 'entryHtml': artifact.get('entryHtml', 'index.html')}
+            if requirement_id:
+                result['requirementId'] = requirement_id
+            if binding:
+                evaluated = copy.deepcopy(binding)
+                if check_files and (registered.get('kind') == 'working-draft' or 'frozenRelations' not in registered):
+                    evaluated = next(item for item in self.store._evaluated_relations(root, binding_ids={binding['id']},
+                        artifact_inventories={artifact_id: artifact['fileHashes']})['bindings']
+                        if item['id'] == binding['id'] and item.get('artifactId') == artifact_id)
+                elif evaluated.get('verified'):
+                    reason = 'artifact-unchecked' if not check_files else None
+                    if check_files:
+                        try:
+                            reason = ('missing-fingerprint' if not binding.get('verificationHash') else
+                                      'fingerprint-changed' if binding['verificationHash'] != self.store._binding_fingerprint(
+                                          binding, root, {artifact_id: artifact}) else None)
+                        except (FlowError, OSError, UnicodeError):
+                            reason = 'dependency-changed'
+                    if reason:
+                        evaluated.update(verified=False, status='needs-review', verificationStatus=reason)
+                result['binding'] = evaluated
+            return result
 
-    def _demo_entry(self, version=None, binding_id=None, artifact_id=None):
-        root = self._checked_history(version)
-        binding = None
-        if binding_id:
-            relations = self.store._read('relations.json', {'bindings': []}, base=root)
-            binding = next((b for b in relations['bindings'] if b['id'] == binding_id), None)
-            if not binding:
-                raise FlowError('该版本没有这个页面状态', 404)
-            artifact_id = binding.get('artifactId')
-        artifact, artifact_root = self._checked_artifact(artifact_id, version)
-        url = self.demo_url(artifact, version, binding.get('route') if binding else None)
-        if not url:
-            raise FlowError('页面状态的演示入口无效', 400)
-        relative = '/'.join(unquote(urlsplit(url).path).split('/')[4:])
-        file = safe_file(artifact_root, relative)
-        if file.suffix.lower() not in ('.html', '.htm'):
-            raise FlowError('页面状态未指向 HTML 演示入口', 400)
-        checked = {key: artifact[key] for key in ('id', 'kind', 'draftRevision', 'editStatus') if key in artifact}
-        registered = next(a for a in self.store._read('artifacts.json', {'items': []}, base=root)['items']
-                          if a['id'] == artifact['id'])
-        editing = artifact.get('kind') == 'working-draft' and (
-            artifact.get('fileHashes') != registered.get('fileHashes') or artifact.get('activeRunId')
-            or artifact.get('editStatus') != 'ready')
-        checked['integrityStatus'] = 'editing' if editing else 'intact'
-        result = {'url': url, 'artifact': checked}
-        if binding:
-            evaluated = self.store._evaluated_relations(root, binding_ids={binding['id']},
-                                                        artifact_inventories={artifact['id']: artifact['fileHashes']})
-            result['binding'] = next(item for item in evaluated['bindings'] if item['id'] == binding['id'])
-        return result
 
     def _base_handler(self):
         class Handler(BaseHTTPRequestHandler):
@@ -443,6 +500,327 @@ class WorkbenchServer:
 
         return Handler
 
+    def _demo_handler(self):
+        owner = self
+        Base = self._base_handler()
+
+        class Handler(Base):
+            def do_GET(self):
+                try:
+                    self.check_host()
+                    if urlsplit(self.path).path == '/api/health':
+                        token = self.headers.get('X-Prototype-Flow-Token', '')
+                        if not secrets.compare_digest(token, owner.token):
+                            raise FlowError('预览服务身份校验失败', 401)
+                        return self.json(owner.health())
+                    parts = unquote(urlsplit(self.path).path).split('/')
+                    if len(parts) < 5 or parts[1] != 'demo':
+                        raise FlowError('演示入口不存在', 404)
+                    version = None if parts[2] == 'working' else parts[2]
+                    artifact, artifact_root = owner._checked_artifact(parts[3], version)
+                    relative = '/'.join(parts[4:]) or artifact.get('entryHtml', 'index.html')
+                    # No workbench token/API is exposed on this origin.
+                    policy = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:; object-src 'none'; frame-ancestors 'none'"
+                    file = safe_file(artifact_root, relative)
+                    expected = artifact.get('fileHashes', {}).get(file.relative_to(artifact_root).as_posix())
+                    if not expected:
+                        raise FlowError('该资源未登记在 Demo 中', 403)
+                    return self.send_file(file, policy, expected)
+                except Exception as exc:
+                    self.failure(exc)
+
+            def do_POST(self):
+                self.json({'error': '演示服务只读'}, 405)
+
+            do_PUT = do_POST
+            do_PATCH = do_POST
+            do_DELETE = do_POST
+
+            def do_OPTIONS(self):
+                self.json({'error': '不支持跨站接口请求'}, 403)
+
+        return Handler
+
+
+class PreviewServer(DemoAccess):
+    service_kind = 'preview'
+
+    def __init__(self, store, port=0):
+        self._init_demo_access(store)
+        self.project_id = store._project()['id']
+        self.token = secrets.token_urlsafe(32)
+        self.instance_id = secrets.token_urlsafe(24)
+        self.http = FlowServer(('127.0.0.1', port), self._demo_handler())
+        self.origin = self.preview_origin = 'http://127.0.0.1:%s' % self.http.server_port
+        self._threads = []
+
+    def start(self):
+        thread = threading.Thread(target=self.http.serve_forever, daemon=True)
+        thread.start()
+        self._threads.append(thread)
+        return self.info()
+
+    def info(self):
+        return {'url': self.origin, 'previewOrigin': self.preview_origin,
+                'projectRoot': str(self.store.root), 'projectId': self.project_id,
+                'serviceKind': self.service_kind, 'pid': os.getpid(),
+                'transport': 'loopback_http', 'reused': False}
+
+    def health(self):
+        if self.store._project()['id'] != self.project_id or not self._threads or not all(thread.is_alive() for thread in self._threads):
+            raise FlowError('本地预览服务尚未就绪', 503)
+        return dict(self.info(), instanceId=self.instance_id, protocolVersion=SERVICE_PROTOCOL)
+
+    def close(self):
+        if self._threads:
+            self.http.shutdown()
+        self.http.server_close()
+        for thread in self._threads:
+            thread.join(timeout=3)
+
+
+def resolve_demo_entry(store, version=None, requirement_id=None, binding_id=None,
+                       artifact_id=None, within_artifact=None, check_files=True):
+    resolver = DemoAccess()
+    resolver._init_demo_access(store)
+    return resolver.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact, check_files)
+
+
+def preview(project_root, reuse=True, port=0):
+    """Start only a detached preview worker; serialize discovery per project."""
+    root = project_root.root if isinstance(project_root, ProjectStore) else project_root
+    store = ProjectStore(root)
+    store._project()  # Identity only; no full state, workbench build, or Demo bytes.
+    registry = ServiceRegistry(store.root, 'preview')
+    with registry.lock():
+        existing = registry.reuse() if reuse else None
+        if existing:
+            if port and urlsplit(existing['previewOrigin']).port != port:
+                raise FlowError('已有预览使用其他端口；请停止它或省略显式预览端口', 409)
+            return existing
+        process = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()),
+            '--preview-worker', str(store.root), '--port', str(port),
+            '--registry-directory', str(registry.directory)], stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        try:
+            if not select.select([process.stdout], [], [], 10)[0]:
+                raise FlowError('独立预览启动超时', 503)
+            line = process.stdout.readline()
+            try:
+                result = json.loads(line)
+            except ValueError:
+                raise FlowError('独立预览未返回有效启动结果', 503)
+            if result.get('error'):
+                raise FlowError(result['error'], result.get('status', 503))
+            discovered = registry.reuse()
+            if not discovered or discovered['pid'] != process.pid:
+                raise FlowError('独立预览身份校验失败', 503)
+            _PREVIEW_CHILDREN[process.pid] = process
+            return dict(discovered, reused=False)
+        except Exception:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            raise
+        finally:
+            process.stdout.close()
+
+
+ensure_preview = preview
+
+
+def stop_preview(project_root):
+    """Stop only the healthy registered preview, never a workbench process."""
+    registry = ServiceRegistry(project_root, 'preview')
+    with registry.lock():
+        service = registry.reuse()
+        if not service:
+            return False
+        instance_id = registry._read().get('instanceId')
+        os.kill(service['pid'], signal.SIGTERM)
+    process = _PREVIEW_CHILDREN.pop(service['pid'], None)
+    if process:
+        process.wait(timeout=5)
+    else:
+        # A different CLI may have created it. Wait for that instance to release
+        # its own record without acquiring the lock needed by its exit handler.
+        event = threading.Event()
+        for _ in range(100):
+            if registry._read().get('instanceId') != instance_id:
+                return True
+            event.wait(0.05)
+        raise FlowError('独立预览尚未完成停止', 503)
+    return True
+
+
+def demo_entry(store, version=None, requirement_id=None, binding_id=None,
+               artifact_id=None, within_artifact=None):
+    registry = ServiceRegistry(store.root, 'preview')
+    with registry.lock():
+        service = registry.reuse()
+    if not service:
+        raise FlowError('独立预览服务未运行，请先运行 preview', 503, {'code': 'preview-not-running'})
+    resolver = DemoAccess()
+    resolver._init_demo_access(store)
+    resolver.preview_origin = service['previewOrigin']
+    result = resolver.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact)
+    result['url'] = resolver.demo_url({'id': result['artifact']['id'], 'entryHtml': result['entryHtml']},
+                                     None if result['versionId'] == 'working' else result['versionId'], result['route'])
+    return result
+
+
+def _preview_worker(project_root, port, registry_directory):
+    registry = ServiceRegistry(project_root, 'preview', directory=registry_directory)
+    server = None
+    try:
+        server = PreviewServer(ProjectStore(project_root), port)
+        event = threading.Event()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(signum, lambda *_: event.set())
+        server.start()
+        # The launching process owns the discovery lock until this reply is read.
+        registry.publish(server)
+        print(json.dumps(server.info(), ensure_ascii=False), flush=True)
+        while not event.wait(1):
+            pass
+    except Exception as exc:
+        print(json.dumps({'error': str(exc), 'status': error_status(exc)}, ensure_ascii=False), flush=True)
+        return 1
+    finally:
+        if server:
+            server.close()
+            with registry.lock():
+                registry.forget(server.instance_id)
+    return 0
+
+
+class WorkbenchServer(DemoAccess):
+    service_kind = 'workbench'
+
+    def __init__(self, store: ProjectStore, port=0, preview_port=0, assets=None):
+        self._init_demo_access(store)
+        self.project_id = store._project()['id']
+        self.token = secrets.token_urlsafe(32)
+        self.instance_id = secrets.token_urlsafe(24)
+        self.assets = Path(assets or Path(__file__).resolve().parents[1] / 'assets' / 'workbench')
+        self.preview_port = preview_port
+        self._preview_info = None
+        self.http = FlowServer(('127.0.0.1', port), self._workbench_handler())
+        self.origin = 'http://127.0.0.1:%s' % self.http.server_port
+        self._threads = []
+
+    @property
+    def preview_origin(self):
+        return self._preview_info['previewOrigin'] if self._preview_info else None
+
+    @property
+    def demo(self):
+        """Compatibility for Python callers explicitly requesting the Demo port."""
+        self._preview_info = preview(self.store.root, port=self.preview_port)
+        return SimpleNamespace(server_port=urlsplit(self._preview_info['previewOrigin']).port)
+
+    def start(self):
+        thread = threading.Thread(target=self.http.serve_forever, daemon=True)
+        thread.start()
+        self._threads.append(thread)
+        return self.info()
+
+    def info(self):
+        return {'url': self.origin, 'previewOrigin': self.preview_origin,
+                'projectRoot': str(self.store.root), 'projectId': self.project_id,
+                'serviceKind': self.service_kind, 'pid': os.getpid(),
+                'transport': 'loopback_http', 'reused': False}
+
+    def health(self):
+        if (self.store._project()['id'] != self.project_id or not (self.assets / 'index.html').is_file()
+                or not self._threads or not all(thread.is_alive() for thread in self._threads)):
+            raise FlowError('本地工作台服务尚未就绪', 503)
+        return dict(self.info(), instanceId=self.instance_id, protocolVersion=SERVICE_PROTOCOL)
+
+    def revision(self, scope='all'):
+        if scope not in ('active', 'all'):
+            raise FlowError('变化检查范围无效', 400)
+        # Saved mutations replace these files atomically. Reading their metadata and
+        # the runs directory catches saves without walking old artifacts or runs.
+        self.store._project()
+        fast_paths = ('project.json', 'artifacts.json', 'relations.json', 'sources.json',
+                      'frameworks.json', 'maintenance.json', 'impact.json', 'feishu.json',
+                      'requirement-index.json', 'runs')
+        fast = {name: entry_signature(self.store.meta / name) for name in fast_paths}
+        state_token = hashlib.sha256(json.dumps(fast, sort_keys=True).encode()).hexdigest()
+        result = {'revisionToken': state_token, 'stateRevisionToken': state_token,
+                  'projectRoot': str(self.store.root)}
+        if scope == 'active':
+            return result
+        # Scan only metadata. Integrity is checked separately before content is used.
+        project = self.store._project()
+        paths = {project['libraryRoot'], 'DESIGN.md'}
+        paths.update(a['path'] for a in self.store._read('artifacts.json', {'items': []})['items'])
+        paths.update(f['path'] for f in self.store._frameworks()['items'])
+        paths.update(b['screenshot'] for b in self.store._read('relations.json', {'bindings': []})['bindings']
+                     if b.get('screenshot'))
+        for source in self.store._read('sources.json', {'items': []})['items']:
+            paths.update(source[key] for key in ('path', 'archivePath') if source.get(key))
+        # Skip nested paths already covered by their library or artifact directory.
+        roots = sorted(paths, key=lambda value: (len(Path(value).parts), value))
+        scopes = []
+        for relative in roots:
+            if not any(Path(parent) in Path(relative).parents for parent in scopes):
+                scopes.append(relative)
+        signatures = {relative: metadata_signature(self.store._safe(relative), {'__pycache__', '.DS_Store'})
+                      for relative in scopes}
+        signatures['.prototype-flow'] = metadata_signature(self.store.meta,
+            {'store.lock', 'revisions', 'run-inputs', 'run-outputs', 'draft-revisions', 'draft-blobs',
+             'feishu-plans', '__pycache__'})
+        versions = self.store._safe('versions')
+        signatures['versions'] = {path.name: metadata_signature(path / 'manifest.json')
+                                  for path in sorted(versions.iterdir()) if path.is_dir() and not path.is_symlink()} if versions.exists() else {}
+        token = hashlib.sha256(json.dumps(signatures, sort_keys=True).encode()).hexdigest()
+        return dict(result, revisionToken=token, externalRevisionToken=token)
+
+
+
+    def close(self):
+        if self._threads:
+            self.http.shutdown()
+        self.http.server_close()
+        for thread in self._threads:
+            thread.join(timeout=3)
+
+
+    def enriched_state(self, version=None):
+        state = copy.deepcopy(self.store.workbench_state(version=version))
+        state['previewOrigin'] = self.preview_origin
+        state['historical'] = bool(version)
+        state['selectedVersion'] = version
+        artifacts = rows(state.get('artifacts'))
+        for artifact in artifacts:
+            artifact['demoEntry'] = {'artifact': artifact['id'], 'version': version or 'working'}
+        relations = state.get('relations', {})
+        for binding in rows(relations, 'bindings'):
+            binding['demoEntry'] = {'binding': binding['id'], 'withinArtifact': binding.get('artifactId'),
+                                    'version': version or 'working'}
+            if binding.get('screenshot'):
+                query = {'path': binding['screenshot']}
+                if version:
+                    query['version'] = version
+                binding['screenshotUrl'] = '/content?' + urlencode(query)
+        return state
+
+
+
+
+    def demo_entry(self, version=None, binding_id=None, artifact_id=None,
+                   requirement_id=None, within_artifact=None):
+        result = self.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact)
+        self._preview_info = preview(self.store.root, port=self.preview_port)
+        result['url'] = self.demo_url({'id': result['artifact']['id'], 'entryHtml': result['entryHtml']},
+                                     None if result['versionId'] == 'working' else result['versionId'], result['route'])
+        return result
+
     def _workbench_handler(self):
         owner = self
         Base = self._base_handler()
@@ -473,11 +851,14 @@ class WorkbenchServer:
                         if path == '/api/state':
                             return self.json(owner.enriched_state(version))
                         if path == '/api/revision':
-                            return self.json(owner.revision(query.get('scope', ['all'])[0], query.get('artifact', [None])[0]))
+                            return self.json(owner.revision(query.get('scope', ['all'])[0]))
                         if path == '/api/health':
                             return self.json(owner.health())
                         if path == '/api/demo-entry':
-                            return self.json(owner.demo_entry(version, query.get('binding', [None])[0], query.get('artifact', [None])[0]))
+                            return self.json(owner.demo_entry(version=version,
+                                binding_id=query.get('binding', [None])[0], artifact_id=query.get('artifact', [None])[0],
+                                requirement_id=query.get('requirement', [None])[0],
+                                within_artifact=query.get('withinArtifact', [None])[0]))
                         if path.startswith('/api/modules/') and path.endswith('/package'):
                             parts = path.split('/')
                             if len(parts) != 5:
@@ -511,7 +892,7 @@ class WorkbenchServer:
                         html = file.read_text('utf-8')
                         html = inject_session_token(html, owner.token)
                         data = html.encode('utf-8')
-                        policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; frame-src " + owner.preview_origin
+                        policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; frame-src 'none'"
                         self.respond_headers(200, 'text/html; charset=utf-8', len(data), policy)
                         return self.wfile.write(data)
                     return self.send_file(safe_file(owner.assets, path.lstrip('/')))
@@ -535,34 +916,11 @@ class WorkbenchServer:
 
         return Handler
 
-    def _demo_handler(self):
-        owner = self
-        Base = self._base_handler()
-
-        class Handler(Base):
-            def do_GET(self):
-                try:
-                    self.check_host()
-                    parts = unquote(urlsplit(self.path).path).split('/')
-                    if len(parts) < 5 or parts[1] != 'demo':
-                        raise FlowError('演示入口不存在', 404)
-                    version = None if parts[2] == 'working' else parts[2]
-                    artifact, artifact_root = owner._checked_artifact(parts[3], version)
-                    relative = '/'.join(parts[4:]) or artifact.get('entryHtml', 'index.html')
-                    # No workbench token/API is exposed on this origin.
-                    policy = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:; object-src 'none'; frame-ancestors " + owner.origin
-                    file = safe_file(artifact_root, relative)
-                    expected = artifact.get('fileHashes', {}).get(file.relative_to(artifact_root).as_posix())
-                    if not expected:
-                        raise FlowError('该资源未登记在 Demo 中', 403)
-                    return self.send_file(file, policy, expected)
-                except Exception as exc:
-                    self.failure(exc)
-
-            def do_POST(self):
-                self.json({'error': '演示服务只读'}, 405)
-
-            do_PUT = do_POST
-            do_DELETE = do_POST
-
-        return Handler
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--preview-worker', required=True)
+    parser.add_argument('--port', type=int, default=0)
+    parser.add_argument('--registry-directory', required=True)
+    arguments = parser.parse_args()
+    raise SystemExit(_preview_worker(arguments.preview_worker, arguments.port, arguments.registry_directory))
