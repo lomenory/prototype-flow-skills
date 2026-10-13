@@ -32,8 +32,9 @@ PRD、本地工作台和飞书本地命令无需外部 Skill；Demo 制作与飞
 | PRD、需求与版本 | 本地文件读写、Shell、Python 3.9+；现有 macOS/Linux 文件锁 | 仅可讨论或阅读可访问材料，不能宣称已保存 |
 | 安装缺失 Skill | Git、GitHub 网络访问、目标目录写权限 | 复用已有完整依赖，报告缺失项 |
 | 查看本地工作台 | 本机 HTTP 服务、可访问对应 loopback 地址的浏览器 | 给出文件与命令，说明服务或访问未验证 |
+| 默认实时需求图 | 本机 HTTP 服务、可访问 loopback 的浏览器或侧栏；同项目能复用已有页 | 已保存结果照常交付，提供 requirementMap 链接、snapshotCommand 和离线图或文字；不重放业务保存 |
 | Demo 交互与截图 | 获准使用的浏览器工具，能打开本机 HTTP、操作页面并保存截图 | 保留静态检查，标记交互证据 degraded |
-| 可选对话卡片 | 能呈现 HTML fragment 的内嵌宿主；独立检测 sendFollowUpMessage、widgetState 和 setWidgetState | 普通对话和文件交付；只读卡片可复制请求，不自动开工作台 |
+| 对话快照与其他卡片 | 能呈现 HTML fragment 的内嵌宿主；独立检测 sendFollowUpMessage、widgetState 和 setWidgetState | 提供快照文件和普通对话；可复制请求，完整管理工作台仍按需打开 |
 | 飞书同步 | 已配置的 `lark-cli`、身份和本次写入授权 | 完成本地 PRD，保留待同步状态 |
 
 当前锁定的依赖版本仍有宿主名称。本主 Skill 编排它们时按以下规则适配，不改写安装文件或锁文件：
@@ -50,4 +51,6 @@ PRD、本地工作台和飞书本地命令无需外部 Skill；Demo 制作与飞
 
 当前运行时面向本地 macOS/Linux。纯聊天工具只有能读取目录并执行命令时才可运行；原生 Windows 文件锁、远端 Agent 到用户电脑的 loopback 访问和云端宿主安装不在本次兼容范围内。
 
-Codex 产品名称不保证内嵌消息桥可用。默认卡片只准备可复制请求；真实宿主链路验收后，内嵌 reference 可显式开启 host-actions。独立 HTML、DOM 模拟或同名 fallback 不能作为送达证据。Claude Code、Cursor 及其他缺少内嵌能力的宿主继续同一 CLI 流程，Demo 使用独立预览，工作台仅按需打开。详见[对话与可选卡片](conversation-ui.md)。
+需求拆解、Demo 生成及需求变更默认从 CLI 回执接入本地实时需求图，阶段完成提供对话离线快照。宿主有浏览器侧栏时首次展示回执链接，之后复用同一页；缺少内嵌或浏览器能力时仍完成已授权文件操作，并明确交付链接、快照文件或文字的实际边界。单个写命令可用 `--no-requirement-map` 纯命令执行；只读查询不启动服务。完整管理工作台仍按需打开。
+
+Codex 产品名称不保证内嵌消息桥可用。其他操作卡默认只准备可复制请求；真实宿主链路验收后，内嵌 reference 可显式开启 host-actions。独立 HTML、DOM 模拟或同名 fallback 不能作为送达证据。需求图自动更新使用本地文件服务，不依赖 sendFollowUpMessage，也不表示旧对话消息会自动更新。详见[默认需求图与对话呈现](conversation-ui.md)。

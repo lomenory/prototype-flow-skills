@@ -23,7 +23,7 @@ project/
 └── versions/<version-id>/    不可变项目快照
 ```
 
-需要打开工作台时运行 `serve <project-dir> --reuse`，按项目路径发现并健康检查已有服务，成功复用时返回 `reused:true`；否则启动新服务。新启动的服务仍需保持进程运行。发现信息保存在本机临时目录，不进入项目修订或快照。产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，仅提供读取；POST、PUT、PATCH、DELETE 返回 405，Agent 通过本地 CLI 执行写入。不要把本地服务器绑定至公网或向他人分享 API 令牌。
+需求整理拆分、Demo 生成与变更默认准备本地实时需求图，相关写命令回执返回 `requirementMap`；已有项目也可用 `requirement-map <project-dir>` 接入。Agent 首次展示图链接，同项目继续复用同一页。需要打开完整工作台时运行 `serve <project-dir> --reuse`，按项目路径发现并健康检查已有服务，成功复用时返回 `reused:true`；否则启动新服务。`serve` 新启动的前台进程仍需保持运行，需求图命令则后台准备服务。发现信息保存在本机临时目录，不进入项目修订或快照。产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，仅提供读取；POST、PUT、PATCH、DELETE 返回 405，Agent 通过本地 CLI 执行写入。不要把本地服务器绑定至公网或向他人分享 API 令牌。
 
 目录与导航由内建运行时维护，无需外部文档维护 Skill。`00-ai-context/DOC_MAP.md` 是统一导航；旧工具生成的 `INDEX.md` 转为导航指针，用户自写 INDEX 保留。已有 `AI_GUIDE.md` 仅替换已知过期维护指引，保留自定义补充，不创建新指南。旧 dashboard 和 `prdlib:related` 正文块不删除、不再生成或回写；历史快照不参与当前文档库维护。
 
@@ -96,7 +96,7 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 冲突时重新读当前正文，与本地未保存草稿比较后形成合并候选；不要把最新 revision 简单填到旧内容上强行覆盖。Agent 保留候选正文并核对外部变化；工作台仅显示已保存内容。业务正文保存成功后，即使导航维护失败也保留正文，维护结果独立报告；修复后运行 `refresh`，无需再次保存正文。
 
-`requirement` 显式执行 add/split/merge/move/remove；用 `--parts-file` 提供新需求数组，每项至少有 `title` 和 `content`，可含 `priority/sourceIds/dependsOn`。提供 `--base-revision` 时使用整数项目修订。关系变更以整个 `relations.json` 候选写入，先读取现有值避免删除别人的关联。
+`requirement` 显式执行 add/split/merge/move/remove；用 `--parts-file` 提供新需求数组，每项至少有 `title` 和 `content`，可含 `priority/sourceIds/dependsOn/demoCoverage`。提供 `--base-revision` 时使用整数项目修订。关系变更以整个 `relations.json` 候选写入，先读取现有值避免删除别人的关联。
 
 注册 Demo 候选的 JSON 示例：
 
@@ -227,7 +227,21 @@ Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时�
 
 ## 对话查询、独立服务和默认入口
 
-详见[对话与可选卡片](conversation-ui.md)。`review-state` 按对象范围查询，展示 schema 独立版本化；列表游标绑定实际来源。`preview --reuse` 独立运行，不加载工作台构建或全量 state；`demo-entry` 仅使用已运行预览。注册与健康检查区分 workbench/preview，核对根目录、项目、协议和进程身份，退出只清理本实例注册。`serve --port` 是工作台端口，`--preview-port` 是之后按需启动的预览端口；关闭标签页不停止服务。
+默认需求图的显式接入命令：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py requirement-map <project-dir> --requirement <需求ID>
+```
+
+可选 `--module`、`--requirement`、`--version`、`--port`。命令后台准备或复用服务，返回 `status:"ready"`、`url`、`projectId`、`reused`、`autoUpdate`、参数数组 `snapshotCommand` 和真实 `snapshot`；历史 `autoUpdate:false`。它不修改项目业务文件、不打开浏览器、不启动 Demo 预览。Agent 首次打开回执链接，后续使用已有图页，不以 reload 更新进度。命令回执和链接不含 API token。
+
+`init`、`intake`、`save`、`requirement` 及 Demo 任务、工作稿保存等相关写命令默认附 `requirementMap`，同样返回准备结果、链接、复用状态和 `snapshotCommand`，不把完整快照塞入写入回执；`ready` 仅表示本地服务可用。服务失败用 `status:"unavailable"`、`error` 与数值 `errorStatus` 报告，业务操作保持实际成功结果；此时只重建展示，不重放保存。单个写命令的 `--no-requirement-map` 跳过本次服务准备，不关闭已开图。只读 `state`、`document`、`review-state` 仍不自动启动服务。
+
+实时页每 2 秒检查已保存项目及任务变化，每 30 秒检查外部 PRD、Demo 与证据变化，回焦立即检查；读取只更新展示。稳定 ID 仍存在时保留选中、展开及键盘焦点，历史固定不轮询。对话按 `snapshotCommand` 读取并呈现本轮离线快照，不声明旧消息实时刷新。一次投影最多 200 条需求，超限时按 `--module` 定向查看或文字交付。覆盖分母由明确 `demoCoverage` 提供，未声明保持未知；验证由当前输入、页面与真实证据决定，不能以任务结束补造。详见[默认需求图与对话呈现](conversation-ui.md)。
+
+`requirement-map <project-dir> --stop` 显式停止该项目共用的需求图与工作台服务，独立 Demo 预览保留。`--stop` 不能和 `--module`、`--requirement`、`--version`、`--port` 同用；返回 `status:"stopped"|"not-running"`、`autoUpdate:false`。关闭标签页不停止后台 worker。停止后下一次成功的默认写命令会重新准备服务，`--no-requirement-map` 可跳过单次准备，不会停止已有服务。
+
+`review-state` 按对象范围查询，展示 schema 独立版本化；列表游标绑定实际来源。`preview --reuse` 独立运行，不加载工作台构建或全量 state；`demo-entry` 仅使用已运行预览。注册与健康检查区分 workbench/preview，核对根目录、项目、协议和进程身份，退出只清理本实例注册。`serve --port` 是工作台端口，`--preview-port` 是之后按需启动的预览端口；关闭标签页不停止服务。
 
 binding 可选 `primaryRequirementIds` 是去重需求 ID 数组，须为 `requirementIds` 子集，同产物同需求最多一个默认。省略时保留并裁剪解绑项，显式 `[]` 清空；patch 检查最终集合，可一次清旧设新。完整替换只继承已核实同一逻辑关系；拆合移除清理退役默认，不映射新需求。导航字段不进入需求哈希或验证指纹，冻结/恢复保留，旧快照不改写。新运行时兼容旧命令与旧读取；旧版本运行时不能保证无损写回新增字段。
 

@@ -50,13 +50,15 @@ python3 -B <skill-dir>/scripts/flow.py source <project-dir> --label "订单会�
 
 `confirmed` 只能来自实际确认；一般新拆分使用 `draft`。ID 应为 `REQ-` 开头，不绑定标题、排序或临时行号。通过 CLI `requirement --operation add|split|merge|move|remove` 操作，脚本生成新 ID 并记录承接关系。正文普通编辑不自动拆分需求。拆合后检查旧的需求依赖、用户流程、页面和截图候选，完成 Agent 语义核对后再更新关联，不能继承旧验收结论。
 
+需要 Demo 的新需求同时整理明确的预期页面状态，写入需求元数据 `demoCoverage`；正常、异常、禁止操作与恢复等状态只按已有规则纳入，不凭模板补造范围。覆盖项使用稳定 ID，并以 `screenId`、`stateId` 和必要的 `fixtureId` 定位。暂未明确的范围保持未知，不按已生成页面反推完整分母。字段与示例见[覆盖口径](conversation-ui.md#覆盖口径)。后续变更先核对正文、验收和覆盖项是否一起变化，再保存完整 PRD。
+
 ## 写入与文档库维护
 
 普通新资料入库先在项目 scratch 区准备一次完整候选，包含来源、共享正文和批量需求；用 `intake` 一次保存并收尾，默认阶段为 `draft`。已有文档更新先读取 `document` 得到修订，再以 `save --base-revision` 写入；并发冲突先比较差异，保留双方内容。`source`、`save` 和 `requirement` 仍可用于单项维护，不必把完整入库机械拆成多次工具调用。
 
 运行时在写入后维护索引和 `DOC_MAP.md` 导航，成功后读取结果摘要即可；外部文件改动或维护失败时再执行 `refresh`，不重复保存已写入正文。旧 `prdlib:related` 区域和 dashboard 保留兼容，不自动生成或回写。重要业务变化的理由写进相应 PRD 或 `04-decisions/`，无需额外维护一份强制 CHANGELOG。
 
-完成后检查需求来源可追溯、ID 唯一、验收能观察、冲突和假设可见，并确认结构检查结果。`intake` 已检查本次 PRD；只有本次保存尚未提供相应检查或外部文件有变动时，补运行 `validate <project-dir> --stage prd`。该阶段检查文档、稳定 ID、来源及引用，不要求 Demo 页面或截图。需求整理拆分保存并检查通过后，按 [完成本次请求](../SKILL.md#完成本次请求) 直接在对话中交付真实回执和文件入口；需要项目管理时才打开工作台，不强制卡片，不自动进入快照、Demo 或云端同步。
+完成后检查需求来源可追溯、ID 唯一、验收能观察、冲突和假设可见，并确认结构检查结果。`intake` 已检查本次 PRD；只有本次保存尚未提供相应检查或外部文件有变动时，补运行 `validate <project-dir> --stage prd`。该阶段检查文档、稳定 ID、来源及引用，不要求 Demo 页面或截图。需求整理拆分保存并检查通过后，按 [完成本次请求](../SKILL.md#完成本次请求) 交付真实回执、文件入口及默认需求图：本地实时图复用同一项目链接，对话展示本轮离线快照。呈现失败只降级为链接和文字，不重新保存正文；完整项目管理工作台仍按需打开。本次仅整理 PRD 时不自动生成 Demo、保存项目快照或同步云端。
 
 ### 一次入库
 
@@ -82,6 +84,6 @@ python3 -B <skill-dir>/scripts/flow.py source <project-dir> --label "订单会�
 }
 ```
 
-`title`、`content`、`requirements` 描述本次新 PRD；`moduleId` 可指定未使用的模块稳定 ID。`source` 可省略，也可用 `id` 指定未使用的来源 ID；它的 `content` 必须是已提取文本，不能填写文件路径代替读取。需求可带 `sourceIds` 和 `dependsOn`；省略 `sourceIds` 时默认关联本次来源。复用已有来源时省略 `source`，在需求中显式填入其 ID。运行时生成文档与需求身份，不需先创建占位正文或单独登记相同来源。
+`title`、`content`、`requirements` 描述本次新 PRD；`moduleId` 可指定未使用的模块稳定 ID。`source` 可省略，也可用 `id` 指定未使用的来源 ID；它的 `content` 必须是已提取文本，不能填写文件路径代替读取。需求可带 `sourceIds`、`dependsOn` 和明确的 `demoCoverage`；省略 `sourceIds` 时默认关联本次来源。复用已有来源时省略 `source`，在需求中显式填入其 ID。运行时生成文档与需求身份，不需先创建占位正文或单独登记相同来源。
 
 顶层 `content` 只放公共背景与规则；详细行为和验收直接放 `requirements[].content`，保存后它们就是 PRD 正文中的需求块。新建结果为草稿，不传入或推定用户确认。

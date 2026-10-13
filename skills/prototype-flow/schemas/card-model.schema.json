@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prototype Flow purpose-driven conversation card v2",
+  "type": "object",
+  "required": ["contract", "kind", "purpose", "title", "context", "sections", "changes", "primary", "secondary", "form", "source", "rendered"],
+  "properties": {
+    "contract": {"const": "prototype-flow.card/2"},
+    "kind": {"enum": ["read", "action", "compare", "result"]},
+    "purpose": {"enum": ["read", "edit", "select", "continue", "compare", "result"]},
+    "title": {"type": "string"},
+    "context": {"type": "string"},
+    "sections": {"type": "array", "items": {"$ref": "#/$defs/section"}},
+    "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}},
+    "primary": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/action"}]},
+    "secondary": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/action"}]},
+    "form": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/form"}]},
+    "source": {
+      "type": "object", "required": ["label", "observedAt"],
+      "properties": {"label": {"type": "string"}, "observedAt": {"type": "string", "format": "date-time"}},
+      "additionalProperties": false
+    },
+    "rendered": {"type": "boolean"},
+    "text": {"type": "string"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "action": {
+      "type": "object", "required": ["intent", "verb", "target"],
+      "properties": {
+        "intent": {"enum": ["inspect", "change", "read-latest", "open-demo", "open-workbench", "compare", "continue-run", "export-module"]},
+        "verb": {"type": "string"}, "target": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "section": {
+      "type": "object", "required": ["title", "type"],
+      "properties": {
+        "title": {"type": "string"}, "type": {"enum": ["text", "list", "records", "facts"]},
+        "paragraphs": {"type": "array", "items": {"type": "string"}},
+        "items": {"type": "array", "items": {"oneOf": [
+          {"type": "string"},
+          {"type": "object", "required": ["title", "detail"], "properties": {"title": {"type": "string"}, "detail": {"type": "string"}}, "additionalProperties": false},
+          {"type": "object", "required": ["label", "value"], "properties": {"label": {"type": "string"}, "value": {"type": "string"}}, "additionalProperties": false}
+        ]}},
+        "collapsed": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "change": {
+      "type": "object", "required": ["title", "before", "after", "excerpted"],
+      "properties": {
+        "title": {"type": "string"},
+        "before": {"type": "array", "items": {"type": "string"}},
+        "after": {"type": "array", "items": {"type": "string"}},
+        "excerpted": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "form": {
+      "type": "object",
+      "required": ["intent", "targetKind", "selection", "targets", "selectedIds", "instruction", "scopes", "scope", "requestedScope", "target"],
+      "properties": {
+        "intent": {"enum": ["inspect", "change", "continue-run"]},
+        "targetKind": {"enum": ["requirement", "module", "run", "document"]},
+        "selection": {"enum": ["fixed", "multiple", "single"]},
+        "targets": {"type": "array", "items": {
+          "type": "object", "required": ["id", "title"],
+          "properties": {"id": {"type": "string"}, "title": {"type": "string"}, "detail": {"type": "string"}},
+          "additionalProperties": false
+        }},
+        "selectedIds": {"type": "array", "items": {"type": "string"}},
+        "instruction": {"oneOf": [{"type": "null"}, {
+          "type": "object", "required": ["required", "label", "placeholder"],
+          "properties": {"required": {"type": "boolean"}, "label": {"type": "string"}, "placeholder": {"type": "string"}},
+          "additionalProperties": false
+        }]},
+        "scopes": {"type": "array", "items": {
+          "type": "object", "required": ["value", "label"],
+          "properties": {"value": {"enum": ["prd", "demo", "prd-and-demo"]}, "label": {"type": "string"}},
+          "additionalProperties": false
+        }},
+        "scope": {"enum": ["prd", "demo", "prd-and-demo"]},
+        "requestedScope": {"enum": ["prd", "demo", "prd-and-demo"]},
+        "scopeNote": {"type": "string"}, "target": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"rendered": {"const": false}}}, "then": {"required": ["text"]}},
+    {"if": {"properties": {"kind": {"enum": ["read", "compare", "result"]}}}, "then": {"properties": {"form": {"type": "null"}}}}
+  ]
+}

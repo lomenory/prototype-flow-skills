@@ -1,11 +1,13 @@
 ---
 name: prototype-flow
-description: 将新资料整理为 PRD 并存入项目，或从现有 PRD 推进需求拆分、高保真 Demo 和只读本地项目看板，维护需求到页面截图的关联、跨模块流程及版本历史；可选单向同步到飞书展示。已纳入工作台的 Demo 细节调整使用本技能的工作稿流程，页面实现使用 demo-design；独立 Demo 直接使用 demo-design。
+description: 将资料或现有 PRD 接入项目，推进需求拆分、高保真 Demo 和实时需求图，维护需求、覆盖状态、页面证据及版本历史；可选单向同步到飞书。已纳入项目的 Demo 调整使用工作稿流程，页面实现使用 demo-design；独立 Demo 直接使用 demo-design。
 ---
 
 # Prototype Flow
 
 把 **资料 → PRD → 需求 → 统一 Demo → 页面状态与截图 → 项目版本** 连成可恢复的项目流程。业务要求的权威源是本地 PRD Markdown；脚本负责持久化和一致性，不能代替资料理解、需求拆分、设计或浏览器观察。
+
+需求拆解、Demo 生成和需求变更默认使用同一张本地实时需求图，点击需求节点查看右侧详情与逐项覆盖。对话交付同款阶段快照；已发出的消息不会后台刷新。沿用项目现有图页，保存后让它自动更新，不在每次操作后重新打开或刷新页面。
 
 ## 宿主兼容
 
@@ -36,9 +38,13 @@ python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称"
 python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 ```
 
-默认在普通对话中读取、修改、验证和交付，不强制生成卡片或启动工作台。查看项目全貌、PRD、需求结构和历史时才运行 `serve <project-dir> --reuse`；Demo 查看或浏览器验证只运行 `preview <project-dir> --reuse`，再用 `demo-entry` 解析准确 URL。工作台与预览各自发现、复用和停止，loopback 地址仅供当前电脑使用。新增、编辑、上传及版本保存/恢复全部由当前 Agent 使用本地 CLI 执行。
+项目初始化及需求、Demo 的成功写命令默认返回 `requirementMap` 回执，准备或复用同项目的只读本地服务。首次展示时使用回执 `url` 在宿主右侧打开需求图；后续复用已有图页。接入已有项目或恢复本地服务时运行 `requirement-map <project-dir>`，其 `snapshot` 可交给固定渲染器作对话快照。服务不可用时按回执错误回退到离线图或文字，业务保存结果仍有效。无界面批处理或用户要求仅处理文件时，在相应写命令追加 `--no-requirement-map`；它不停止已有图的自动更新。详细步骤见[默认需求图](references/conversation-ui.md#默认需求图)。
 
-多对象选择、版本比较或复杂输入确有收益时，按 [对话与可选卡片](references/conversation-ui.md) 使用 `review-state` 和固定渲染器；能力缺失时继续普通对话，不自动打开工作台。卡片快照与未提交输入不是业务权威源，稳定 ID 和读取基线必须重新核对。
+简单只读查询仍直接文字回答，`state/document/review-state` 不启动服务。完整项目工作台用 `serve <project-dir> --reuse` 按需查看；Demo 查看或浏览器验证用 `preview <project-dir> --reuse`，再用 `demo-entry` 解析准确 URL。需求图与完整工作台共用本地服务，Demo 预览独立；loopback 地址仅供当前电脑使用。新增、编辑、上传及版本保存/恢复全部由当前 Agent 使用本地 CLI 执行。
+
+多对象选择、版本比较或关联输入确有收益时，按 [对话与可选卡片](references/conversation-ui.md) 定向读取 `review-state`，明确 `read/edit/select/continue/compare/result` 目的，再由内容整理层选择四类模板。简单状态、空列表和无差异直接文字交付；渲染返回 `rendered:false` 时使用其 `text`。能力缺失时继续普通对话，不自动打开工作台。卡片快照与未提交输入不是业务权威源，稳定 ID 和读取基线必须重新核对。
+
+需求拆解后保存稳定 ID、需求说明、验收条件及来源；目标包含 Demo 时同时明确 `demoCoverage` 页面、状态和 fixture，分母来自业务范围。旧需求未声明时保留未知，不以已有页面数推断完整覆盖。Demo 任务开始、保存、失败或中断，以及 PRD 保存、拆分、移动和移除都会驱动实时图更新；覆盖只认可当前有效入口和实际验证证据。保留图页的选中需求和模块展开状态，选中需求移除时由图显示变化。历史图固定版本。详见[覆盖口径](references/conversation-ui.md#覆盖口径)。
 
 ### 判断起点与接续工作
 
@@ -77,7 +83,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 
 完成所请求阶段的产物与必要检查，如实更新受影响模块的阶段。Demo 调整优先在 `demo-save.moduleStages` 中提交确有变化的阶段，未变化不重复登记；批量入库已设置阶段时无需重复操作。`demo-save` 成功回执已包含修订、检查、模块阶段和待复核证据，可直接据此交付；没有新改动或失败时，不追加 `run-finish`、`validate`、全量 `state` 或 `refresh`。Tier 0 允许受影响截图待复核，不为消除工作台标签扩大验证。
 
-需求整理拆分完成、PRD 与需求及来源已保存且必要检查通过后，直接交付真实保存回执、简明结果和文件入口；不自动运行 `serve --reuse`，不因任务大小或缺少卡片能力打开工作台。Demo 任务完成适用验证后提供独立预览入口，已有窗口由用户刷新或重新打开，不承诺自动更新。
+需求整理拆分完成、PRD 与需求及来源已保存且必要检查通过后，交付简明结果、文件入口和当前需求图快照；沿用回执准备的实时图展示结构与未决项。生成 Demo 前使实时图可见，开始任务后继续完成已授权工作；生成或变更收尾使用最新快照说明覆盖、证据与待更新项，不把图中所有信息再复述一遍。Demo 任务完成适用验证后提供独立预览入口，需求图自动更新覆盖状态；产品 Demo 预览内容仍按自身导航和刷新机制读取。
 
 新建或已授权修改 Demo 时，依据明确业务起点在 binding 的 `primaryRequirementIds` 登记默认入口；旧数据只读查看不自动填充。多绑定无默认时保留精确关联链接，不猜第一项、不增加演示选择器。默认入口只是查看起点，不决定修改或复验范围。卡片 Demo 写请求通过 `demo-edit --expected-file` 核对原基线；PRD 与 Demo 同改时先保存正文，再以本轮回执形成新 Demo 基线，保留原请求来源。
 

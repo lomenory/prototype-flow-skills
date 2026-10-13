@@ -10,7 +10,7 @@
     "project": {"type": "object", "required": ["id", "name", "rootHint", "storedRevision"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "rootHint": {"type": "string"}, "storedRevision": {"type": "integer"}}},
     "versionId": {"type": "string"},
     "historical": {"type": "boolean"},
-    "scope": {"type": "object", "required": ["view"], "properties": {"view": {"enum": ["overview", "module", "requirement", "tasks", "task", "history", "compare", "result"]}}},
+    "scope": {"type": "object", "required": ["view"], "properties": {"view": {"enum": ["overview", "module", "requirement", "requirement-map", "tasks", "task", "history", "compare", "result"]}}},
     "basis": {"type": "object"}, "data": {"type": "object"}, "freshness": {"type": "object"},
     "page": {"type": ["object", "null"]},
     "actions": {"type": "array", "items": {"type": "object", "required": ["intent", "enabled"], "properties": {"intent": {"enum": ["inspect", "change", "read-latest", "open-demo", "open-workbench", "compare", "continue-run", "export-module"]}, "enabled": {"type": "boolean"}, "reason": {"type": ["string", "null"]}}}}

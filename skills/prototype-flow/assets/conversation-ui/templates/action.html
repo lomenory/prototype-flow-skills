@@ -1,0 +1,20 @@
+<form class="pf-task-form" data-role="form" novalidate>
+  <section class="pf-form-zone" data-role="object-zone" aria-labelledby="__ROOT_ID__-object-title">
+    <h3 id="__ROOT_ID__-object-title" data-role="object-title">调整对象</h3>
+    <div data-role="object-list"></div>
+    <p class="text-small" data-role="selection-summary" aria-live="polite"></p>
+    <p id="__ROOT_ID__-selection-error" class="text-destructive" data-role="selection-error" role="alert" hidden></p>
+  </section>
+  <section class="pf-form-zone" data-role="input-zone" hidden>
+    <h3><label for="__ROOT_ID__-instruction" data-role="instruction-label">修改内容</label></h3>
+    <textarea id="__ROOT_ID__-instruction" class="form-control" data-role="instruction" rows="3" maxlength="2500" aria-describedby="__ROOT_ID__-instruction-error"></textarea>
+    <p id="__ROOT_ID__-instruction-error" class="text-destructive" data-role="instruction-error" role="alert" hidden></p>
+  </section>
+  <section class="pf-form-zone" data-role="scope-zone" hidden aria-labelledby="__ROOT_ID__-scope-title">
+    <h3 id="__ROOT_ID__-scope-title">修改范围</h3>
+    <select id="__ROOT_ID__-scope" class="form-select" data-role="scope" aria-labelledby="__ROOT_ID__-scope-title" aria-describedby="__ROOT_ID__-scope-note __ROOT_ID__-scope-error" hidden></select>
+    <p data-role="scope-text"></p>
+    <p id="__ROOT_ID__-scope-note" class="text-small" data-role="scope-note" hidden></p>
+    <p id="__ROOT_ID__-scope-error" class="text-destructive" data-role="scope-error" role="alert" hidden></p>
+  </section>
+</form>

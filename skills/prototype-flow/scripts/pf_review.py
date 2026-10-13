@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pf_core import FlowError, business_text, digest, parse_requirements, split_frontmatter, valid_id
 from pf_queries import _run_summary, _selected, query_state
 
-VIEWS = ('overview', 'module', 'requirement', 'tasks', 'task', 'history', 'compare')
+VIEWS = ('overview', 'module', 'requirement', 'requirement-map', 'tasks', 'task', 'history', 'compare')
 STAGES = {'intake': '资料整理', 'draft': 'PRD 草稿', 'review': '内容待确认',
           'demo': 'Demo 制作', 'validation': '交付待验收', 'confirmed': '交付已确认'}
 
@@ -80,6 +80,11 @@ def _entry(store, version, requirement):
 
 def review_state(store, view='overview', module_id=None, requirement_id=None, run_id=None,
                  version=None, from_version=None, to_version='working', limit=20, cursor=None, query=None):
+    if view == 'requirement-map':
+        if run_id or from_version or cursor or query:
+            raise FlowError('需求图使用 --module、--requirement 和 --version 定位，不使用任务、比较或分页参数')
+        from pf_requirement_map import requirement_map_state
+        return requirement_map_state(store, module_id, requirement_id, version)
     if view not in VIEWS or type(limit) is not int or not 1 <= limit <= 50:
         raise FlowError('视图无效或 limit 不在 1 到 50 之间')
     for value in (module_id, requirement_id, run_id):

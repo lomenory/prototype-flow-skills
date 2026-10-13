@@ -5,6 +5,7 @@ import copy
 import contextlib
 import fcntl
 import hashlib
+import html as html_escape
 import http.client
 import json
 import mimetypes
@@ -30,6 +31,7 @@ IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif'}
 CONTENT_EXTENSIONS = IMAGE_EXTENSIONS | {'.pdf', '.txt', '.md', '.csv'}
 SERVICE_PROTOCOL = 2
 _PREVIEW_CHILDREN = {}
+_WORKBENCH_CHILDREN = {}
 
 
 def metadata_signature(root, ignored=()):
@@ -135,7 +137,12 @@ class ServiceRegistry:
                     or result.get('projectId') != project_id or result.get('serviceKind') != self.service_kind
                     or result.get('protocolVersion') != SERVICE_PROTOCOL):
                 return None
-            return {key: result[key] for key in ('url', 'previewOrigin', 'projectRoot', 'projectId', 'serviceKind', 'pid', 'transport')} | {'reused': True}
+            reused = {key: result[key] for key in ('url', 'previewOrigin', 'projectRoot', 'projectId', 'serviceKind', 'pid', 'transport')} | {'reused': True}
+            if self.service_kind == 'workbench':
+                if result.get('requirementMapUrl') != result['url'] + '/requirement-map':
+                    return None
+                reused['requirementMapUrl'] = result['requirementMapUrl']
+            return reused
         except (FlowError, OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
             return None
         finally:
@@ -730,14 +737,17 @@ class WorkbenchServer(DemoAccess):
 
     def info(self):
         return {'url': self.origin, 'previewOrigin': self.preview_origin,
+                'requirementMapUrl': self.origin + '/requirement-map',
                 'projectRoot': str(self.store.root), 'projectId': self.project_id,
                 'serviceKind': self.service_kind, 'pid': os.getpid(),
                 'transport': 'loopback_http', 'reused': False}
 
     def health(self):
-        if (self.store._project()['id'] != self.project_id or not (self.assets / 'index.html').is_file()
+        map_assets = Path(__file__).resolve().parents[1] / 'assets/conversation-ui'
+        map_files = ('requirement-map.html', 'requirement-map.css', 'requirement-map.js', 'requirement-map-live.js')
+        if (self.store._project()['id'] != self.project_id or not all((map_assets / name).is_file() for name in map_files)
                 or not self._threads or not all(thread.is_alive() for thread in self._threads)):
-            raise FlowError('本地工作台服务尚未就绪', 503)
+            raise FlowError('本地需求图服务尚未就绪', 503)
         return dict(self.info(), instanceId=self.instance_id, protocolVersion=SERVICE_PROTOCOL)
 
     def revision(self, scope='all'):
@@ -810,6 +820,30 @@ class WorkbenchServer(DemoAccess):
                 binding['screenshotUrl'] = '/content?' + urlencode(query)
         return state
 
+    def requirement_map(self, module_id=None, requirement_id=None, version=None):
+        from pf_requirement_map import requirement_map_state
+        snapshot = requirement_map_state(self.store, module_id, requirement_id, version)
+        return {'snapshot': snapshot, 'requirementMap': snapshot['data']['requirementMap']}
+
+    def requirement_map_html(self, module_id=None, requirement_id=None, version=None):
+        from render_conversation import render_requirement_map
+        snapshot = self.requirement_map(module_id, requirement_id, version)['snapshot']
+        fragment = render_requirement_map(snapshot)
+        nonce = secrets.token_urlsafe(24)
+        fragment = fragment.replace('<script>', '<script nonce="' + nonce + '">')
+        html = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta name="pf-token" content="' + html_escape.escape(self.token, quote=True) + '">'
+            '<title>需求地图 · ' + html_escape.escape(snapshot['project']['name']) + '</title>'
+            '<style>html{color-scheme:light dark}body{margin:20px;background:light-dark(#f6f7f9,#17191c)}'
+            'main{max-width:1440px;margin:0 auto}button{cursor:pointer}'
+            '@media(max-width:720px){body{margin:8px}}</style></head><body><main>' + fragment +
+            '</main><script src="/requirement-map-assets/requirement-map-live.js"></script></body></html>')
+        policy = ("default-src 'self'; script-src 'self' 'nonce-" + nonce +
+                  "'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; "
+                  "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'")
+        return html.encode('utf-8'), policy
+
 
 
 
@@ -850,6 +884,9 @@ class WorkbenchServer(DemoAccess):
                         self.authenticate()
                         if path == '/api/state':
                             return self.json(owner.enriched_state(version))
+                        if path == '/api/requirement-map':
+                            return self.json(owner.requirement_map(query.get('module', [None])[0],
+                                query.get('requirement', [None])[0], version))
                         if path == '/api/revision':
                             return self.json(owner.revision(query.get('scope', ['all'])[0]))
                         if path == '/api/health':
@@ -885,6 +922,14 @@ class WorkbenchServer(DemoAccess):
                         if file.suffix.lower() not in CONTENT_EXTENSIONS:
                             raise FlowError('该类型不作为工作台内容提供', 403)
                         return self.send_file(file, "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+                    if path == '/requirement-map':
+                        data, policy = owner.requirement_map_html(query.get('module', [None])[0],
+                            query.get('requirement', [None])[0], version)
+                        self.respond_headers(200, 'text/html; charset=utf-8', len(data), policy)
+                        return self.wfile.write(data)
+                    if path == '/requirement-map-assets/requirement-map-live.js':
+                        return self.send_file(Path(__file__).resolve().parents[1] /
+                            'assets/conversation-ui/requirement-map-live.js')
                     if path in ('/', '/index.html'):
                         file = owner.assets / 'index.html'
                         if not file.is_file():
@@ -916,11 +961,104 @@ class WorkbenchServer(DemoAccess):
 
         return Handler
 
+
+def ensure_workbench(project_root, reuse=True, port=0):
+    """Discover or start one detached read-only service without opening a UI."""
+    root = project_root.root if isinstance(project_root, ProjectStore) else project_root
+    store = ProjectStore(root)
+    store._project()
+    registry = ServiceRegistry(store.root, 'workbench')
+    with registry.lock():
+        existing = registry.reuse() if reuse else None
+        if existing:
+            if port and urlsplit(existing['url']).port != port:
+                raise FlowError('已有需求图服务使用其他端口；请停止它或省略显式端口', 409)
+            return existing
+        process = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()),
+            '--workbench-worker', str(store.root), '--port', str(port),
+            '--registry-directory', str(registry.directory)], stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        try:
+            if not select.select([process.stdout], [], [], 10)[0]:
+                raise FlowError('本地需求图服务启动超时', 503)
+            line = process.stdout.readline()
+            try:
+                result = json.loads(line)
+            except ValueError:
+                raise FlowError('本地需求图服务未返回有效启动结果', 503)
+            if result.get('error'):
+                raise FlowError(result['error'], result.get('status', 503))
+            discovered = registry.reuse()
+            if not discovered or discovered['pid'] != process.pid:
+                raise FlowError('本地需求图服务身份校验失败', 503)
+            _WORKBENCH_CHILDREN[process.pid] = process
+            return dict(discovered, reused=False)
+        except Exception:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            raise
+        finally:
+            process.stdout.close()
+
+
+def stop_workbench(project_root):
+    """Stop only the healthy registered workbench; leave Demo preview alone."""
+    registry = ServiceRegistry(project_root, 'workbench')
+    with registry.lock():
+        service = registry.reuse()
+        if not service:
+            return False
+        instance_id = registry._read().get('instanceId')
+        os.kill(service['pid'], signal.SIGTERM)
+    process = _WORKBENCH_CHILDREN.pop(service['pid'], None)
+    if process:
+        process.wait(timeout=5)
+        return True
+    event = threading.Event()
+    for _ in range(100):
+        if registry._read().get('instanceId') != instance_id:
+            return True
+        event.wait(0.05)
+    raise FlowError('本地需求图服务尚未完成停止', 503)
+
+
+def _workbench_worker(project_root, port, registry_directory):
+    registry = ServiceRegistry(project_root, 'workbench', directory=registry_directory)
+    server = None
+    try:
+        server = WorkbenchServer(ProjectStore(project_root), port)
+        event = threading.Event()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(signum, lambda *_: event.set())
+        server.start()
+        registry.publish(server)
+        print(json.dumps(server.info(), ensure_ascii=False), flush=True)
+        while not event.wait(1):
+            pass
+    except Exception as exc:
+        print(json.dumps({'error': str(exc), 'status': error_status(exc)}, ensure_ascii=False), flush=True)
+        return 1
+    finally:
+        if server:
+            server.close()
+            with registry.lock():
+                registry.forget(server.instance_id)
+    return 0
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--preview-worker', required=True)
+    worker = parser.add_mutually_exclusive_group(required=True)
+    worker.add_argument('--preview-worker')
+    worker.add_argument('--workbench-worker')
     parser.add_argument('--port', type=int, default=0)
     parser.add_argument('--registry-directory', required=True)
     arguments = parser.parse_args()
-    raise SystemExit(_preview_worker(arguments.preview_worker, arguments.port, arguments.registry_directory))
+    run_worker = _preview_worker if arguments.preview_worker else _workbench_worker
+    root = arguments.preview_worker or arguments.workbench_worker
+    raise SystemExit(run_worker(root, arguments.port, arguments.registry_directory))

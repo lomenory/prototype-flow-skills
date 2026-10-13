@@ -8,13 +8,19 @@
 
 ## 能做什么
 
+2026-10-13 默认需求图更新：需求拆解、Demo 生成和需求变更默认接入同一张本地实时需求图，点击节点在右侧核对需求说明、验收条件、来源与逐项页面覆盖。成功的相关 CLI 写命令自动准备或复用服务，回执附 `requirementMap`；对话呈现同款阶段快照，旧消息不会后台刷新。需求图更新保留仍有效的选中需求、模块展开与焦点；完整管理工作台仍按需查看，Demo 预览独立运行。
+
+新增 `requirement-map` 接入、定向及历史快照、停止与恢复入口；`--no-requirement-map` 用于单次纯命令操作，不关闭已有图。服务准备失败不撤销业务保存，使用快照和文字回退。覆盖分母来自显式 `demoCoverage`，未声明范围保持未知；只有当前输入与实际验证证据匹配时显示已验证，生成完成不代表用户确认。详见[默认需求图与对话呈现](skills/prototype-flow/references/conversation-ui.md)。
+
+本版通过 393 项 Python 测试、94 项前端测试、Skill 结构与安装闭包检查；独立新项目在实际 Codex In-app Browser 中验证空图新增需求、生成中、已验证、需求变更待更新及复验后再次已验证，全程未刷新图页且选中、展开状态保留。分发包另检查准确文件闭包、CLI 和只读 HTTP 资源；仅更新主 Skill，保留两个按需依赖及锁文件。
+
+以下日期条目记录旧版本当时的行为，当前默认流程以本节及后面的命令为准。
+
 2026-10-12 对话执行与独立 Demo 更新：任务默认在普通对话中推进，卡片按需使用，PRD 入库后直接交付真实回执与文件入口；工作台按需用于项目管理，默认进入项目总览，需求结构按需查看。工作台移除 iframe、演示需求/页面状态选择器及预览专用刷新，需求和页面链接在新窗口独立打开。
 
 新增只读 `review-state`、固定卡片渲染器、独立 `preview` / `demo-entry` 和 `export-module`；支持 `primaryRequirementIds` 默认入口、冻结/工作稿/历史命名空间，以及 `demo-edit --expected-file` 在任何写入前核对真实基线。预览与工作台分别复用和停止，已有 Demo 窗口首期手动刷新。卡片消息桥尚未完成真实 Codex 点击链路验收，默认提供可复制请求，不因缺少卡片能力打开工作台。详见[对话与可选卡片](skills/prototype-flow/references/conversation-ui.md)。
 
 开发验证通过 316 项 Python 测试、52 项前端测试、生产构建、浏览器独立页面/历史链接与卡片布局检查；发布包另按准确文件闭包、CLI 和只读 HTTP 资源检查。浏览器 wrapper 和 DOM 模拟不代替真实宿主消息送达。仅同步主 Skill，保留两个按需依赖及锁文件。
-
-以下日期条目记录各版本当时的行为；当前入口以本节及后面的使用命令为准。
 
 2026-09-23 工作台预览更新：Demo 预览不再显示覆盖画面的状态提示；工作稿保存和未保存内容变化后仍会自动刷新当前预览。同步完整预构建资源。本次通过 43 项前端测试、生产构建与 17 项分发包 HTTP 静态资源检查；运行时代码与上一版一致。
 
@@ -35,7 +41,7 @@
 | 初始化项目 | 项目身份、PRD 目录、索引与导航，可接入已有文档库 | [prototype-flow](skills/prototype-flow/SKILL.md) |
 | 新资料整理入库 | 来源记录、PRD Markdown、稳定需求 ID 和 PRD 检查 | prototype-flow |
 | 持续整理需求 | Agent 通过 CLI 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
-| 浏览项目 | 只读本地工作台、跨模块流程画布、已有页面和截图关联，复制需求名称与编号 | prototype-flow |
+| 核对需求与进度 | 默认实时需求图与右侧详情、页面状态覆盖、真实任务进度；完整管理工作台按需打开 | prototype-flow |
 | 下载已确认需求 | 按模块打包关联 Demo 的完整目录与运行资源、PRD 和本地引用；支持历史版本 | prototype-flow |
 | 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
@@ -104,7 +110,7 @@ python3 -B skills/prototype-flow/scripts/install.py --dest ~/.agents/skills
 
 安装后按返回的实际路径发起任务，无需依赖选择器语法：
 
-> 读取 `<已安装的主-Skill-目录>/SKILL.md`，将我提供的资料整理到 projects/my-prototype，建立 PRD 和需求关联，再打开本地工作台；本次先不生成 Demo。
+> 读取 `<已安装的主-Skill-目录>/SKILL.md`，将我提供的资料整理到 projects/my-prototype，建立 PRD 和需求关联，用默认需求图让我逐项核对；本次先不生成 Demo。
 
 目录、宿主工具映射和支持边界见 [Agent 兼容说明](skills/prototype-flow/references/agent-compatibility.md)。自动发现取决于宿主；CLI 能找到文件不代表每个宿主都会在选择器中列出它。
 
@@ -123,7 +129,7 @@ Codex 用户也可以继续发送：
 1. 在本分发仓库运行 `git pull --ff-only`，确认获取最新 `main`。
 2. 核对 Agent 实际读取的 `prototype-flow/SKILL.md` 路径。若直接使用本仓库，无需再复制；若使用个人目录，先备份旧的 `prototype-flow` 到 skills 目录之外，再用本仓库的 `skills/prototype-flow` 完整替换原目录。不要只复制 `SKILL.md` 或将新版资源叠加到旧目录。
 3. 在本分发仓库运行 `python3 -B skills/prototype-flow/scripts/install.py --dest <实际的-skills-根目录> --check`，确认返回 `ok: true`、`status: available`。例如 Codex 安装在 `~/.codex/skills/prototype-flow` 时，`--dest` 使用 `~/.codex/skills`。
-4. 停止旧版本工作台与预览进程，按本次用途使用新包：需要项目管理时运行 `serve <项目目录> --reuse`，只查看 Demo 时运行 `preview <项目目录> --reuse` 后再用 `demo-entry` 解析入口。核对返回的 `projectRoot` 与 `serviceKind`，不要把旧服务地址视为已运行新版本。关闭浏览器标签页不等于停止服务。
+4. 核对已运行服务的版本，按用途使用新包：默认需求图用 `requirement-map <项目目录>`，完整项目管理用 `serve <项目目录> --reuse`，只查看 Demo 时运行 `preview <项目目录> --reuse` 后用 `demo-entry` 解析入口。缺少新能力的旧服务需先明确停止，再用新包启动；不要把旧地址视为已运行新版本。关闭浏览器标签页不等于停止服务，停止需求图共用服务用 `requirement-map <项目目录> --stop`，独立预览保留。
 
 需求文档、Demo 和项目版本保存在项目目录中，更新技能时保留这些项目目录。
 
@@ -177,11 +183,26 @@ CLI 负责保存和一致性；资料理解、PRD 撰写和 Demo 设计由当前
 
 新项目可以使用 `init <project-dir> --name "项目名称" --empty` 建立空项目，再执行 `intake <project-dir> --file <payload.json>`，一次保存来源、完整 PRD 和需求块，统一维护导航并进行 PRD 检查。输入格式见 [需求与资料](skills/prototype-flow/references/requirements.md#一次入库)。
 
-CLI 默认返回摘要，`document` 读取单份正文。任务或产物查询使用 `state <project-dir> --section runs|artifacts`，单项追加 `--id <id>`；此时 `--full` 只展开所选记录。只有确需全部状态时使用无 section 的 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后，在普通对话中交付真实保存回执和文件入口；需要项目管理时才打开工作台。入库不自动生成 Demo 或保存项目快照。
+CLI 默认返回摘要，`document` 读取单份正文。任务、产物或页面绑定查询使用 `state <project-dir> --section runs|artifacts|bindings`，单项追加 `--id <id>`；此时 `--full` 只展开所选记录。只有确需全部状态时使用无 section 的 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后交付真实回执、文件入口和本轮需求图快照，首次展示实时图后复用原页。完整工作台按需查看；入库不自动生成 Demo 或保存项目快照。
 
 内建维护生成一份 `DOC_MAP.md` 导航，保留旧项目的文档身份、关联块和历史兼容；不再自动生成独立 dashboard 或回写全库关联。
 
-## 打开本地工作台
+## 默认需求图
+
+相关写命令成功后，`requirementMap` 回执包含 `status`、本机 `url`、`projectId`、`reused`、`autoUpdate` 和参数数组 `snapshotCommand`。已有项目可显式接入：
+
+```bash
+python3 -B skills/prototype-flow/scripts/flow.py requirement-map ../my-prototype
+python3 -B skills/prototype-flow/scripts/flow.py review-state ../my-prototype --view requirement-map
+```
+
+`requirement-map` 返回真实 `snapshot`，后台准备或复用服务，命令本身不打开浏览器。Agent 首次打开回执链接，后续需求、任务及 Demo 保存自动更新同一页；不要每次重开或刷新。默认每 2 秒检查已保存变化，每 30 秒检查外部文件变化，回到页面立即检查。可用 `--module` 定向查看、`--requirement` 设置初始选中、`--version` 查看固定历史；一次投影最多 200 条需求，超限按模块查看。渲染器读取 `snapshot` JSON，不读取整个命令回执。
+
+简单只读查询不启动服务。单个写命令可加 `--no-requirement-map` 跳过本次服务准备，不关闭已开图；失败回执 `unavailable/error/errorStatus` 只表示展示不可用，业务保存仍然成功，不重放写入。没有内嵌能力时交付本机链接、离线图文件或文字。
+
+关闭页不会停止服务。需要停止时执行 `requirement-map ../my-prototype --stop`，仅停止该项目共用的图和完整工作台服务，Demo 预览独立保留；之后默认写命令会再次准备服务。停止不能与范围、版本或端口参数同用。图的已验证状态来自当前实际证据，不自动确认需求、制作 Demo 或扩大授权范围。
+
+## 打开完整本地工作台
 
 需要查看项目时执行：
 
@@ -209,7 +230,7 @@ python3 -B skills/prototype-flow/scripts/flow.py review-state ../my-prototype --
 
 本仓库仅分发 `prototype-flow` 主 Skill，以及 Demo 和飞书阶段按需使用的 `demo-design`、`use-feishu-cli`。
 
-主 Skill 包含 `SKILL.md`、界面元数据、依赖锁文件、Python 运行时、阶段参考、数据 schema，以及预构建工作台、轻量对话卡片模板和第三方许可证。
+主 Skill 包含 `SKILL.md`、界面元数据、依赖锁文件、Python 运行时、阶段参考、数据 schema，以及预构建工作台、实时与离线需求图、其他对话卡片模板和第三方许可证。
 
 公开仓库不包含开发工作台的 React 源码、`node_modules`、开发测试、业务项目、订单示例、演练截图、开发日志、缓存或账号配置。依赖 Skill 内用于运行和理解规范的模板与小型 JSON 示例保留。
 

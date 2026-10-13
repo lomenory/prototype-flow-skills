@@ -15,6 +15,16 @@ sys.dont_write_bytecode = True
 from pf_core import FlowError, ProjectStore
 
 
+# Successful lifecycle writes prepare one reusable, read-only requirement map.
+# Queries and cloud operations keep their existing side-effect boundaries.
+REQUIREMENT_MAP_COMMANDS = frozenset({
+    'init', 'intake', 'save', 'module', 'module-stage', 'source', 'relations',
+    'artifact', 'framework', 'requirement', 'refresh', 'restore',
+    'run-start', 'run-resume', 'run-finish', 'demo-edit', 'demo-save',
+    'demo-prepare', 'demo-finalize', 'demo-freeze', 'demo-restore',
+})
+
+
 def output(value):
     print(json.dumps(value, ensure_ascii=False, indent=2), flush=True)
 
@@ -140,6 +150,9 @@ def parser():
         cmd = sub.add_parser(name, help=description, description=description)
         cmd.add_argument('root', help='项目根目录')
         cmd.add_argument('--full', action='store_true', help='输出完整结果；默认省略正文和项目明细，document 始终保留全文')
+        if name in REQUIREMENT_MAP_COMMANDS:
+            cmd.add_argument('--no-requirement-map', action='store_true',
+                             help='本次仅执行数据操作，不准备需求图服务；不停止已打开的图')
         return cmd
 
     cmd = command('init', '初始化或接入项目，不自动连接飞书')
@@ -154,12 +167,18 @@ def parser():
     cmd.add_argument('--port', type=int, default=0)
     cmd.add_argument('--preview-port', type=int, default=0)
     cmd.add_argument('--reuse', action='store_true', help='验证并复用同项目的现有服务；没有可用服务时启动')
+    cmd = command('requirement-map', '准备或复用本地实时需求图，并读取同款对话快照')
+    cmd.add_argument('--module')
+    cmd.add_argument('--requirement')
+    cmd.add_argument('--version', help='历史版本保持固定快照，不跟随当前稿')
+    cmd.add_argument('--port', type=int, default=0)
+    cmd.add_argument('--stop', action='store_true', help='停止本项目需求图与共用工作台服务；Demo 预览独立保留')
     cmd = command('state', '读取项目摘要或指定任务/产物；--full 返回所选范围完整记录，支持历史版本')
     cmd.add_argument('--version')
     cmd.add_argument('--section', choices=['runs', 'artifacts', 'bindings'], help='只读取任务、产物或页面绑定，省略无关 PRD 正文')
     cmd.add_argument('--id', help='只读取指定任务、产物或绑定；必须同时提供 --section')
     cmd = command('review-state', '按范围读取可选对话卡片快照；不保存或启动服务')
-    cmd.add_argument('--view', choices=['overview', 'module', 'requirement', 'tasks', 'task', 'history', 'compare'], default='overview')
+    cmd.add_argument('--view', choices=['overview', 'module', 'requirement', 'requirement-map', 'tasks', 'task', 'history', 'compare'], default='overview')
     cmd.add_argument('--module')
     cmd.add_argument('--requirement')
     cmd.add_argument('--run')
@@ -344,6 +363,18 @@ def main(argv=None):
         elif command == 'preview':
             from pf_server import preview
             result = preview(store.root, reuse=args.reuse, port=args.port)
+        elif command == 'requirement-map':
+            if args.stop:
+                if args.module or args.requirement or args.version or args.port:
+                    raise FlowError('--stop 不能与范围、历史版本或端口参数同时使用')
+                from pf_server import stop_workbench
+                result = {'status': 'stopped' if stop_workbench(store.root) else 'not-running',
+                          'projectRoot': str(store.root), 'autoUpdate': False}
+            else:
+                from pf_map_flow import requirement_map_entry
+                result = requirement_map_entry(store, module_id=args.module,
+                                               requirement_id=args.requirement,
+                                               version=args.version, port=args.port)
         elif command == 'demo-entry':
             from pf_server import demo_entry
             if args.within_artifact and not args.binding:
@@ -450,9 +481,13 @@ def main(argv=None):
         else:
             raise FlowError('未知操作')
         result = result if args.full else compact_result(command, result)
+        if command in REQUIREMENT_MAP_COMMANDS and not args.no_requirement_map:
+            from pf_map_flow import default_requirement_map
+            result['requirementMap'] = default_requirement_map(store)
         if isinstance(result, dict) and command in ('run-start', 'demo-prepare', 'artifact', 'relations',
                                                    'run-finish', 'demo-finalize', 'demo-edit', 'demo-save',
-                                                   'demo-freeze', 'demo-restore', 'review-state', 'preview', 'demo-entry'):
+                                                   'demo-freeze', 'demo-restore', 'review-state', 'preview', 'demo-entry',
+                                                   'requirement-map'):
             result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
         output(result)
         return 0

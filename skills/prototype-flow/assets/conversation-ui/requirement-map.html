@@ -1,0 +1,46 @@
+<section id="__ROOT_ID__" class="pf-requirement-map" aria-labelledby="__ROOT_ID__-title">
+  <div class="rm-window">
+    <header class="rm-header">
+      <div><p class="rm-eyebrow" data-role="context"></p><h2 id="__ROOT_ID__-title" data-role="title">需求地图</h2></div>
+      <span class="rm-source-label" data-role="source-label"></span>
+    </header>
+    <div class="rm-summary"><span data-role="summary"></span><span class="rm-secondary" data-role="revision"></span></div>
+    <div class="rm-body" data-role="body">
+      <section class="rm-map-panel" aria-label="项目、模块与需求关系图">
+        <div class="rm-map" data-role="map">
+          <svg class="rm-connections" data-role="connections" aria-hidden="true"></svg>
+          <div class="rm-project" data-role="project-node"><span class="rm-kicker">项目</span><strong data-role="project-title"></strong><span class="rm-small" data-role="project-summary"></span></div>
+          <div class="rm-branches" data-role="branches"></div>
+        </div>
+        <p class="rm-empty" data-role="empty" hidden>当前范围尚未整理需求。</p>
+        <p class="rm-map-caption">节点数量为已生成页面状态 / 已声明页面状态</p>
+      </section>
+      <aside class="rm-inspector" id="__ROOT_ID__-inspector" data-role="inspector" aria-labelledby="__ROOT_ID__-detail-title">
+        <div class="rm-inspector-top"><span class="rm-small" data-role="detail-context"></span><button type="button" class="rm-text-button cursor-interaction" data-action="close-detail">收起详情</button></div>
+        <h3 id="__ROOT_ID__-detail-title" data-role="detail-title"></h3>
+        <p class="rm-detail-empty" data-role="detail-empty" hidden></p>
+        <div data-role="detail-content">
+          <div class="rm-detail-tags"><span class="rm-status" data-role="detail-status"></span><span class="rm-small" data-role="requirement-status"></span></div>
+          <section class="rm-detail-section"><h4>需求说明</h4><p class="rm-description" data-role="description"></p></section>
+          <section class="rm-detail-section" data-role="business-acceptance-section" hidden><h4>验收条件</h4><ul class="rm-business-acceptance" data-role="business-acceptance"></ul></section>
+          <section class="rm-detail-section">
+            <h4>Demo 覆盖</h4>
+            <div class="rm-counts"><span>已生成 <strong data-role="generated-count"></strong></span><span>已验证 <strong data-role="verified-count"></strong></span></div>
+            <div class="rm-coverage-track" role="progressbar" aria-label="当前需求页面状态生成覆盖" data-role="coverage-bar"><span data-role="coverage-fill"></span></div>
+            <p class="rm-small" data-role="coverage-unknown" hidden>范围未声明，暂不能计算完整覆盖率。</p>
+            <p class="rm-gap" data-role="gap"></p>
+            <ul class="rm-criteria" data-role="criteria" aria-label="逐项页面状态覆盖"></ul>
+          </section>
+          <section class="rm-detail-section" data-role="task-section" hidden><h4>当前生成任务</h4><p data-role="task-status"></p><p class="rm-small" data-role="task-summary"></p></section>
+          <section class="rm-detail-section"><h4 data-role="pages-title">关联页面</h4><ul class="rm-pages" data-role="pages"></ul></section>
+          <details class="rm-source" data-role="sources-section"><summary class="cursor-interaction">资料依据</summary><div data-role="sources"></div></details>
+        </div>
+      </aside>
+    </div>
+    <footer class="rm-footer"><span data-role="footer-status"></span><span data-role="connection-status">对话快照</span><span data-role="observed-at"></span><button type="button" class="rm-text-button cursor-interaction" data-action="retry-sync" hidden>重新同步</button></footer>
+    <p class="rm-sr" data-role="announcer" aria-live="polite"></p>
+  </div>
+  <script type="application/json" data-role="payload">__SNAPSHOT_JSON__</script>
+</section>
+<style>__STYLE__</style>
+<script>__SCRIPT__</script>

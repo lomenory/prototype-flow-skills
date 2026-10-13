@@ -1,15 +1,24 @@
-<section id="__ROOT_ID__" aria-label="项目对话快照">
-  <header><h2 data-role="title"></h2><p class="text-small" data-role="time"></p></header>
-  <div data-role="content"></div>
-  <div class="card" data-role="request">
-    <label class="form-label">修改说明<textarea class="form-control" data-role="instruction" maxlength="2500" rows="3"></textarea></label>
-    <label class="form-label">修改范围<select class="form-select" data-role="scope"><option value="prd">PRD</option><option value="demo">Demo</option><option value="prd-and-demo">PRD 与 Demo</option></select></label>
-  </div>
-  <div class="viz-row" data-role="actions"></div>
-  <p role="status" aria-live="polite" data-role="status"></p>
-  <div data-role="fallback" hidden><label class="form-label">完整请求<textarea class="form-control" data-role="prompt" rows="5" readonly></textarea></label></div>
-  <details><summary>快照上下文</summary><pre data-role="context"></pre></details>
-  <script type="application/json" data-role="snapshot">__SNAPSHOT_JSON__</script>
+<section id="__ROOT_ID__" class="card pf-task-card" data-card-kind="__CARD_KIND__" aria-labelledby="__ROOT_ID__-title">
+  <header class="pf-task-header">
+    <h2 id="__ROOT_ID__-title" data-role="title"></h2>
+    <p class="text-small" data-role="context"></p>
+  </header>
+  __CONTENT_TEMPLATE__
+  <footer class="pf-task-actions" data-role="action-zone" hidden>
+    <div class="viz-row">
+      <button class="btn btn-primary" type="button" data-role="primary" hidden></button>
+      <button class="btn" type="button" data-role="secondary" hidden></button>
+    </div>
+  </footer>
+  <section class="pf-task-feedback" data-role="feedback-zone" hidden aria-label="操作反馈">
+    <p role="status" aria-live="polite" data-role="status"></p>
+    <div class="pf-manual-copy" data-role="manual-copy-zone" hidden>
+      <label class="form-label" for="__ROOT_ID__-prompt">手动复制请求</label>
+      <textarea id="__ROOT_ID__-prompt" class="form-control" data-role="prompt" rows="5" readonly></textarea>
+    </div>
+  </section>
+  <p class="text-small pf-task-source" data-role="source"></p>
+  <script type="application/json" data-role="payload">__SNAPSHOT_JSON__</script>
 </section>
 <style>__STYLE__</style>
 <script>__SCRIPT__</script>

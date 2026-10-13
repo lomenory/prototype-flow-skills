@@ -187,6 +187,9 @@ def new_requirement_blocks(parts, module_id, source_ids=None, depends_on=None, s
         metadata = {'id': rid, 'priority': part.get('priority', 'P1'), 'status': 'draft',
                     'sourceIds': part.get('sourceIds', source_ids or []),
                     'dependsOn': part.get('dependsOn', depends_on or []), 'supersedes': supersedes or []}
+        if 'demoCoverage' in part:
+            from pf_coverage import validate_demo_coverage
+            metadata['demoCoverage'] = validate_demo_coverage(part['demoCoverage'])
         body = part.get('content', '').strip()
         if not re.match(r'^#{1,6}\s', body):
             body = '### ' + part['title'].strip() + '\n\n' + body
@@ -789,6 +792,10 @@ class ProjectStore:
         if meta.get('documentId') != current['id'] or meta.get('moduleId') != current['moduleId']:
             raise FlowError('Document and module identities must be preserved')
         next_reqs = parse_requirements(content, current['id'], current['moduleId'])
+        from pf_coverage import validate_demo_coverage
+        for requirement in next_reqs:
+            if 'demoCoverage' in requirement:
+                validate_demo_coverage(requirement['demoCoverage'])
         before_ids = {r['id'] for r in parse_requirements(current['content'], current['id'], current['moduleId'])}
         after_ids = {r['id'] for r in next_reqs}
         self._check_requirement_lifecycle(before_ids, after_ids, self._read('relations.json', {}), allow_removed)
