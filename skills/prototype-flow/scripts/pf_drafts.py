@@ -276,6 +276,12 @@ def _affected_modules(store, requirement_ids):
             for m in store._project()['modules'] if m['id'] in module_ids]
 
 
+def _artifact_title(value):
+    if not isinstance(value, str) or not value.strip():
+        raise FlowError('Demo artifact title must be a non-empty string')
+    return value.strip()
+
+
 def _edit_receipt(store, run, draft):
     declared = set(run.get('affectedBindingIds', [])) | set((run.get('change') or {}).get('affectedBindingIds', []))
     selected = set(run['requirementIds'])
@@ -285,7 +291,9 @@ def _edit_receipt(store, run, draft):
             'primaryRequirementIds', 'screenshot', 'verified', 'verificationStatus')
     run['affectedModules'] = _affected_modules(store, run['requirementIds'])
     run['bindings'] = [{key: b[key] for key in keys if key in b} for b in bindings]
-    run['saveTemplate'] = {'outputs': {'summary': (run.get('change') or {}).get('summary', '')}}
+    run['saveTemplate'] = {
+        'artifact': {'title': run.get('artifactTitle', draft.get('title') or draft['id'])},
+        'outputs': {'summary': (run.get('change') or {}).get('summary', '')}}
     if bindings:
         run['saveTemplate']['bindingPatches'] = [{'id': b['id']} for b in bindings]
 
@@ -429,7 +437,9 @@ def _check_expected(store, expected, requirement_ids, shared_document_ids, bindi
 
 
 def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None,
-              binding_ids=None, all_requirements=False, expected=None):
+              binding_ids=None, all_requirements=False, expected=None, artifact_title=None):
+    if artifact_title is not None:
+        artifact_title = _artifact_title(artifact_title)
     started, before = time.perf_counter(), dict(store.metrics)
     with store._transaction(), store._rollback_writes(), store._read_session():
         requirement_ids, change, selected_bindings = _resolve_edit_scope(
@@ -468,6 +478,8 @@ def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None
                        path=draft['path'], outputs={'draftRevisions': []})
             run['scopeExpandedToAll'] = expanded_to_all
             run['affectedBindingIds'] = selected_bindings
+            if artifact_title is not None:
+                run['artifactTitle'] = artifact_title
             _edit_receipt(store, run, draft)
             if recovery:
                 run['recoveryCheckpoint'] = recovery
@@ -638,6 +650,12 @@ def save_demo(store, run_id, payload):
             raise FlowError('Draft identity, path and task are fixed')
         if set(data) - {'id', 'path', 'runId', 'title', 'entryHtml', 'status', 'evidence'}:
             raise FlowError('Draft artifact supports id, path, runId, title, entryHtml, status and evidence')
+        if 'title' in data:
+            data['title'] = _artifact_title(data['title'])
+        if 'artifactTitle' in run:
+            if data.get('title', run['artifactTitle']) != run['artifactTitle']:
+                raise FlowError('Draft title differs from this edit task; use its declared artifactTitle', 409)
+            data['title'] = run['artifactTitle']
         draft.update(data)
         draft.update(runId=run_id, inputRevision=run['inputRevision'], inputPath=run['inputPath'],
                      inputFileHashes=run['inputFileHashes'], inputDocuments=copy.deepcopy(run['documents']),
@@ -693,7 +711,8 @@ def save_demo(store, run_id, payload):
         finished = store.finish_run(run_id, 'completed', outputs)
         changed = sorted(p for p in set(previous['fileHashes']) | set(draft['fileHashes'])
                          if previous['fileHashes'].get(p) != draft['fileHashes'].get(p))
-        finished.update(draftRevision=draft['draftRevision'], changedFiles=changed, validation=validation,
+        finished.update(artifactTitle=draft.get('title') or draft['id'],
+                        draftRevision=draft['draftRevision'], changedFiles=changed, validation=validation,
                         affectedModules=affected_modules, evidenceSummary=evidence_summary)
         if payload.get('measurements'):
             finished['measurements'] = copy.deepcopy(payload['measurements'])
@@ -702,6 +721,7 @@ def save_demo(store, run_id, payload):
         finished.setdefault('metrics', {})['draftSave'] = dict(store._measurement(started, before), phaseTimes=phase_times)
         store._write('runs/' + run_id + '.json', finished)
         return {'runId': run_id, 'status': 'completed', 'artifactId': draft['id'], 'draftId': draft['id'],
+                'title': draft.get('title') or draft['id'],
                 'draftRevision': draft['draftRevision'], 'path': draft['path'], 'activated': True,
                 'bindingIds': bindings, 'changedFiles': changed, 'validation': validation, 'metrics': finished['metrics'],
                 'affectedModules': affected_modules, 'evidenceSummary': evidence_summary}

@@ -27,6 +27,8 @@
 
 ## 日常调整工作稿
 
+创建任务前核对产物名称是否包含本轮变更的业务规则。需要改名时在下面的 `demo-edit` 中追加 `--title "新名称"`，例如十四天期限改为七天。运行时将目标名称放入 `saveTemplate.artifact.title`，在成功 `demo-save` 时自动同步更新，保存文件省略标题也有效；开始编辑或 PRD 单独保存时仍保留旧产物名称。
+
 1. 用 `demo-edit <project-dir> --requirements <IDs...> --change-file <change.json>` 固定本轮 PRD 输入并创建任务；已知页面时可用 `--bindings <IDs...>` 推导需求，或由 `change.affectedBindingIds` 推导。额外共享文档使用 `--documents`，全项目任务明确加 `--all-requirements`；CLI 不再因省略范围而静默选择全项目。首次从冻结产物复制工作稿，之后接续同一工作稿编号和目录。只修改返回的 `path`，保留任务 ID、`draftRevision`，复用返回的 `affectedModules`、`bindings` 与 `saveTemplate`，不重新拼装全项目状态。Tier 3 开始前，运行时会为尚未冻结的已保存修订建立检查点。
 2. 按本次 Tier 完成修改和必要检查，更新真实需要变化的页面关联与证据。截图和验证对应工作稿的具体修订；受影响证据失效，依赖未变且能证明适用的证据才可延续。不要把旧截图或重存旧 evidence 当成本轮观察。
 3. 用 `demo-save <project-dir> <run-id> --file <payload.json>` 保存新修订、更新本次关联、定向检查并结束任务；格式见[工作稿保存](runtime.md#demo-工作稿)。现有页面使用 `bindingPatches` 只提交变化字段及本次真实检查；必要阶段变化放入 `moduleStages`，未变则省略。成功回执包含模块阶段与证据汇总，直接用于交付，不追加重复查询、结束任务或检查命令。保存不创建新的完整 Demo 目录或不可变产物。失败保留修改文件，先按错误修正再重试，不直接改登记哈希。

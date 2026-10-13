@@ -109,7 +109,7 @@ def compact_result(command, value):
                           'change', 'metrics', 'measurements', 'changedFiles', 'draft',
                           'draftId', 'artifactId', 'draftRevision', 'beforeRevision', 'path',
                           'kind', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision',
-                          'scopeExpandedToAll', 'affectedBindingIds', 'affectedModules', 'bindings', 'saveTemplate')
+                          'artifactTitle', 'scopeExpandedToAll', 'affectedBindingIds', 'affectedModules', 'bindings', 'saveTemplate')
         result['counts'] = {'documents': len(value.get('documents', [])),
                             'outputs': len(value.get('outputs', []))}
         if value.get('framework'):
@@ -235,6 +235,7 @@ def parser():
     scope.add_argument('--all-requirements', action='store_true', help='明确选择全项目需求')
     cmd.add_argument('--documents', nargs='*', help='额外影响本次工作稿的共享规则文档 ID')
     cmd.add_argument('--change-file', help='本次修改范围 JSON：tier、summary、affectedBindingIds')
+    cmd.add_argument('--title', help='本轮完成后的产物标题；随 demo-save 成功原子更新，省略时保留当前标题')
     cmd.add_argument('--expected-file', help='Demo 读取基线 JSON；在同一事务内、创建任务或工作稿前核对')
     cmd = command('demo-save', '保存工作稿修订、更新受影响证据并结束本轮任务')
     cmd.add_argument('id', help='demo-edit 返回的任务 ID')
@@ -424,6 +425,7 @@ def main(argv=None):
             result = store.edit_demo(args.requirements, args.documents,
                                      change=change, binding_ids=args.bindings,
                                      all_requirements=args.all_requirements,
+                                     artifact_title=args.title,
                                      expected=read_json(args.expected_file) if args.expected_file else None)
         elif command == 'demo-save':
             result = store.save_demo(args.id, read_json(args.file))

@@ -27,6 +27,7 @@
   const emptyPosition = () => ({ top: 0, left: 0, anchor: null });
   let payload, modules = [], byId = new Map(), moduleById = new Map(), frame = 0, disposed = false, moduleSequence = 0, persistenceFrame = 0;
   let lastUpdate = { applied: false, reason: 'not-initialized' };
+  let pendingScrollRestore = false, localViewChanged = false;
   const moduleNodes = new Map(), requirementNodes = new Map(), keyedChildren = new WeakMap();
   const state = { selected: null, collapsed: new Set(), detailOpen: true, query: '', moduleFilter: '', statusFilter: '', viewMode: 'graph', activeDetailTab: 'requirement', expandedCoverage: new Set(), scroll: { map: emptyPosition(), details: {} } };
   const detailKey = () => `${state.selected || ''}::${state.activeDetailTab}`;
@@ -99,6 +100,9 @@
   }
   function captureScrolls() {
     if (!payload) return;
+    // A temporarily detached/hidden host has no readable layout. Its native zero
+    // offsets must never overwrite the last visible reading position.
+    if (pendingScrollRestore || !hasLayout(root)) { pendingScrollRestore = true; return; }
     // Native toggle events can arrive after a snapshot; the visible disclosure state is authoritative.
     for (const details of get('criteria').querySelectorAll('[data-coverage-id]')) {
       const key = `${state.selected}::${details.dataset.coverageId}`;
@@ -109,7 +113,9 @@
     if (!(state.detailOpen && root.getBoundingClientRect().width > 0 && root.getBoundingClientRect().width < 720)) state.scroll.map = capturePosition(get('map-scroll'));
     if (state.detailOpen) rememberDetails(capturePosition(get('detail-scroll')));
   }
+  function hasLayout(node) { const bounds = node.getBoundingClientRect(); return bounds.width > 0 && bounds.height > 0; }
   function restorePosition(region, position) {
+    if (!hasLayout(region)) return;
     if (!position) position = emptyPosition();
     region.scrollTop = position.top; region.scrollLeft = position.left;
     if (!position.anchor) return;
@@ -118,8 +124,10 @@
     if (box?.height > 0 && bounds.height > 0) region.scrollTop += box.top - bounds.top - position.anchor.offset;
   }
   function restoreScrolls() {
+    if (!hasLayout(root)) { pendingScrollRestore = true; return; }
     restorePosition(get('map-scroll'), state.scroll.map);
-    restorePosition(get('detail-scroll'), state.scroll.details[detailKey()]);
+    if (state.detailOpen) restorePosition(get('detail-scroll'), state.scroll.details[detailKey()]);
+    pendingScrollRestore = false;
   }
   function boundedView() {
     return { contract: stateContract, projectId: payload.snapshot.project.id, versionId: payload.snapshot.versionId,
@@ -181,6 +189,7 @@
     reconcile(parent, children);
   }
   function transact(change, { announce = false, preserve = true } = {}) {
+    localViewChanged = true;
     captureScrolls(); change(); render(announce); if (preserve) restoreScrolls(); persist();
   }
   function createModule(module) {
@@ -321,6 +330,7 @@
     if (frame) window.cancelAnimationFrame(frame); frame = window.requestAnimationFrame(draw);
   }
   function draw() {
+    if (pendingScrollRestore) restoreScrolls();
     frame = 0; const svg = get('connections'), bounds = get('map').getBoundingClientRect();
     if (!bounds.width || !bounds.height || state.viewMode === 'list') { svg.replaceChildren(); return; }
     svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
@@ -381,7 +391,10 @@
     lastUpdate = { applied: true, snapshotId: payload.snapshot.snapshotId }; return true;
   }
   function onSnapshot(event) { updateSnapshot(event.detail); root.dispatchEvent(new CustomEvent('prototype-flow:requirement-map-updated', { detail: { ...lastUpdate } })); }
-  function onGlobals(event) { if (payload && restore(event.detail?.globals?.widgetState)) { render(); restoreScrolls(); } }
+  // Host state hydrates a view; asynchronous echoes are not new user input.
+  // After local input, this mounted view owns its selection and reading position.
+  function onLocalInput() { localViewChanged = true; }
+  function onGlobals(event) { if (payload && !localViewChanged && restore(event.detail?.globals?.widgetState)) { render(); restoreScrolls(); } }
   function changeFilter() {
     transact(() => {
       state.query = get('search').value.slice(0, 200); state.moduleFilter = get('module-filter').value; state.statusFilter = get('status-filter').value;
@@ -454,10 +467,11 @@
   root.requirementMap = Object.freeze({
     updateSnapshot,
     getState: () => { captureScrolls(); return { selected: state.selected, collapsed: [...state.collapsed], detailOpen: state.detailOpen, query: state.query, moduleFilter: state.moduleFilter, statusFilter: state.statusFilter, viewMode: state.viewMode, activeDetailTab: state.activeDetailTab, expandedCoverage: [...state.expandedCoverage], scroll: JSON.parse(JSON.stringify(state.scroll)), snapshotId: payload?.snapshot.snapshotId, lastUpdate: { ...lastUpdate } }; },
-    destroy: () => { disposed = true; closeTools(); if (frame) window.cancelAnimationFrame(frame); if (persistenceFrame) window.cancelAnimationFrame(persistenceFrame); observer?.disconnect(); document.removeEventListener('pointerdown', onOutsideTools); window.removeEventListener('resize', scheduleDraw); window.removeEventListener('openai:set_globals', onGlobals); root.removeEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); }
+    destroy: () => { disposed = true; closeTools(); if (frame) window.cancelAnimationFrame(frame); if (persistenceFrame) window.cancelAnimationFrame(persistenceFrame); observer?.disconnect(); document.removeEventListener('pointerdown', onOutsideTools); for (const event of ['pointerdown', 'keydown', 'wheel']) root.removeEventListener(event, onLocalInput); window.removeEventListener('resize', scheduleDraw); window.removeEventListener('openai:set_globals', onGlobals); root.removeEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); }
   });
   root.addEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); window.addEventListener('openai:set_globals', onGlobals); window.addEventListener('resize', scheduleDraw);
-  observer?.observe(get('map')); document.fonts?.ready.then(scheduleDraw);
+  for (const event of ['pointerdown', 'keydown', 'wheel']) root.addEventListener(event, onLocalInput, { passive: true });
+  observer?.observe(root); observer?.observe(get('map')); document.fonts?.ready.then(scheduleDraw);
   let initial; try { initial = JSON.parse(get('payload').textContent); } catch (_) { initial = null; }
   if (!updateSnapshot(initial)) { get('summary').textContent = '需求数据格式不正确，请重新读取。'; get('body').hidden = true; }
 })();

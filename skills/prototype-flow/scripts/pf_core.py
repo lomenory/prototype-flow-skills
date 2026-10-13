@@ -1779,10 +1779,11 @@ class ProjectStore:
         return dict({key: self.metrics[key] - before.get(key, 0) for key in self.metrics},
                     elapsedMs=round((time.perf_counter() - started) * 1000, 3))
 
-    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None, binding_ids=None, all_requirements=False, expected=None):
+    def edit_demo(self, requirement_ids=None, shared_document_ids=None, change=None, binding_ids=None, all_requirements=False, expected=None, artifact_title=None):
         from pf_drafts import edit_demo
         return edit_demo(self, requirement_ids, shared_document_ids, change,
-                         binding_ids=binding_ids, all_requirements=all_requirements, expected=expected)
+                         binding_ids=binding_ids, all_requirements=all_requirements, expected=expected,
+                         artifact_title=artifact_title)
 
     def save_demo(self, run_id, payload):
         from pf_drafts import save_demo

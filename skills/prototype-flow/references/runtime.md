@@ -113,6 +113,7 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 ```bash
 python3 -B <skill-dir>/scripts/flow.py demo-edit <project-dir> --requirements <IDs...> --change-file <change.json>
 python3 -B <skill-dir>/scripts/flow.py demo-edit <project-dir> --bindings <binding-IDs...> --change-file <change.json>
+python3 -B <skill-dir>/scripts/flow.py demo-edit <project-dir> --requirements <IDs...> --change-file <change.json> --title "商店 · 七天退款申请"
 python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <payload.json>
 ```
 
@@ -121,6 +122,8 @@ python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <
 `change.json` 与旧路径的 `run-start --change-file` 相同。Tier 3 开始前，若当前已保存修订尚未冻结，运行时自动保存检查点。未保存改动应先完成当前任务或明确恢复，不把它们冒充已保存修订。额外业务依据用 `--documents` 加入；输入变化仍需判断影响。
 
 CLI 必须通过 `--requirements`、`--bindings` 或 `change.affectedBindingIds` 明确本次范围；全项目使用 `--all-requirements`。未传 change 时 `--bindings` 只记录显式范围，不推断 Tier。命令返回 `affectedModules`、`bindings` 摘要和 `saveTemplate`，可直接在模板补实际结果。Python `edit_demo()` 的无参数调用保持原有全量兼容，回执以 `scopeExpandedToAll:true` 明示；旧 CLI 无范围调用应补显式选项。
+
+需求变更涉及产物名称中的业务规则时，Agent 在本轮 `demo-edit --title "新标题"` 显式声明完成后的名称（Python 对应 `artifact_title`），如十四天改七天。任务以 `artifactTitle` 固定声明，`saveTemplate.artifact.title` 始终回显声明值或当前名称；原来未命名的产物以其 ID 显示。`demo-save` 省略 `artifact.title` 也会自动应用本轮声明；传入不同名称会拒绝保存。未声明时兼容已有行为：省略标题保留当前名称，也可在保存文件中显式提供非空 `artifact.title`。标题与业务产物、证据和修订一同成功保存后更新并在回执返回 `title`；编辑开始、失败或 PRD 单独保存不会提前改名，冻结产物与旧修订保留原名。运行时不从任意需求文字推断或替换业务名称。
 
 `demo-save` 可使用空对象 `{}` 保存修改；`artifact` 可选，`id`、`path`、`runId` 由任务固定，不可改成另一产物。省略 `status` 时保存为 `candidate`，不新增验证结论；明确保存为 `verified/current` 必须提供适用的 `evidence.frameworkReview`。框架依据仍有效时可以复用其真实来源，不能声称本轮重新观察。例如仅修改文案：
 
@@ -153,7 +156,7 @@ CLI 必须通过 `--requirements`、`--bindings` 或 `change.affectedBindingIds`
 
 `moduleStages` 只允许本轮需求所属模块，未指定保持原阶段；相同阶段且确认依据未变不新增历史或重写导航。真实阶段变化批量处理一次，PRD 未变时复用已有需求索引；外部 PRD 变化仍更新索引及影响。`confirmed` 仍需每条更新提供用户确认 `evidence`，不能由任务完成或浏览器检查推断。
 
-保存产生新 `draftRevision`，返回 `artifactId`、`path`、`validation`、`affectedModules` 和 `evidenceSummary` 并结束本次任务。`evidenceSummary` 区分已验证、待复核及本轮复验绑定，回执可直接作为收尾依据；无后续改动不重复查询或校验。失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。同次操作复用文件读取、哈希和已有恢复对象，最终检查文件是否在读取期间变化；缓存不跨命令，不跳过外部篡改检查。修订用于恢复，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
+保存产生新 `draftRevision`，返回 `artifactId`、`title`、`path`、`validation`、`affectedModules` 和 `evidenceSummary` 并结束本次任务。`evidenceSummary` 区分已验证、待复核及本轮复验绑定，回执可直接作为收尾依据；无后续改动不重复查询或校验。失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。同次操作复用文件读取、哈希和已有恢复对象，最终检查文件是否在读取期间变化；缓存不跨命令，不跳过外部篡改检查。修订用于恢复，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
 
 冻结与恢复：
 

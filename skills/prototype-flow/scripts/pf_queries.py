@@ -12,7 +12,7 @@ def _run_summary(run):
                        'contextScope', 'resumedFrom', 'recoveredOutputs', 'snapshotOutputs')
     result.update(_selected(run, 'change', 'metrics', 'measurements', 'changedFiles',
                             'affectedBindingIds', 'affectedModules', 'evidenceSummary', 'scopeExpandedToAll',
-                            'draft', 'draftId', 'artifactId', 'draftRevision', 'beforeRevision',
+                            'draft', 'draftId', 'artifactId', 'artifactTitle', 'draftRevision', 'beforeRevision',
                             'kind', 'path', 'checkpointArtifactId', 'recoveryCheckpoint', 'recoveryRevision'))
     result['inputRequirementIds'] = sorted(run.get('requirementHashes', {}))
     result['documents'] = [_selected(document, 'id', 'title', 'moduleId', 'path', 'revision')

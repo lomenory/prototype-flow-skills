@@ -8,6 +8,10 @@
 
 ## 能做什么
 
+2026-10-13 滚动保留与产物标题修复：卡片暂时没有布局尺寸时保留最近的阅读位置，恢复显示后再按锚点恢复；用户已在当前卡片选择、输入或滚动后，迟到的宿主状态回传不再覆盖当前视图。需求变更涉及产物名称时，Agent 在 `demo-edit --title` 声明本轮目标标题，保存模板回显名称；`demo-save` 即使省略标题，也随成果成功保存同步应用。保存失败保持原标题，旧冻结版本与历史修订保留原名称。
+
+本轮通过 54 项前端状态检查、47 项 Python 标题与工作稿检查及 32 项 Python 需求图检查。实际新项目用 30 条需求和长说明跑完拆解、Demo 生成、14 天改 7 天及工作稿保存；4 条需求的 5 个页面状态重新操作验证，其余 26 条保留未生成。首次进入工作稿时左右滚动保持 187 / 508.5px，选中、展开、筛选与页签保留；需求修改和保存后的阅读锚点偏差小于 0.11px。过期宿主状态覆盖在旧版浏览器中可复现，修复版保持阅读位置；历史单次归零没有事件日志，本轮不将其唯一归因于该路径。
+
 2026-10-13 顶部与详情区精简：桌面顶部合为两行，项目摘要一行，搜索、筛选与视图切换一行；展开、收起、定位及完整覆盖统计集中到“更多”菜单。右侧固定头只保留两行需求标题与关闭按钮，模块、编号、确认状态和完整标题归入“需求”页签，生成覆盖状态归入“Demo 覆盖”页签。筛选隐藏当前需求时保留详情与阅读位置，并在正文和底栏提示。
 
 本次实现通过 121 项前端及 40 项相关 Python 检查；实际浏览器核对 30 / 100 条需求、长标题、左右独立滚动、菜单键盘操作和 390px 窄屏。在同一 1066×853 窗口中，顶部由约 203px 降到 91px，详情阅读区由约 391px 增至 582px；离线对话卡片保持 600px 高度边界。沿用稳定 ID、筛选、页签、展开与阅读状态的更新机制。操作说明见[布局与阅读操作](skills/prototype-flow/references/conversation-ui.md#布局与阅读操作)。
@@ -229,6 +233,15 @@ python3 -B skills/prototype-flow/scripts/flow.py preview ../my-prototype --reuse
 python3 -B skills/prototype-flow/scripts/flow.py demo-entry ../my-prototype --requirement <需求ID>
 python3 -B skills/prototype-flow/scripts/flow.py review-state ../my-prototype --view requirement --requirement <需求ID>
 ```
+
+需求变更后的产物名称与本轮成果一起保存。名称涉及新规则时先声明目标，再按任务回执的 `saveTemplate` 完成适用检查并保存：
+
+```bash
+python3 -B skills/prototype-flow/scripts/flow.py demo-edit ../my-prototype --requirements <需求ID> --change-file <变化说明JSON> --title "七天退款申请"
+python3 -B skills/prototype-flow/scripts/flow.py demo-save ../my-prototype <任务ID> --file <保存JSON>
+```
+
+省略目标标题时沿用当前名称；运行时不从任意需求正文猜测业务标题。声明后的名称在成功保存时更新，冻结原版本继续使用原标题。
 
 `preview` 不依赖工作台构建或管理进程。`demo-entry` 只使用已运行预览，目标为需求、产物或精确绑定；绑定使用 `--binding <绑定ID> --within-artifact <产物ID>`，历史加 `--version`。一个需求多页面时使用明确默认；旧数据无默认保留精确页面链接，不猜第一项、不自动写入默认。冻结与历史不会回退当前稿。
 

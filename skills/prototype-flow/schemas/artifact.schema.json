@@ -15,7 +15,8 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$"
     },
     "title": {
-      "type": "string"
+      "type": "string",
+      "description": "业务产物名称；需求变更涉及名称时通过 demo-edit --title 声明，成功 demo-save 自动应用。旧冻结产物及旧修订保留原名，不从需求文本自动推断。"
     },
     "path": {
       "type": "string",
