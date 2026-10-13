@@ -236,6 +236,7 @@
     reconcile(get('branches'), modules.map(module => moduleNodes.get(module.id).section));
     const count = filtered.reduce((total, entry) => total + entry.items.length, 0);
     get('result-count').textContent = `显示 ${count}/${byId.size}`;
+    get('result-count').hidden = !state.query && !state.moduleFilter && !state.statusFilter;
     get('empty').hidden = count > 0; get('empty').textContent = byId.size ? '没有符合筛选条件的需求。调整搜索或筛选后继续核对。' : '当前范围尚未整理需求。'; get('map').hidden = count === 0;
   }
   function renderPage(parent, pages, keyPrefix) {
@@ -258,7 +259,7 @@
     const selected = byId.get(state.selected);
     get('inspector').hidden = !state.detailOpen; get('body').classList.toggle('rm-detail-closed', !state.detailOpen);
     action('open-detail').hidden = state.detailOpen || !selected; action('locate-current').disabled = !selected;
-    get('detail-content').hidden = !selected; get('detail-empty').hidden = Boolean(selected); get('detail-tags').hidden = !selected; get('detail-tabs').hidden = !selected;
+    get('detail-content').hidden = !selected; get('detail-empty').hidden = Boolean(selected); get('detail-tabs').hidden = !selected;
     get('filter-notice').hidden = !selected || matches(selected.item, selected.module);
     if (!selected) {
       get('detail-context').textContent = '需求详情'; get('detail-title').textContent = state.selected ? '此需求已移出当前范围' : '选择一个需求';
@@ -337,16 +338,19 @@
   }
   function render(announce = false) {
     const model = payload.requirementMap, snapshot = payload.snapshot, all = [...byId.values()].map(value => value.item);
-    get('title').textContent = text(model.title) || '需求地图'; get('context').textContent = text(model.context) || text(snapshot.project.name);
+    get('title').textContent = text(snapshot.project.name) || text(model.context) || '需求地图'; get('context').textContent = text(model.title) || '需求地图';
     get('source-label').textContent = text(model.sourceLabel) || (snapshot.historical ? '历史稿 · 只读' : '当前稿');
     const unknown = all.filter(item => !item.coverage.known).length;
     get('summary').textContent = unknown === all.length && unknown > 0 ? `${all.length} 个需求 · 覆盖待明确 ${unknown} 项`
       : `${all.length} 个需求 · 完整生成 ${all.filter(fullyGenerated).length}/${all.length} · 已验证 ${all.filter(fullyVerified).length}/${all.length}` + (unknown ? ` · 覆盖待明确 ${unknown} 项` : '');
-    get('revision').textContent = snapshot.historical ? '历史版本 ' + snapshot.versionId : '修订 R' + snapshot.project.storedRevision;
+    get('compact-summary').textContent = unknown === all.length && unknown > 0 ? `${all.length} 个需求 · 覆盖待明确` : `${all.length} 个需求 · 已验证 ${all.filter(fullyVerified).length}/${all.length}`;
+    get('revision').textContent = snapshot.historical ? '历史稿' : 'R' + snapshot.project.storedRevision;
+    get('revision').title = snapshot.historical ? '历史版本 ' + snapshot.versionId : '当前工作稿 · 修订 R' + snapshot.project.storedRevision;
     get('project-title').textContent = text(snapshot.project.name); get('project-summary').textContent = `${modules.length} 个模块 · ${all.length} 个需求`;
     root.dataset.selectedRequirement = state.selected || ''; root.dataset.activeDetailTab = state.activeDetailTab;
     renderControls(); renderMap(); renderDetails();
-    get('footer-status').textContent = state.detailOpen && byId.has(state.selected) ? '正在查看「' + text(byId.get(state.selected).item.title) + '」' : state.detailOpen ? '请选择需求' : '详情已收起';
+    const current = byId.get(state.selected);
+    get('footer-status').textContent = state.detailOpen && current ? matches(current.item, current.module) ? '正在查看「' + text(current.item.title) + '」' : '当前需求不在筛选结果中 · 详情保留' : state.detailOpen ? '请选择需求' : '详情已收起';
     const observed = new Date(snapshot.observedAt); get('observed-at').textContent = Number.isNaN(observed.valueOf()) ? '' : '数据更新于 ' + observed.toLocaleString('zh-CN', { hour12: false });
     if (announce) { const selected = byId.get(state.selected); get('announcer').textContent = selected ? `${text(selected.item.title)}：${presentation(selected.item).label}。` : '需求清单已更新。'; }
     scheduleDraw();
@@ -391,6 +395,33 @@
     transact(() => { state.activeDetailTab = tab; });
     if (focus) root.querySelector(`[data-detail-tab="${tab}"]`).focus({ preventScroll: true });
   }
+  const toolsTrigger = action('more-tools'), toolsMenu = get('tool-menu');
+  const menuItems = () => [...toolsMenu.querySelectorAll('[role="menuitem"]')].filter(node => !node.disabled && !node.hidden);
+  function closeTools(focus = false) {
+    toolsMenu.hidden = true; toolsTrigger.setAttribute('aria-expanded', 'false');
+    if (focus) toolsTrigger.focus({ preventScroll: true });
+  }
+  function openTools(last = false) {
+    toolsMenu.hidden = false; toolsTrigger.setAttribute('aria-expanded', 'true');
+    const items = menuItems(); (last ? items.at(-1) : items[0])?.focus({ preventScroll: true });
+  }
+  function onOutsideTools(event) {
+    if (!toolsMenu.hidden && !toolsMenu.contains(event.target) && !toolsTrigger.contains(event.target)) closeTools();
+  }
+  toolsTrigger.addEventListener('click', () => toolsMenu.hidden ? openTools() : closeTools(true));
+  toolsTrigger.addEventListener('keydown', event => {
+    if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); openTools(event.key === 'ArrowUp'); }
+    else if (event.key === 'Escape') { event.preventDefault(); closeTools(true); }
+  });
+  toolsMenu.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeTools(true); return; }
+    if (event.key === 'Tab') { closeTools(true); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault(); const items = menuItems(), position = items.indexOf(document.activeElement);
+    const target = event.key === 'Home' ? items[0] : event.key === 'End' ? items.at(-1) : items[(position + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+    target?.focus({ preventScroll: true });
+  });
+  document.addEventListener('pointerdown', onOutsideTools);
   get('search').addEventListener('input', changeFilter); get('module-filter').addEventListener('change', changeFilter); get('status-filter').addEventListener('change', changeFilter);
   for (const [name, label] of Object.entries(statuses)) { const option = el('option', label[0]); option.value = name; get('status-filter').append(option); }
   tabs.forEach(tab => {
@@ -403,8 +434,8 @@
     });
   });
   for (const mode of ['graph', 'list']) action('view-' + mode).addEventListener('click', () => transact(() => { state.viewMode = mode; }));
-  action('expand-all').addEventListener('click', () => transact(() => { for (const { module } of filteredModules()) state.collapsed.delete(module.id); }));
-  action('collapse-all').addEventListener('click', () => transact(() => { for (const { module } of filteredModules()) state.collapsed.add(module.id); }));
+  action('expand-all').addEventListener('click', () => { transact(() => { for (const { module } of filteredModules()) state.collapsed.delete(module.id); }); closeTools(true); });
+  action('collapse-all').addEventListener('click', () => { transact(() => { for (const { module } of filteredModules()) state.collapsed.add(module.id); }); closeTools(true); });
   action('open-detail').addEventListener('click', () => transact(() => { state.detailOpen = true; }));
   action('close-detail').addEventListener('click', () => {
     transact(() => { state.detailOpen = false; }); const selected = byId.get(state.selected);
@@ -412,6 +443,7 @@
     else get('search').focus({ preventScroll: true });
   });
   action('locate-current').addEventListener('click', () => {
+    closeTools();
     const selected = byId.get(state.selected); if (!selected) return;
     transact(() => { if (!matches(selected.item, selected.module)) { state.query = ''; state.moduleFilter = ''; state.statusFilter = ''; } state.collapsed.delete(selected.module.id); if (root.getBoundingClientRect().width < 720) state.detailOpen = false; });
     const region = get('map-scroll'), node = requirementNodes.get(state.selected).button, bounds = region.getBoundingClientRect(), target = node.getBoundingClientRect();
@@ -422,7 +454,7 @@
   root.requirementMap = Object.freeze({
     updateSnapshot,
     getState: () => { captureScrolls(); return { selected: state.selected, collapsed: [...state.collapsed], detailOpen: state.detailOpen, query: state.query, moduleFilter: state.moduleFilter, statusFilter: state.statusFilter, viewMode: state.viewMode, activeDetailTab: state.activeDetailTab, expandedCoverage: [...state.expandedCoverage], scroll: JSON.parse(JSON.stringify(state.scroll)), snapshotId: payload?.snapshot.snapshotId, lastUpdate: { ...lastUpdate } }; },
-    destroy: () => { disposed = true; if (frame) window.cancelAnimationFrame(frame); if (persistenceFrame) window.cancelAnimationFrame(persistenceFrame); observer?.disconnect(); window.removeEventListener('resize', scheduleDraw); window.removeEventListener('openai:set_globals', onGlobals); root.removeEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); }
+    destroy: () => { disposed = true; closeTools(); if (frame) window.cancelAnimationFrame(frame); if (persistenceFrame) window.cancelAnimationFrame(persistenceFrame); observer?.disconnect(); document.removeEventListener('pointerdown', onOutsideTools); window.removeEventListener('resize', scheduleDraw); window.removeEventListener('openai:set_globals', onGlobals); root.removeEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); }
   });
   root.addEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); window.addEventListener('openai:set_globals', onGlobals); window.addEventListener('resize', scheduleDraw);
   observer?.observe(get('map')); document.fonts?.ready.then(scheduleDraw);
