@@ -49,12 +49,15 @@ def _model_requirement(req, coverage, sources):
             'stale': coverage.get('status') == 'stale'},
         'acceptance': [{'id': item['id'], 'text': item.get('title') or item['id'],
             'state': 'missing' if item.get('status') == 'not-generated' else item.get('status', 'unknown'),
-            'label': ITEM_LABELS.get(item.get('status'), '待核对')} for item in counts.get('items', [])],
+            'label': ITEM_LABELS.get(item.get('status'), '待核对'),
+            'bindingIds': list(item.get('bindingIds', [])),
+            **{key: item[key] for key in ('screenId', 'stateId', 'fixtureId') if key in item}}
+            for item in counts.get('items', [])],
         'pages': [{**page, 'state': 'stale' if page['stale'] else 'verified' if page['verified'] else
                    'generated' if page['generated'] else 'unknown',
                    'label': '旧记录 · 待更新' if page['stale'] else '已验证' if page['verified'] else
                    '已生成 · 待验证' if page['generated'] else '入口不可用'} for page in coverage.get('pages', [])],
-        'sources': [{'title': source.get('label') or source['id'], 'excerpt': source.get('locator') or ''}
+        'sources': [{'id': source['id'], 'title': source.get('label') or source['id'], 'excerpt': source.get('locator') or ''}
                     for source in sources if source['id'] in req.get('sourceIds', [])]}
 
 

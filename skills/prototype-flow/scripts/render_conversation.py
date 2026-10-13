@@ -107,7 +107,9 @@ def render_requirement_map(snapshot, root_id=None):
     if not isinstance(model, dict) or model.get('contract') != CONTRACT or not isinstance(model.get('modules'), list):
         raise FlowError('需求图模型无效')
     root_id = root_id or 'pf-map-' + uuid.uuid4().hex
-    payload = json.dumps({'snapshot': snapshot, 'requirementMap': model}, ensure_ascii=False)
+    # The model already lives in snapshot.data. Embedding it twice needlessly
+    # exhausts the bounded conversation fragment budget for larger graphs.
+    payload = json.dumps({'snapshot': snapshot}, ensure_ascii=False)
     payload = payload.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
     markup = (ASSETS / 'requirement-map.html').read_text('utf-8')
     markup = markup.replace('__STYLE__', (ASSETS / 'requirement-map.css').read_text('utf-8'))

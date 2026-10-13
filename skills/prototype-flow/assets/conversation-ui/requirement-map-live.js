@@ -20,7 +20,8 @@
   if (initial.snapshot.historical) { show('历史版本 · 固定快照'); return; }
   let busy = false, stopped = false, initialized = false, timer, controller;
   let stateToken, externalToken, lastFullCheck = 0, generation = 0;
-  let sequence = initial.requirementMap.sequence || 0;
+  const initialModel = initial.requirementMap || initial.snapshot.data?.requirementMap;
+  let sequence = initialModel?.sequence || 0;
   let fingerprint = initial.snapshot.sourceFingerprint;
   async function request(path) {
     controller = new AbortController();

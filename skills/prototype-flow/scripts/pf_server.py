@@ -835,9 +835,11 @@ class WorkbenchServer(DemoAccess):
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<meta name="pf-token" content="' + html_escape.escape(self.token, quote=True) + '">'
             '<title>需求地图 · ' + html_escape.escape(snapshot['project']['name']) + '</title>'
-            '<style>html{color-scheme:light dark}body{margin:20px;background:light-dark(#f6f7f9,#17191c)}'
-            'main{max-width:1440px;margin:0 auto}button{cursor:pointer}'
-            '@media(max-width:720px){body{margin:8px}}</style></head><body><main>' + fragment +
+            '<style>html{height:100%;color-scheme:light dark}body{height:calc(100dvh - 40px);'
+            'margin:20px;overflow:hidden;background:light-dark(#f6f7f9,#17191c)}'
+            'main{height:100%;max-width:1440px;margin:0 auto}button{cursor:pointer}'
+            '@media(max-width:720px){body{height:calc(100dvh - 16px);margin:8px}}'
+            '</style></head><body class="pf-requirement-map-live"><main>' + fragment +
             '</main><script src="/requirement-map-assets/requirement-map-live.js"></script></body></html>')
         policy = ("default-src 'self'; script-src 'self' 'nonce-" + nonce +
                   "'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; "
