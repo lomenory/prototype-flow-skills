@@ -137,7 +137,7 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
             for fid in sorted(selected_frameworks & set(frameworks)):
                 framework = frameworks[fid]
                 path = store._safe(framework['path'])
-                if not path.is_dir() or store._inventory(path) != framework['fileHashes']:
+                if not path.is_dir() or store._resource_inventory(path, framework) != framework['fileHashes']:
                     errors.append({'code': 'framework-mutated', 'id': fid})
             artifact_inventories = {}
             for artifact in artifacts:
@@ -147,7 +147,7 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                     artifact_inventories[aid] = {}
                     errors.append({'code': 'artifact-missing', 'id': aid})
                 else:
-                    hashes = store._inventory(path)
+                    hashes = store._resource_inventory(path, artifact)
                     artifact_inventories[aid] = hashes
                     if hashes != artifact.get('fileHashes'):
                         if artifact.get('kind') == 'working-draft':

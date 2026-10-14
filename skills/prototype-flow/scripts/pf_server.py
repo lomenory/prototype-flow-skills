@@ -324,7 +324,7 @@ class DemoAccess:
                 signature = (metadata_signature(artifact_root), json.dumps(expected, sort_keys=True))
                 key = ('artifact', version, artifact_id, str(artifact_root))
                 if self._integrity_cache.get(key) != signature:
-                    if self.store._inventory(artifact_root) != expected:
+                    if self.store._resource_inventory(artifact_root, artifact) != expected:
                         raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
                     if signature[0] != metadata_signature(artifact_root):
                         raise FlowError('Demo 在检查期间发生变化，请重试', 409)

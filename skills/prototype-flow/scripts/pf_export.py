@@ -12,7 +12,56 @@ from urllib.parse import unquote, urlsplit
 from pf_core import FlowError, markdown_links
 
 
-def module_package(store, module_id, version=None):
+def _package_path(relative):
+    path = PurePosixPath(relative)
+    if '\\' in relative or path.is_absolute() or not path.parts or '..' in path.parts:
+        raise FlowError('打包资源路径无效：' + relative, 403)
+    return path
+
+
+def _resource_overrides(value, selected):
+    if value is None:
+        return {}
+    if (not isinstance(value, dict) or set(value) != {'schemaVersion', 'artifacts'}
+            or type(value.get('schemaVersion')) is not int or value['schemaVersion'] != 1
+            or not isinstance(value.get('artifacts'), dict) or not value['artifacts']):
+        raise FlowError('资源声明须为 schemaVersion:1 与非空 artifacts 映射')
+    artifacts = {artifact['id']: artifact for artifact in selected}
+    unknown = set(value['artifacts']) - set(artifacts)
+    if unknown:
+        raise FlowError('资源声明包含未交付的 Demo：' + ', '.join(sorted(unknown)), 409)
+    for artifact_id, declaration in value['artifacts'].items():
+        if not isinstance(declaration, dict):
+            raise FlowError('Demo 资源声明须为对象：' + artifact_id)
+        if artifacts[artifact_id].get('resourceManifest') is not None:
+            raise FlowError('已登记资源清单的 Demo 不接受导出覆盖：' + artifact_id, 409)
+    return value['artifacts']
+
+
+def _derived_resource_record(store, root, artifact, state, declaration):
+    from pf_resources import build_manifest
+
+    bindings = (artifact['frozenRelations'].get('bindings', []) if 'frozenRelations' in artifact else
+                [binding for binding in state['relations']['bindings'] if binding['artifactId'] == artifact['id']])
+    entries = {artifact['entryHtml']}
+    entries.update(unquote(urlsplit(binding['route']).path) or artifact['entryHtml']
+                   for binding in bindings if binding.get('route'))
+    required_archive = {'DESIGN.md'} if 'DESIGN.md' in artifact['fileHashes'] else set()
+    required_archive.update(path for binding in bindings for path in binding.get('verificationScope', {}).get('files', []))
+    references = [binding.get('screenshot') for binding in bindings]
+    references.append((artifact.get('evidence', {}).get('frameworkReview') or {}).get('source'))
+    prefix = artifact['path'] + '/'
+    required_archive.update(path[len(prefix):] for path in references if isinstance(path, str) and path.startswith(prefix))
+    manifest = build_manifest(store, store._safe(artifact['path'], base=root), supplied=declaration,
+                              entries=sorted(entries), required_archive=sorted(required_archive))
+    managed = set(manifest['runtimeFiles']) | set(manifest['archiveFiles'])
+    if not managed.issubset(artifact['fileHashes']):
+        raise FlowError('派生资源声明包含原 Demo 未登记的文件', 409)
+    return dict(artifact, resourceManifest=manifest,
+                fileHashes={path: artifact['fileHashes'][path] for path in sorted(managed)})
+
+
+def module_package(store, module_id, version=None, resource_manifest=None, receipt=None):
     # Keep CLI writes out while collecting one coherent set of project bytes.
     with store._transaction(read_only=True):
         state = store.state(version=version)
@@ -72,13 +121,25 @@ def module_package(store, module_id, version=None):
             raise FlowError('Demo 尚未覆盖该模块的全部需求，请补齐后下载。', 409)
 
         root = store.content_root(version=version)
+        overrides = _resource_overrides(resource_manifest, selected)
+        from pf_resources import runtime_files, validate_manifest
+        records, resource_modes = [], []
+        for artifact in selected:
+            _package_path(artifact['path'])
+            for relative in artifact['fileHashes']:
+                _package_path(relative)
+            record = (_derived_resource_record(store, root, artifact, state, overrides[artifact['id']])
+                      if artifact['id'] in overrides else artifact)
+            manifest = validate_manifest(record, require_complete=True)
+            mode = ('derived-runtime' if artifact['id'] in overrides else
+                    'runtime-only' if manifest is not None else 'legacy-full')
+            records.append(record)
+            resource_modes.append({'artifactId': artifact['id'], 'resourceMode': mode})
         library_root = PurePosixPath(state['project']['libraryRoot'])
         files = {}
 
         def add(relative, expected=None):
-            path = PurePosixPath(relative)
-            if '\\' in relative or path.is_absolute() or not path.parts or '..' in path.parts:
-                raise FlowError('打包资源路径无效：' + relative, 403)
+            path = _package_path(relative)
             file = store._safe(relative, base=root, must_exist=True)
             if not file.is_file():
                 raise FlowError('打包资源不是文件：' + relative, 409)
@@ -93,9 +154,12 @@ def module_package(store, module_id, version=None):
             return data
 
         entries = []
-        for artifact in selected:
-            for relative, expected in artifact['fileHashes'].items():
-                add(artifact['path'] + '/' + relative, expected)
+        artifact_files = {}
+        for artifact in records:
+            artifact_files.update({artifact['path'] + '/' + relative: expected
+                                   for relative, expected in artifact['fileHashes'].items()})
+            for relative in runtime_files(artifact):
+                add(artifact['path'] + '/' + relative, artifact['fileHashes'][relative])
             entry = artifact['path'] + '/' + artifact['entryHtml']
             if entry not in files:
                 raise FlowError('Demo 入口缺失，请重新登记完整 Demo。', 409)
@@ -104,6 +168,7 @@ def module_package(store, module_id, version=None):
         # Retain project-relative paths, including Markdown images and linked PRDs.
         pending = [(document['path'], document['fullHash'])]
         visited = set()
+        referenced_archive = set()
         while pending:
             path, expected = pending.pop()
             if path in visited:
@@ -120,8 +185,12 @@ def module_package(store, module_id, version=None):
                 decoded = unquote(parsed.path)
                 relative = posixpath.normpath(posixpath.join(posixpath.dirname(path), decoded))
                 if library_root not in PurePosixPath(relative).parents:
-                    # Demo links retain their paths when they are part of a selected artifact.
-                    if relative in files:
+                    # Explicit PRD links can add archive resources from selected
+                    # Demos without making those files part of their runtime set.
+                    if relative in artifact_files:
+                        if relative not in files:
+                            referenced_archive.add(relative)
+                        pending.append((relative, artifact_files[relative]))
                         continue
                     raise FlowError('PRD 引用超出可打包范围：' + target, 409)
                 pending.append((relative, None))
@@ -135,7 +204,14 @@ def module_package(store, module_id, version=None):
             '如 Demo 使用模块脚本或本地数据请求，请在解压目录运行：', '',
             '```sh', 'python3 -m http.server 8000 --bind 127.0.0.1', '```', '',
             '再访问 http://127.0.0.1:8000/ 加上上述 Demo 入口路径。', '',
-            '包内包含已登记 Demo 的完整资源目录。共享 Demo 保留其他模块的页面。',
+            '## Demo 资源范围', '',
+            *['- ' + item['artifactId'] + '：' + item['resourceMode'] for item in resource_modes], '',
+            'runtime-only：按已登记清单提供预览运行资源。',
+            'derived-runtime：按本次明确声明从旧 Demo 只读派生运行资源，原版本未修改。',
+            'legacy-full：旧 Demo 未登记资源分类，保留原完整目录（不含 .DS_Store），未声称已裁剪。',
+            'PRD 明确引用的 Demo 归档资料会保留原相对路径；共享 Demo 的运行资源仍可包含其他模块页面。',
+            *(['', '### PRD 附带引用', '', *['- ' + path for path in sorted(referenced_archive)]]
+              if referenced_archive else []), '',
             '原有外部链接与在线服务仍需联网；下载不会把它们转为离线资源。', '',
         ])
         output = io.BytesIO()
@@ -144,4 +220,8 @@ def module_package(store, module_id, version=None):
             for path, data in sorted(files.items()):
                 archive.writestr(path, data)
         title = re.sub(r'[^\w\-\u4e00-\u9fff]+', '-', module['title']).strip('-') or module_id
+        if receipt is not None:
+            modes = {item['resourceMode'] for item in resource_modes}
+            receipt.update(resourceMode=next(iter(modes)) if len(modes) == 1 else 'mixed',
+                           artifacts=resource_modes, prdReferencedFiles=sorted(referenced_archive))
         return output.getvalue(), title + '-' + (version or 'R' + str(state['project']['revision'])) + '.zip'

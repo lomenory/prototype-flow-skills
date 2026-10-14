@@ -168,7 +168,7 @@ def _inherited_framework(store, run, draft, requested):
     source = store._framework_review_file({'evidence': {'frameworkReview': original}}, directory)
     relative = source.relative_to(directory).as_posix()
     _hash(store, source, baseline.get('fileHashes', {}).get(relative))
-    if (store._inventory(directory / '_framework') != run['framework']['fileHashes']
+    if (store._resource_inventory(directory / '_framework', run['framework']) != run['framework']['fileHashes']
             or store._file_digest(directory / 'DESIGN.md') != run['framework']['fileHashes']['DESIGN.md']):
         raise FlowError('Framework changed; inherited review is no longer applicable', 409)
     return dict(original, mode='inherited', fromArtifactId=baseline['id'],

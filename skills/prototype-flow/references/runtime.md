@@ -106,6 +106,37 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 上述 `artifact` 登记用于不可变完整产物，包括 candidate；注册后的文件和身份不能原地改写或重用。首次制作可用 `demo-finalize` 一次登记和收尾，后续普通调整优先使用下面的工作稿命令。工作稿只能经专用命令推进修订，不能用 `artifact` 覆盖登记。未完成成果通过 `run-finish --outputs-file` 的 `paths` 保存即可。`runId` 关联真实任务输入；不杜撰占位 runId。只有适用证据支持才能标 current。
 
+## Demo 资源边界
+
+新产物以 `resourceManifest` 区分运行文件、存档资料和排除项；`fileHashes` 只覆盖 `runtimeFiles` 与 `archiveFiles` 的并集。工作稿修订和冻结版保留这两类文件，Demo 导出只读取运行清单。排除临时文件不删除当前工作目录中的原文件。辅助编辑、截图和调试脚本优先放在项目 `local_tasks/`，不要混进 Demo 交付目录。
+
+| 类别 | 保留范围 |
+| --- | --- |
+| 运行文件 | 全部页面入口与跨页面导航、实际使用的 CSS/JS、图片/字体/音视频、本地数据、模板、Worker/WASM 和动态加载资源；共享 Demo 保留完整业务流程 |
+| 存档资料 | 设计依据、产品契约、来源说明、已登记报告/截图及其附件、明确登记的编辑或重建源文件/配置/锁文件，以及固定框架依据；页面实际读取的资料归入运行文件 |
+| 临时文件 | `.DS_Store`、`Thumbs.db`、`__MACOSX/`、Python/测试缓存、明确的缓存目录，以及未被引用的日志、交换文件和临时备份；一次性辅助脚本和废弃资源显式排除 |
+
+不能按 `.md`、`.json`、`.py` 扩展名或 `screenshots/`、`_framework/`、隐藏目录整体删除。排除项与运行依赖或有效证据冲突时返回具体路径，先纠正声明，不能通过精简静默丢文件。未知文件在工作稿保存时保全为待分类资料；正式冻结及精简导出要求 `unresolved` 为空。
+
+在 `demo-save/demo-finalize` payload 的 `artifact.resourceManifest` 中提供声明；单独 `artifact/framework` 登记直接使用输入对象的 `resourceManifest`，例如：
+
+```json
+{
+  "schemaVersion": 1,
+  "entryPoints": ["index.html", "orders/detail.html"],
+  "runtimeDirectories": ["assets", "data/locales"],
+  "archiveFiles": ["DESIGN.md", "prototype-contract.json", "validation-report.json"],
+  "excludedFiles": ["update_deadline.py"],
+  "complete": true
+}
+```
+
+示例路径须换成实际内容。`entryPoints/runtimeFiles/archiveFiles/excludedFiles` 是相对 Demo 根目录的精确路径数组；输入还可用 `runtimeDirectories/archiveDirectories/excludedDirectories` 声明目录。运行时展开目录并检查静态引用，保存精确清单与哈希；`declaration` 保留原声明供下一修订重新展开。`unresolved` 为未解决分类或依赖的字符串数组。只有 Agent 已核对所有页面、业务状态及动态资源范围时才声明 `complete:true`，且 `runtimeFiles/runtimeDirectories` 必须展开至少一个运行文件；动态拼接的 `fetch()`、`import()`、语言包等须显式补齐，静态扫描和一次访问不能证明完整。完整声明不能掩盖缺失静态资源、分类冲突或未知文件。外部资源仍保留原链接，不自动下载。
+
+无 `resourceManifest` 的旧产物继续按原全目录清单校验、预览和恢复，旧冻结版、ZIP、快照和框架不重写。旧工作稿可以在新修订中建立分类；旧框架要清理时派生新 ID，不能删减后沿用原身份。新快照混有旧产物时保留旧记录要求的文件，历史杂项不会立即消失。新运行时支持旧记录；旧运行时不保证能安全写入新格式，写操作应使用配套更新后的运行时。
+
+持久清单另有 `excludedReasons`，按每个 `excludedFiles` 路径说明排除原因；该字段由运行时生成，不写入声明输入。读取兼容省略原因的早期清单；字段存在时必须与排除路径一一对应，原因不能为空。
+
 ## Demo 工作稿
 
 已有 Demo 的日常修改使用同一工作稿，输入仍按轮次固定：
@@ -191,9 +222,9 @@ python3 -B <skill-dir>/scripts/flow.py demo-freeze <project-dir> --artifact <dra
 python3 -B <skill-dir>/scripts/flow.py demo-restore <project-dir> <draft-id> --revision <n>
 ```
 
-首次可用、提交评审、确认里程碑或明确保存 Demo 版本时冻结。`demo-freeze` 复制已保存工作稿为不可变完整产物，记录 `frozenFrom:{artifactId,revision}`；同一修订已经冻结时复用并返回 `reused:true`。工作稿及当前指针保持原样，最近冻结版由 `lastFrozenArtifactId` 记录。冻结保留 candidate 或真实验证状态，不证明用户确认，不自动发布或保存项目快照。
+首次可用、提交评审、确认里程碑或明确保存 Demo 版本时冻结。`demo-freeze` 按已保存资源清单复制运行文件和存档资料，并保留绑定截图，形成不可变完整产物，记录 `frozenFrom:{artifactId,revision}`；旧格式沿用原完整清单。同一修订已经冻结时复用并返回 `reused:true`，分类变化也必须保存为新修订。工作稿及当前指针保持原样，最近冻结版由 `lastFrozenArtifactId` 记录。冻结保留 candidate 或真实验证状态，不证明用户确认，不自动发布或保存项目快照。
 
-`demo-restore` 找回指定工作稿修订并形成新修订，旧修订不被覆盖，恢复后的 PRD 有效性仍需核对。修订号递增，包含恢复检查点时可以跳号。有活动编辑任务时，冻结、恢复和另起编辑均会拒绝；先完成保存，或用 `run-finish --status partial|failed` 结束当前任务再恢复。恢复前有未保存文件时，运行时先保存其去重恢复数据，并返回 `recoveryCheckpoint` 路径和可恢复的 `recoveryRevision`，不直接丢弃这些字节。
+`demo-restore` 找回指定工作稿修订并形成新修订，旧修订不被覆盖，恢复后的 PRD 有效性仍需核对。修订号递增，包含恢复检查点时可以跳号。有活动编辑任务时，冻结、恢复和另起编辑均会拒绝；先完成保存，或用 `run-finish --status partial|failed` 结束当前任务再恢复。恢复前有未保存文件时，运行时先保存其去重恢复数据，并返回 `recoveryCheckpoint` 路径和可恢复的 `recoveryRevision`。此原始恢复检查点也保全未登记和已排除文件，不按正式资源策略过滤，避免替换目录时丢失工作字节。
 
 ## Demo 一次收尾
 
@@ -224,15 +255,15 @@ python3 -B <skill-dir>/scripts/flow.py demo-finalize <project-dir> <run-id> --fi
 
 示例中的状态和证据必须换成实际结果。`artifact` 沿用原登记字段，命令补入 `runId`。`bindings` 只提供本次新增或更新项，`flows` 可选且同样按 ID 合并，不要求复制整份关系；空数组保留现有条目。需要删除或重组关联时继续使用完整 `relations` 操作。绑定字段、依赖范围与 `inheritVerificationFrom` 见[页面状态入口](demo-and-change.md#页面状态入口)，框架继承见[共享框架](demo-framework.md#需求推动框架更新)。
 
-命令原子执行产物登记、关联更新、定向校验与任务结束；失败回滚登记状态并保留 Demo 工作目录，警告如实返回。单独的 `artifact` 仍不自动结束任务。不可变产物、输入过期和基线冲突规则均保留。
+命令原子执行产物登记、关联更新、定向校验与任务结束；`demo-finalize` 要求新资源清单分类完整，存在未解决的分类或依赖时拒绝正式收尾。失败回滚登记状态并保留 Demo 工作目录，警告如实返回。单独的 `artifact` 仍不自动结束任务。不可变产物、输入过期和基线冲突规则均保留。
 
 Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时，`inventoryCalls` 是目录清单请求次数；`readCalls/readBytes` 记录经运行时读取接口的实际读取量，`hashedBytes` 记录文件哈希接口处理量，`readCacheHits/hashCacheHits` 记录本次操作复用次数；`copiedFiles/copiedBytes` 是复制量。这些不覆盖所有底层文件操作或 Agent 工具调用。任务 `metrics.draftSave` 包含恢复对象保存，`phaseTimes` 分列实际执行的 `inventoryMs/recoveryReadMs/evidenceMs/validationMs/captureMs`，发生模块阶段更新时另有 `moduleStagesMs`。若实际计量，可在 payload 添加 `measurements:{"editingMs":1234,"browserVerificationMs":5678,"verifiedPages":1}`，省略未计量项。命令时间不包括 Agent 思考、进程启动与工具外的浏览器操作，工作台可见延迟也需单独计量。
 
 ## 版本与恢复
 
-`snapshot --name` 固定当前 PRD、关系、完整 Demo、图片及验证状态，也保存任务记录、所有任务的固定输入和 `outputs.paths` 声明的部分成果。输出副本放在历史的 `.prototype-flow/run-outputs/`，缺失输出保留警告。版本允许未完成项，但如实记录缺失/未验证；保留文件清单及校验值。`compare --from <version-id> --to working` 比较需求、正文与截图；工作台可读历史版本。
+`snapshot --name` 固定当前 PRD、关系、Demo 运行文件和存档资料、图片及验证状态，也保存任务记录、所有任务的固定输入和 `outputs.paths` 声明的部分成果。资源策略适用于已登记 Demo/框架；旧记录沿用原全量文件。输出副本放在历史的 `.prototype-flow/run-outputs/`，缺失输出保留警告。保留修订引用的恢复对象必须随快照保全，不因新策略删除历史对象。版本允许未完成项，但如实记录缺失/未验证；保留实际存档文件清单及校验值。`compare --from <version-id> --to working` 比较需求、正文与截图；工作台可读历史版本。
 
-`restore <root> <version-id>` 先严格校验目标历史，再保存恢复前备份并形成新工作修订。恢复前备份允许当前 Demo 或固定输入损坏/缺失，保存实际可读字节、原登记记录及损坏说明，不要求先修好当前 Demo；普通快照仍拒绝篡改。备份标记 `recoveryBackup`，含损坏产物的备份仅供找回文件，不能作为完整恢复目标。历史自身不可编辑；当前飞书绑定、同步基线和实时任务保持不变。
+`restore <root> <version-id>` 先严格校验目标历史，再保存恢复前备份并形成新工作修订。恢复前备份允许当前 Demo 或固定输入损坏/缺失，保存实际可读字节、原登记记录及损坏说明，也原样保全即将被替换目录中未登记和已排除的文件，不要求先修好当前 Demo；普通快照仍拒绝篡改。备份标记 `recoveryBackup`，含损坏产物的备份仅供找回文件，不能作为完整恢复目标。历史自身不可编辑；当前飞书绑定、同步基线和实时任务保持不变。
 
 恢复 Demo 或中断任务时用 `state <project-dir> --section runs` 定位，已知编号加 `--id <run-id>`；查看历史任务加 `--version <version-id>`。工作稿任务用 `demo-edit` 接续或 `demo-restore` 恢复修订；`run-resume` 不接受 `kind:"draft-edit"`，避免复制出不持有工作稿编辑权的任务。旧流程的 `run-resume <project-dir> <run-id> --version <version-id>` 从历史固定输入和输出创建新任务，返回 `resumedFrom` 与 `recoveredOutputs`，不覆盖实时任务或原输出。省略版本则从当前任务续作。随后用 `demo-prepare` 将恢复的 Demo 准备到新的 `demos/` 目录，选择与约束见[共享框架](demo-framework.md#后续复用)。新任务输入仍可能落后于当前 PRD，登记产物时继续计算过期状态。旧版本若没有保存任务记录，会明确报缺失，不虚构恢复上下文。
 
@@ -278,4 +309,12 @@ binding 可选 `primaryRequirementIds` 是去重需求 ID 数组，须为 `requi
 
 `demo-edit --expected-file <baseline.json>` 接受 `review-state` 的 basis.demo 或其 compact hash 基线，在任务、工作稿和检查点创建前核对真实文档/需求/关系/框架/产物字节。原命令未传 expected 保持兼容；冲突后不能换新 hash 强行执行旧请求。
 
-`export-module <project-dir> <module-id> --output <absolute-zip-path> [--version <id>]` 是 module_package 的薄包装，输出完整包后原子落盘，已有文件拒绝覆盖；不保存业务、不自动确认/冻结。
+`export-module <project-dir> <module-id> --output <absolute-zip-path> [--version <id>]` 是 module_package 的薄包装，组装完成后原子落盘，已有文件拒绝覆盖；不保存业务、不自动确认/冻结。包内保留模块 PRD、本地引用资源、打开说明，以及关联 Demo 全部入口所需的运行文件。PRD 显式引用关联 Demo 的存档文件时也保留，避免文档断链；其他设计、验证资料留在版本存档。路径和跨模块业务流程保持完整。
+
+新格式导出报告 `runtime-only`；没有资源清单的旧产物默认 `legacy-full`，保留原全量兼容行为（仍忽略 `.DS_Store`），不会重写旧记录或原包。需要只读精简旧版时追加 `--resource-manifest <file.json>`，内容按实际冻结产物 ID 提供声明：
+
+```json
+{"schemaVersion":1,"artifacts":{"DEMO-实际冻结ID":{"schemaVersion":1,"entryPoints":["index.html"],"runtimeDirectories":["assets"],"archiveFiles":["DESIGN.md"],"excludedFiles":["update_deadline.py"],"complete":true}}}
+```
+
+该参数只适用于所选包内无清单的旧产物，不能覆盖新产物清单或包含无关 ID；检查通过后报告 `derived-runtime`，不改旧产物、哈希、快照或恢复对象。多产物逐项报告模式，包内混合模式为 `mixed`；未提供声明的旧产物仍按完整方式打包。精简前必须解决分类和依赖问题，不能把未检查的包标为精简成功。

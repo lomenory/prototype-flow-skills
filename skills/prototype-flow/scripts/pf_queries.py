@@ -68,7 +68,7 @@ def _artifact_record(store, base, artifact, documents, requirements, full):
                                         if documents.get(did) != expected)
     result['syncStatus'] = 'stale' if result['staleRequirementIds'] or result['staleDocumentIds'] else 'current'
     path = store._safe(artifact['path'], base=base)
-    result['integrityStatus'] = ('intact' if path.is_dir() and store._inventory(path) == artifact.get('fileHashes')
+    result['integrityStatus'] = ('intact' if path.is_dir() and store._resource_inventory(path, artifact) == artifact.get('fileHashes')
                                   else 'changed')
     if result['integrityStatus'] != 'intact':
         if artifact.get('kind') == 'working-draft' and base == store.root and path.is_dir():

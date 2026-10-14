@@ -116,10 +116,14 @@
     },
     "fileHashes": {
       "type": "object",
+      "description": "有 resourceManifest 时恰好覆盖 runtimeFiles 与 archiveFiles；无清单的旧产物沿用全目录哈希。",
       "additionalProperties": {
         "type": "string",
         "pattern": "^[a-f0-9]{64}$"
       }
+    },
+    "resourceManifest": {
+      "$ref": "#/$defs/resourceManifest"
     },
     "createdAt": {
       "type": "string"
@@ -252,5 +256,48 @@
       }
     }
   ],
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "resourcePaths": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true,
+      "description": "相对本 Demo 根目录的路径；运行时拒绝绝对路径、越界路径及分类冲突。"
+    },
+    "resourceDeclaration": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "entryPoints": {"$ref": "#/$defs/resourcePaths"},
+        "runtimeFiles": {"$ref": "#/$defs/resourcePaths"},
+        "archiveFiles": {"$ref": "#/$defs/resourcePaths"},
+        "excludedFiles": {"$ref": "#/$defs/resourcePaths"},
+        "runtimeDirectories": {"$ref": "#/$defs/resourcePaths"},
+        "archiveDirectories": {"$ref": "#/$defs/resourcePaths"},
+        "excludedDirectories": {"$ref": "#/$defs/resourcePaths"},
+        "complete": {"type": "boolean", "description": "true 表示声明已覆盖全部动态运行资源，且 runtimeFiles/runtimeDirectories 须展开至少一个文件；不能仅凭静态扫描或一次访问填写。"}
+      },
+      "additionalProperties": false
+    },
+    "resourceManifest": {
+      "type": "object",
+      "required": ["schemaVersion"],
+      "description": "资源策略 v1。输入可声明文件或目录；保存后 entryPoints/runtimeFiles/archiveFiles/excludedFiles 为精确路径，unresolved 保存未解决分类或依赖。临时文件不进入新正式修订，但不删除工作文件。缺少本字段表示旧格式。",
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "entryPoints": {"$ref": "#/$defs/resourcePaths"},
+        "runtimeFiles": {"$ref": "#/$defs/resourcePaths"},
+        "archiveFiles": {"$ref": "#/$defs/resourcePaths"},
+        "excludedFiles": {"$ref": "#/$defs/resourcePaths"},
+        "runtimeDirectories": {"$ref": "#/$defs/resourcePaths"},
+        "archiveDirectories": {"$ref": "#/$defs/resourcePaths"},
+        "excludedDirectories": {"$ref": "#/$defs/resourcePaths"},
+        "complete": {"type": "boolean"},
+        "excludedReasons": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}, "readOnly": true, "description": "持久清单中按路径保存排除原因，键与 excludedFiles 一致；兼容省略该字段的早期清单，不作为声明输入。"},
+        "unresolved": {"type": "array", "items": {"type": "string"}, "readOnly": true},
+        "declaration": {"$ref": "#/$defs/resourceDeclaration", "description": "保存输入声明，供后续修订重新展开动态资源目录；导出使用已保存的精确清单。"}
+      },
+      "additionalProperties": false
+    }
+  }
 }

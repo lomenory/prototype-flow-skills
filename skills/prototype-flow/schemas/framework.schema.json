@@ -12,7 +12,8 @@
     "basedOn": {"type": ["string", "null"], "description": "读取到的当前框架 ID；首版必须显式填写 null"},
     "changeSummary": {"type": "string", "minLength": 1},
     "sourceArtifactId": {"type": ["string", "null"], "description": "可选，实际提取来源的已登记 Demo ID"},
-    "fileHashes": {"type": "object", "readOnly": true, "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "resourceManifest": {"$ref": "artifact.schema.json#/$defs/resourceManifest", "description": "新框架按资源策略登记；路径相对框架根目录。DESIGN.md 及固定设计依据保留为存档资料。无清单的旧框架保持完整文件与原哈希，需要清理时派生新框架 ID。"},
+    "fileHashes": {"type": "object", "readOnly": true, "description": "有 resourceManifest 时覆盖运行及存档文件；旧框架仍为原全量哈希。", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
     "createdAt": {"type": "string", "readOnly": true}
   },
   "additionalProperties": false

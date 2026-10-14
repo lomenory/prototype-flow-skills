@@ -193,7 +193,7 @@ def requirement_coverage(store, requirements, documents, version=None, artifact_
             artifact['staleDocumentIds'] = sorted(did for did, expected in artifact.get('documentHashes', {}).items()
                                                    if doc_hashes.get(did) != expected)
             directory = store._safe(artifact['path'], base=base)
-            inventory = store._inventory(directory)
+            inventory = store._resource_inventory(directory, artifact)
             intact = directory.is_dir() and inventory == artifact.get('fileHashes')
             draft = artifact.get('kind') == 'working-draft'
             editing = draft and (not intact or artifact.get('activeRunId') or artifact.get('editStatus') != 'ready')

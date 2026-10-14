@@ -12,6 +12,7 @@ import time
 
 from pf_core import FlowError, canonical, digest, now, uid, valid_id
 from pf_evidence import changed_keys, content_review_reasons, merge_review_reasons, page_content, review_reason
+from pf_resources import validate_manifest
 
 
 def _draft(store, artifact_id=None):
@@ -73,10 +74,8 @@ def _capture(store, artifact, name=None):
     """Capture bytes once, and evidence at the exact revision that was checked."""
     hashes = {}
     directory = store._safe(artifact['path'])
-    for path in sorted(directory.rglob('*')):
-        store._safe(path.relative_to(store.root))
-        if path.is_file():
-            hashes[path.relative_to(directory).as_posix()] = _capture_file(store, path)
+    for relative in store._resource_inventory(directory, artifact):
+        hashes[relative] = _capture_file(store, store._safe(relative, base=directory))
     if hashes != artifact['fileHashes']:
         raise FlowError('Draft changed while saving recovery revision; retry', 409)
     relations = store._read('relations.json')
@@ -112,6 +111,9 @@ def _read_revision(store, aid, revision):
         raise FlowError('Unknown draft revision', 404)
     if manifest.get('artifact', {}).get('id') != aid or manifest['artifact'].get('draftRevision') != revision:
         raise FlowError('Invalid draft revision metadata', 409)
+    validate_manifest(manifest['artifact'])
+    if manifest['fileHashes'] != manifest['artifact']['fileHashes']:
+        raise FlowError('Draft revision file manifest differs from its artifact', 409)
     for relative, expected in manifest.get('fileHashes', {}).items():
         store._safe(relative, base=store._safe(manifest['artifact']['path']))
         path = store._safe('.prototype-flow/draft-blobs/' + expected)
@@ -126,7 +128,7 @@ def _assert_idle(store, artifact, clean=True):
         if run and run.get('status') == 'running':
             raise FlowError('Draft has an unfinished edit; save or finish that task first', 409,
                             {'runId': run['id'], 'artifactId': artifact['id']})
-    if clean and store._inventory(store._safe(artifact['path'])) != artifact['fileHashes']:
+    if clean and store._resource_inventory(store._safe(artifact['path']), artifact) != artifact['fileHashes']:
         raise FlowError('Draft has unsaved changes; save the active task or restore a revision first', 409,
                         {'artifactId': artifact['id'], 'revision': artifact['draftRevision']})
 
@@ -197,14 +199,15 @@ def _create_draft(store):
     directory = store._safe(relative)
     try:
         if source:
-            store._copy_tree(store._safe(source['path']), directory)
+            store._copy_resources(store._safe(source['path']), directory, source)
             if (directory / '_framework').exists():
                 if not source.get('frameworkId'):
                     raise FlowError('Unmanaged _framework conflicts with draft packaging')
+                store._forget_tree(directory / '_framework')
                 shutil.rmtree(directory / '_framework')
         else:
             directory.mkdir(parents=True)
-        store._copy_tree(store._safe(framework['path']), directory / '_framework')
+        store._copy_resources(store._safe(framework['path']), directory / '_framework', framework)
         store._copy_file(store._safe(framework['path']) / 'DESIGN.md', directory / 'DESIGN.md')
         artifact = _remap(copy.deepcopy(source or {}), source['path'], relative) if source else {}
         artifact.update(id=aid, path=relative, kind='working-draft', draftRevision=0,
@@ -219,7 +222,13 @@ def _create_draft(store):
         artifact.setdefault('evidence', {})
         artifact.setdefault('requirementHashes', {})
         artifact.setdefault('documentHashes', {})
-        matches_source = source and artifact['fileHashes'] == source['fileHashes']
+        source_bindings = ((source or {}).get('frozenRelations', {}).get('bindings', []) or [
+            b for b in store._read('relations.json')['bindings'] if source and b['artifactId'] == source['id']])
+        source_bindings = _remap(source_bindings, source['path'], relative) if source else []
+        store._classify_resources(artifact, previous=(source or {}).get('resourceManifest'),
+                                  bindings=source_bindings, framework=framework)
+        matches_source = (source and artifact['fileHashes'] == source['fileHashes']
+                          and artifact.get('resourceManifest') == source.get('resourceManifest'))
         artifact['lastFrozenArtifactId'] = source['id'] if matches_source else None
         artifact['lastFrozenRevision'] = 0 if matches_source else None
         registry = store._read('artifacts.json')
@@ -361,7 +370,7 @@ def _demo_edit_basis(store, requirement_ids, shared_document_ids, binding_ids, e
         _assert_idle(store, artifact)
         frameworks = store._frameworks()
         framework = next((item for item in frameworks['items'] if item['id'] == artifact.get('frameworkId')), None)
-        if not framework or store._inventory(store._safe(framework['path'])) != framework.get('fileHashes'):
+        if not framework or store._resource_inventory(store._safe(framework['path']), framework) != framework.get('fileHashes'):
             raise FlowError('Registered framework changed on disk', 409)
         framework_baseline_id = frameworks.get('currentFrameworkId')
     else:
@@ -455,7 +464,7 @@ def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None
         draft = _create_draft(store) if created else _draft(store, current_id)[1]
         try:
             _assert_idle(store, draft, clean=False)
-            dirty_hashes = store._inventory(store._safe(draft['path']))
+            dirty_hashes = store._resource_inventory(store._safe(draft['path']), draft)
             recovery = None
             recovery_revision = None
             if dirty_hashes != draft['fileHashes']:
@@ -463,6 +472,10 @@ def edit_demo(store, requirement_ids=None, shared_document_ids=None, change=None
                 recovery = _manifest_name(draft['id'], recovery_revision)
                 dirty = dict(draft, fileHashes=dirty_hashes, draftRevision=recovery_revision, status='candidate',
                              recoveryOnly=True)
+                # A recovery checkpoint preserves actual bytes, including files
+                # that were never classified in a successful save.
+                dirty.pop('resourceManifest', None)
+                dirty['fileHashes'] = store._inventory(store._safe(draft['path']))
                 _capture(store, dirty, recovery)
             checkpoint_id = None
             if isinstance(change, dict) and change.get('tier') == 3 and draft.get('lastFrozenRevision') != draft['draftRevision']:
@@ -696,8 +709,8 @@ def save_demo(store, run_id, payload):
         if (data.get('id', draft['id']) != draft['id'] or data.get('path', draft['path']) != draft['path']
                 or data.get('runId', run_id) != run_id):
             raise FlowError('Draft identity, path and task are fixed')
-        if set(data) - {'id', 'path', 'runId', 'title', 'entryHtml', 'status', 'evidence'}:
-            raise FlowError('Draft artifact supports id, path, runId, title, entryHtml, status and evidence')
+        if set(data) - {'id', 'path', 'runId', 'title', 'entryHtml', 'status', 'evidence', 'resourceManifest'}:
+            raise FlowError('Draft artifact supports id, path, runId, title, entryHtml, status, evidence and resourceManifest')
         if 'title' in data:
             data['title'] = _artifact_title(data['title'])
         if 'artifactTitle' in run:
@@ -714,7 +727,13 @@ def save_demo(store, run_id, payload):
                                       **run['requirementHashes']}
         draft['documentHashes'] = {**draft['documentHashes'], **run['documentHashes']}
         directory = store._safe(draft['path'])
-        draft['fileHashes'] = measured('inventoryMs', lambda: store._inventory(directory))
+        resource_bindings = {b['id']: b for b in store._read('relations.json')['bindings']
+                             if b['artifactId'] == draft['id']}
+        for binding in _binding_updates(store._read('relations.json'), draft, payload):
+            resource_bindings[binding['id']] = binding
+        measured('inventoryMs', lambda: store._classify_resources(draft,
+            supplied=data.get('resourceManifest'), previous=previous['artifact'].get('resourceManifest'),
+            bindings=list(resource_bindings.values()), framework=run['framework']))
         draft['status'] = data.get('status', 'candidate')
         if draft['status'] not in ('candidate', 'verified', 'current'):
             raise FlowError('Draft status must be candidate or verified')
@@ -779,7 +798,8 @@ def save_demo(store, run_id, payload):
                 'title': draft.get('title') or draft['id'],
                 'draftRevision': draft['draftRevision'], 'path': draft['path'], 'activated': True,
                 'bindingIds': bindings, 'changedFiles': changed, 'validation': validation, 'metrics': finished['metrics'],
-                'affectedModules': affected_modules, 'evidenceSummary': evidence_summary}
+                'affectedModules': affected_modules, 'evidenceSummary': evidence_summary,
+                'resourceManifest': draft['resourceManifest']}
 
 
 def finish_edit(store, run, status):
@@ -788,7 +808,7 @@ def finish_edit(store, run, status):
         return
     if status == 'completed':
         raise FlowError('Use demo-save to complete a draft edit')
-    dirty = store._inventory(store._safe(draft['path'])) != draft['fileHashes']
+    dirty = store._resource_inventory(store._safe(draft['path']), draft) != draft['fileHashes']
     draft.update(activeRunId=None, editStatus='needs-review' if dirty else 'ready')
     _set_artifact(store, draft)
 
@@ -799,6 +819,7 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
     with store._transaction(), store._rollback_writes():
         registry, draft = _draft(store, artifact_id)
         _assert_idle(store, draft)
+        validate_manifest(draft, require_complete=not _checkpoint)
         relations = store._read('relations.json')
         live_bindings = [binding for binding in relations['bindings'] if binding['artifactId'] == draft['id']]
         primary_errors = store._primary_binding_errors(live_bindings)
@@ -822,7 +843,7 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
         relative = 'demos/' + aid
         target = store._safe(relative)
         try:
-            store._copy_tree(store._safe(draft['path']), target)
+            store._copy_resources(store._safe(draft['path']), target, draft)
             artifact = _remap(copy.deepcopy(draft), draft['path'], relative)
             for key in ('draftRevision', 'activeRunId', 'editStatus', 'lastFrozenArtifactId', 'lastFrozenRevision'):
                 artifact.pop(key, None)
@@ -845,7 +866,11 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
                     relative_shot = '_evidence/' + store._file_digest(source) + source.suffix.lower()
                     store._copy_file(source, target / relative_shot)
                     screenshot_paths[binding['screenshot']] = relative + '/' + relative_shot
+                    if artifact.get('resourceManifest'):
+                        artifact['resourceManifest']['archiveFiles'] = sorted(set(
+                            artifact['resourceManifest']['archiveFiles']) | {relative_shot})
             artifact['fileHashes'] = store._inventory(target)
+            validate_manifest(artifact, require_complete=not _checkpoint)
             registry['items'].append(artifact)
             draft.update(lastFrozenArtifactId=aid, lastFrozenRevision=draft['draftRevision'])
             registry['lastFrozenArtifactId'] = aid
@@ -880,6 +905,7 @@ def restore_demo_revision(store, artifact_id, revision):
             recovery = _manifest_name(draft['id'], recovery_revision)
             dirty = dict(draft, fileHashes=current_hashes, draftRevision=recovery_revision,
                          status='candidate', recoveryOnly=True)
+            dirty.pop('resourceManifest', None)
             _capture(store, dirty, recovery)
         # Stage every byte before touching the visible directory. Directory swap
         # rolls back on metadata failures and preserves the failed edit in CAS.
@@ -906,7 +932,11 @@ def restore_demo_revision(store, artifact_id, revision):
                 relative = '_evidence/' + hash_ + Path(path_).suffix.lower()
                 store._copy_file(blob, directory / relative)
                 screenshot_map[path_] = draft['path'] + '/' + relative
+                if restored.get('resourceManifest'):
+                    restored['resourceManifest']['archiveFiles'] = sorted(set(
+                        restored['resourceManifest']['archiveFiles']) | {relative})
             restored['fileHashes'] = store._inventory(directory)
+            validate_manifest(restored)
             restored.update(draftRevision=_next_revision(store, draft), activeRunId=None, editStatus='ready',
                             updatedAt=now(), restoredFromRevision=revision,
                             lastFrozenArtifactId=draft.get('lastFrozenArtifactId'),

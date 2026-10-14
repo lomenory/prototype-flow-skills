@@ -216,6 +216,7 @@ def parser():
     cmd.add_argument('id')
     cmd.add_argument('--output', required=True)
     cmd.add_argument('--version')
+    cmd.add_argument('--resource-manifest', help='旧 Demo 的只读运行资源声明 JSON，按最终冻结 Demo ID 放入 artifacts 映射')
     cmd = command('document', '读取完整 PRD 及保存基线')
     cmd.add_argument('id')
     cmd.add_argument('--version')
@@ -415,7 +416,8 @@ def main(argv=None):
                 limit=args.limit, cursor=args.cursor, query=args.query)
         elif command == 'export-module':
             from pf_delivery import export_module
-            result = export_module(store, args.id, args.output, args.version)
+            result = export_module(store, args.id, args.output, args.version,
+                                   resource_manifest=read_json(args.resource_manifest) if args.resource_manifest else None)
         elif command == 'state':
             if args.id is not None and not args.section:
                 raise FlowError('state --id requires --section runs, artifacts or bindings')
