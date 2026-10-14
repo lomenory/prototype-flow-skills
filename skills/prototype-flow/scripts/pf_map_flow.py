@@ -31,6 +31,8 @@ def _entry_descriptor(store, module_id=None, requirement_id=None, version=None, 
         url = service['requirementMapUrl'] + ('?' + urlencode(query) if query else '')
         descriptor.update(status='ready', url=url, projectId=service['projectId'],
                           reused=service['reused'], autoUpdate=not historical)
+        if 'runtime' in service:
+            descriptor['runtime'] = service['runtime']
     except (FlowError, OSError, ValueError, subprocess.SubprocessError) as exc:
         descriptor.update(error=str(exc), errorStatus=getattr(exc, 'status', 503))
     return descriptor

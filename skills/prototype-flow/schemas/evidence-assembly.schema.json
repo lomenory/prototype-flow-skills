@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prototype-flow.local/schemas/evidence-assembly.schema.json",
+  "title": "Prototype Flow evidence assembly input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reports"],
+  "properties": {
+    "reports": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nonempty"}},
+    "screenshots": {"type": "object", "additionalProperties": {"$ref": "#/$defs/nonempty"}},
+    "summary": {"$ref": "#/$defs/nonempty"},
+    "artifactStatus": {"enum": ["candidate", "verified", "current"]},
+    "frameworkReport": {"$ref": "#/$defs/nonempty"},
+    "frameworkReview": {"type": "object", "additionalProperties": false, "required": ["mode"], "properties": {"mode": {"const": "inherited"}}}
+  },
+  "$defs": {
+    "nonempty": {"type": "string", "minLength": 1},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "strings": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nonempty"}},
+    "recordedReport": {
+      "description": "Existing recorded report. Runtime verifies baseline, files, paths, scope and results; assembly never runs a browser or fills missing evidence.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "runId", "draftId", "draftRevision", "kind", "method", "scope", "fileHashes", "results"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "runId": {"$ref": "#/$defs/nonempty"},
+        "draftId": {"$ref": "#/$defs/nonempty"},
+        "draftRevision": {"type": "integer", "minimum": 0},
+        "kind": {"enum": ["browser", "static", "framework", "inherited"]},
+        "method": {"$ref": "#/$defs/nonempty"},
+        "scope": {
+          "type": "object", "additionalProperties": false, "required": ["bindingIds", "files"],
+          "properties": {
+            "bindingIds": {"$ref": "#/$defs/strings"},
+            "files": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nonempty"}},
+            "viewports": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+              "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}}}
+          }
+        },
+        "fileHashes": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/hash"}},
+        "results": {"type": "array", "minItems": 1, "items": {
+          "type": "object", "additionalProperties": false, "required": ["id", "status", "summary"],
+          "properties": {
+            "id": {"$ref": "#/$defs/nonempty"},
+            "status": {"enum": ["passed", "failed", "not-run", "inherited"]},
+            "summary": {"$ref": "#/$defs/nonempty"},
+            "bindingIds": {"$ref": "#/$defs/strings"},
+            "source": {"$ref": "#/$defs/nonempty"}
+          },
+          "allOf": [{"if": {"properties": {"status": {"const": "inherited"}}}, "then": {"required": ["source"]}}]
+        }},
+        "screenshots": {"type": "object", "additionalProperties": {
+          "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+          "properties": {"path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/hash"}}
+        }}
+      },
+      "allOf": [{"if": {"properties": {"kind": {"const": "browser"}}}, "then": {
+        "properties": {"scope": {"required": ["viewports"], "properties": {"bindingIds": {"minItems": 1}, "viewports": {"minItems": 1}}}}
+      }}]
+    }
+  }
+}

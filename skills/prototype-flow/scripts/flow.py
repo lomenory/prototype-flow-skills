@@ -15,7 +15,7 @@ sys.dont_write_bytecode = True
 from pf_core import FlowError, ProjectStore
 
 
-# Successful lifecycle writes prepare one reusable, read-only requirement map.
+# Lifecycle writes can opt into one reusable, read-only requirement map.
 # Queries and cloud operations keep their existing side-effect boundaries.
 REQUIREMENT_MAP_COMMANDS = frozenset({
     'init', 'intake', 'save', 'module', 'module-stage', 'source', 'relations',
@@ -71,6 +71,11 @@ def state_summary(state):
 def compact_result(command, value):
     if command in ('init', 'refresh', 'restore'):
         return state_summary(value)
+    if command == 'demo-assemble':
+        result = selected(value, 'runId', 'draftId', 'output', 'savePath', 'reportPath')
+        result.update(assembledOnly=True, **selected(value['validationReport'],
+            'proposedReverificationBindingIds', 'unverifiedBindingIds', 'verificationPerformed'))
+        return result
     if command in ('save', 'intake'):
         result = selected(value, 'impactedRequirementIds', 'requirementIds', 'sourceId',
                           'maintenanceStatus', 'validation')
@@ -151,8 +156,12 @@ def parser():
         cmd.add_argument('root', help='项目根目录')
         cmd.add_argument('--full', action='store_true', help='输出完整结果；默认省略正文和项目明细，document 始终保留全文')
         if name in REQUIREMENT_MAP_COMMANDS:
-            cmd.add_argument('--no-requirement-map', action='store_true',
-                             help='本次仅执行数据操作，不准备需求图服务；不停止已打开的图')
+            presentation = cmd.add_mutually_exclusive_group()
+            presentation.add_argument('--requirement-map', action='store_true',
+                                      help='本次写入后准备或复用需求图服务并返回入口；默认仅执行数据操作')
+            presentation.add_argument('--no-requirement-map', action='store_false', dest='requirement_map',
+                                      help='兼容原参数：本次不准备需求图服务；不停止已打开的图')
+            cmd.set_defaults(requirement_map=False)
         return cmd
 
     cmd = command('init', '初始化或接入项目，不自动连接飞书')
@@ -191,8 +200,13 @@ def parser():
     cmd = command('preview', '独立启动或复用只读 Demo 预览，不打开工作台')
     cmd.add_argument('--reuse', action='store_true')
     cmd.add_argument('--port', type=int, default=0)
+    cmd = command('service', '查看本项目正在运行的服务版本；显式 --restart 才重启服务')
+    cmd.add_argument('--kind', choices=['workbench', 'preview'], default='workbench')
+    cmd.add_argument('--restart', action='store_true', help='重启准确匹配本项目的服务，默认保留原端口')
+    cmd.add_argument('--port', type=int, default=0, help='仅重启时可指定端口')
     cmd = command('demo-entry', '从已运行的独立预览解析准确 Demo URL')
     target = cmd.add_mutually_exclusive_group(required=True)
+    target.add_argument('--current', action='store_true', help='稳定的当前 Demo 入口，附当前稿、PRD 与冻结信息')
     target.add_argument('--requirement')
     target.add_argument('--binding')
     target.add_argument('--artifact')
@@ -240,6 +254,10 @@ def parser():
     cmd = command('demo-save', '保存工作稿修订、更新受影响证据并结束本轮任务')
     cmd.add_argument('id', help='demo-edit 返回的任务 ID')
     cmd.add_argument('--file', required=True, help='保存内容 JSON；artifact、bindings、bindingPatches、flows、moduleStages、outputs、measurements 均可选')
+    cmd = command('demo-assemble', '从本轮实际证据组装保存候选；不保存工作稿、不补造验证结果')
+    cmd.add_argument('id', help='demo-edit 返回的任务 ID')
+    cmd.add_argument('--file', required=True, help='报告路径、截图映射和可选摘要 JSON')
+    cmd.add_argument('--output', required=True, help='项目 local_tasks/ 下尚不存在的目录，写入 save.json 与 validation-report.json')
     cmd = command('demo-freeze', '将已保存工作稿冻结为独立完整 Demo 版本')
     cmd.add_argument('--artifact', help='工作稿 ID；默认当前工作稿')
     cmd.add_argument('--title', help='冻结版本的可读标题')
@@ -364,6 +382,12 @@ def main(argv=None):
         elif command == 'preview':
             from pf_server import preview
             result = preview(store.root, reuse=args.reuse, port=args.port)
+        elif command == 'service':
+            from pf_server import reconnect_service, restart_service
+            if args.port and not args.restart:
+                raise FlowError('--port 只能与 --restart 一起使用')
+            result = (restart_service(store.root, service_kind=args.kind, port=args.port) if args.restart
+                      else reconnect_service(store.root, service_kind=args.kind))
         elif command == 'requirement-map':
             if args.stop:
                 if args.module or args.requirement or args.version or args.port:
@@ -382,7 +406,7 @@ def main(argv=None):
                 raise FlowError('--within-artifact 只能与 --binding 一起使用')
             result = demo_entry(store, version=args.version, requirement_id=args.requirement,
                                 binding_id=args.binding, artifact_id=args.artifact,
-                                within_artifact=args.within_artifact)
+                                within_artifact=args.within_artifact, current=args.current)
         elif command == 'review-state':
             from pf_review import review_state
             result = review_state(store, view=args.view, module_id=args.module,
@@ -429,6 +453,9 @@ def main(argv=None):
                                      expected=read_json(args.expected_file) if args.expected_file else None)
         elif command == 'demo-save':
             result = store.save_demo(args.id, read_json(args.file))
+        elif command == 'demo-assemble':
+            from pf_evidence_assembly import assemble_evidence
+            result = assemble_evidence(store, args.id, read_json(args.file), output=args.output)
         elif command == 'demo-freeze':
             result = store.freeze_demo(args.artifact, args.title)
         elif command == 'demo-restore':
@@ -483,13 +510,13 @@ def main(argv=None):
         else:
             raise FlowError('未知操作')
         result = result if args.full else compact_result(command, result)
-        if command in REQUIREMENT_MAP_COMMANDS and not args.no_requirement_map:
+        if command in REQUIREMENT_MAP_COMMANDS and args.requirement_map:
             from pf_map_flow import default_requirement_map
             result['requirementMap'] = default_requirement_map(store)
         if isinstance(result, dict) and command in ('run-start', 'demo-prepare', 'artifact', 'relations',
                                                    'run-finish', 'demo-finalize', 'demo-edit', 'demo-save',
                                                    'demo-freeze', 'demo-restore', 'review-state', 'preview', 'demo-entry',
-                                                   'requirement-map'):
+                                                   'requirement-map', 'demo-assemble', 'service'):
             result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
         output(result)
         return 0

@@ -1,12 +1,20 @@
 # Prototype Flow
 
-将新资料整理成 PRD 并存入项目，也可以继续推进需求拆分、高保真 Demo、页面截图关联和版本管理。按本次请求执行所需阶段，单份需求入库可以独立完成。
+将新资料整理成 PRD 并存入项目，也可以继续推进需求拆分、高保真 Demo 和版本管理。日常生成和修改 Demo 采用轻量流程，工作台与需求图按需查看，完整覆盖核对和截图整理集中在评审或交接时。按本次请求执行所需阶段，单份需求入库可以独立完成。
 
 **PRD 维护已内建。** 项目初始化、资料入库、需求索引、文档导航和本地工作台只需安装 `prototype-flow`；生成 Demo 或同步飞书时再使用相应的外部 Skill。
 
 这是可直接安装的公开分发仓库，每个 `skills/<name>/` 都是完整的 Skill 目录。开发源码、测试和业务示例由独立开发仓库维护。
 
 ## 能做什么
+
+2026-10-14 轻量流程更新：日常 Demo 只定位相关需求、修改页面、检查受影响范围、保存修订并交付独立预览。保存模板仅预填标题与摘要，关联、证据及模块阶段按实际变化补充；业务规则变化先同步 PRD，修订、恢复和必要检查继续保留。旧证据允许待复核，不把保存成功当作验证通过。完整覆盖与截图整理在评审或交接时按约定范围完成，查看工作台本身不触发补图或验收。
+
+相关写命令默认不启动需求图服务；显式 `--requirement-map` 或独立 `requirement-map` 命令才准备服务，旧 `--no-requirement-map` 参数继续兼容。已打开的图仍读取后续保存结果；停止后普通保存不会重启服务。项目内局部修改按影响选择 Tier，浏览器验证与交付复用独立预览，避免重复启动服务。源码通过 441 项 Python 测试及 Skill 结构检查；本次未新增浏览器视觉验收。
+
+同时包含此前六项优化：写入回执不重复展开整张图、外部变化按需检查、工作稿恢复数据按内容复用、现有证据可用 `demo-assemble` 汇总、待复核原因可定位，以及 `demo-entry --current` 与服务版本查询/显式重启。详见[日常轻量流程与评审交接](skills/prototype-flow/references/demo-and-change.md)和[运行时说明](skills/prototype-flow/references/runtime.md)。
+
+以下日期条目记录旧版本当时的行为；当前默认流程以上述轻量流程和后面的命令说明为准。
 
 2026-10-13 滚动保留与产物标题修复：卡片暂时没有布局尺寸时保留最近的阅读位置，恢复显示后再按锚点恢复；用户已在当前卡片选择、输入或滚动后，迟到的宿主状态回传不再覆盖当前视图。需求变更涉及产物名称时，Agent 在 `demo-edit --title` 声明本轮目标标题，保存模板回显名称；`demo-save` 即使省略标题，也随成果成功保存同步应用。保存失败保持原标题，旧冻结版本与历史修订保留原名称。
 
@@ -25,8 +33,6 @@
 新增 `requirement-map` 接入、定向及历史快照、停止与恢复入口；`--no-requirement-map` 用于单次纯命令操作，不关闭已有图。服务准备失败不撤销业务保存，使用快照和文字回退。覆盖分母来自显式 `demoCoverage`，未声明范围保持未知；只有当前输入与实际验证证据匹配时显示已验证，生成完成不代表用户确认。详见[默认需求图与对话呈现](skills/prototype-flow/references/conversation-ui.md)。
 
 上一轮默认需求图通过 393 项 Python 测试、94 项前端测试、Skill 结构与安装闭包检查；独立新项目在实际 Codex In-app Browser 中验证空图新增需求、生成中、已验证、需求变更待更新及复验后再次已验证，全程未刷新图页且选中、展开状态保留。分发包另检查准确文件闭包、CLI 和只读 HTTP 资源；仅更新主 Skill，保留两个按需依赖及锁文件。
-
-以下日期条目记录旧版本当时的行为，当前默认流程以本节及后面的命令为准。
 
 2026-10-12 对话执行与独立 Demo 更新：任务默认在普通对话中推进，卡片按需使用，PRD 入库后直接交付真实回执与文件入口；工作台按需用于项目管理，默认进入项目总览，需求结构按需查看。工作台移除 iframe、演示需求/页面状态选择器及预览专用刷新，需求和页面链接在新窗口独立打开。
 
@@ -53,7 +59,7 @@
 | 初始化项目 | 项目身份、PRD 目录、索引与导航，可接入已有文档库 | [prototype-flow](skills/prototype-flow/SKILL.md) |
 | 新资料整理入库 | 来源记录、PRD Markdown、稳定需求 ID 和 PRD 检查 | prototype-flow |
 | 持续整理需求 | Agent 通过 CLI 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
-| 核对需求与进度 | 默认实时需求图与右侧详情、页面状态覆盖、真实任务进度；完整管理工作台按需打开 | prototype-flow |
+| 核对需求与进度 | 按需打开需求图或完整工作台，查看需求详情、页面状态覆盖和真实任务进度 | prototype-flow |
 | 下载已确认需求 | 按模块打包关联 Demo 的完整目录与运行资源、PRD 和本地引用；支持历史版本 | prototype-flow |
 | 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
@@ -122,7 +128,7 @@ python3 -B skills/prototype-flow/scripts/install.py --dest ~/.agents/skills
 
 安装后按返回的实际路径发起任务，无需依赖选择器语法：
 
-> 读取 `<已安装的主-Skill-目录>/SKILL.md`，将我提供的资料整理到 projects/my-prototype，建立 PRD 和需求关联，用默认需求图让我逐项核对；本次先不生成 Demo。
+> 读取 `<已安装的主-Skill-目录>/SKILL.md`，将我提供的资料整理到 projects/my-prototype，建立 PRD 和需求关联；本次先不生成 Demo，需要核对时我会再打开需求图。
 
 目录、宿主工具映射和支持边界见 [Agent 兼容说明](skills/prototype-flow/references/agent-compatibility.md)。自动发现取决于宿主；CLI 能找到文件不代表每个宿主都会在选择器中列出它。
 
@@ -141,7 +147,7 @@ Codex 用户也可以继续发送：
 1. 在本分发仓库运行 `git pull --ff-only`，确认获取最新 `main`。
 2. 核对 Agent 实际读取的 `prototype-flow/SKILL.md` 路径。若直接使用本仓库，无需再复制；若使用个人目录，先备份旧的 `prototype-flow` 到 skills 目录之外，再用本仓库的 `skills/prototype-flow` 完整替换原目录。不要只复制 `SKILL.md` 或将新版资源叠加到旧目录。
 3. 在本分发仓库运行 `python3 -B skills/prototype-flow/scripts/install.py --dest <实际的-skills-根目录> --check`，确认返回 `ok: true`、`status: available`。例如 Codex 安装在 `~/.codex/skills/prototype-flow` 时，`--dest` 使用 `~/.codex/skills`。
-4. 核对已运行服务的版本，按用途使用新包：默认需求图用 `requirement-map <项目目录>`，完整项目管理用 `serve <项目目录> --reuse`，只查看 Demo 时运行 `preview <项目目录> --reuse` 后用 `demo-entry` 解析入口。缺少新能力的旧服务需先明确停止，再用新包启动；不要把旧地址视为已运行新版本。关闭浏览器标签页不等于停止服务，停止需求图共用服务用 `requirement-map <项目目录> --stop`，独立预览保留。
+4. 按用途使用新包：查看需求图用 `requirement-map <项目目录>`，完整项目管理用 `serve <项目目录> --reuse`，查看 Demo 时运行 `preview <项目目录> --reuse` 后用 `demo-entry --current` 解析入口。用 `service <项目目录> --kind workbench|preview` 核对服务版本；确需加载新运行时才显式加 `--restart`。关闭浏览器标签页不等于停止服务，停止需求图共用服务用 `requirement-map <项目目录> --stop`，独立预览保留。日常保存不启动或重启这些服务。
 
 需求文档、Demo 和项目版本保存在项目目录中，更新技能时保留这些项目目录。
 
@@ -195,15 +201,15 @@ CLI 负责保存和一致性；资料理解、PRD 撰写和 Demo 设计由当前
 
 新项目可以使用 `init <project-dir> --name "项目名称" --empty` 建立空项目，再执行 `intake <project-dir> --file <payload.json>`，一次保存来源、完整 PRD 和需求块，统一维护导航并进行 PRD 检查。输入格式见 [需求与资料](skills/prototype-flow/references/requirements.md#一次入库)。
 
-CLI 默认返回摘要，`document` 读取单份正文。任务、产物或页面绑定查询使用 `state <project-dir> --section runs|artifacts|bindings`，单项追加 `--id <id>`；此时 `--full` 只展开所选记录。只有确需全部状态时使用无 section 的 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后交付真实回执、文件入口和本轮需求图快照，首次展示实时图后复用原页。完整工作台按需查看；入库不自动生成 Demo 或保存项目快照。
+CLI 默认返回摘要，`document` 读取单份正文。任务、产物或页面绑定查询使用 `state <project-dir> --section runs|artifacts|bindings`，单项追加 `--id <id>`；此时 `--full` 只展开所选记录。只有确需全部状态时使用无 section 的 `state <project-dir> --full`。普通文档补检用 `validate <project-dir> --stage prd`。Agent 在需求整理拆分保存并检查通过后交付真实回执、文件入口和必要说明，工作台、需求图及对话快照按需展示。入库不自动生成 Demo 或保存项目快照。
 
 内建维护生成一份 `DOC_MAP.md` 导航，保留旧项目的文档身份、关联块和历史兼容；不再自动生成独立 dashboard 或回写全库关联。
 
-## 默认需求图
+## 按需需求图
 
 顶部“更多”提供全部展开、全部收起、定位当前及完整统计，菜单支持方向键、Home / End、Escape 和点击外部关闭。关闭右侧详情可扩大结构阅读区，“查看详情”恢复当前需求。编号、确认状态和完整标题在“需求”页签中核对，任务及页面状态在“Demo 覆盖”页签中核对，来源在“依据”页签中核对。
 
-相关写命令成功后，`requirementMap` 回执包含 `status`、本机 `url`、`projectId`、`reused`、`autoUpdate` 和参数数组 `snapshotCommand`。已有项目可显式接入：
+相关写命令默认仅保存数据。显式添加 `--requirement-map` 后，成功回执中的 `requirementMap` 包含 `status`、本机 `url`、`projectId`、`reused`、`autoUpdate` 和参数数组 `snapshotCommand`。也可随时显式查看：
 
 ```bash
 python3 -B skills/prototype-flow/scripts/flow.py requirement-map ../my-prototype
@@ -212,9 +218,9 @@ python3 -B skills/prototype-flow/scripts/flow.py review-state ../my-prototype --
 
 `requirement-map` 返回真实 `snapshot`，后台准备或复用服务，命令本身不打开浏览器。Agent 首次打开回执链接，后续需求、任务及 Demo 保存自动更新同一页；不要每次重开或刷新。默认每 2 秒检查已保存变化，每 30 秒检查外部文件变化，回到页面立即检查。可用 `--module` 定向查看、`--requirement` 设置初始选中、`--version` 查看固定历史；一次投影最多 200 条需求，超限按模块查看。渲染器读取 `snapshot` JSON，不读取整个命令回执。
 
-简单只读查询不启动服务。单个写命令可加 `--no-requirement-map` 跳过本次服务准备，不关闭已开图；失败回执 `unavailable/error/errorStatus` 只表示展示不可用，业务保存仍然成功，不重放写入。没有内嵌能力时交付本机链接、离线图文件或文字。
+简单只读查询和普通写命令不启动服务。旧 `--no-requirement-map` 参数保留兼容，与 `--requirement-map` 互斥，均不关闭已开图；显式准备服务失败时，回执 `unavailable/error/errorStatus` 只表示展示不可用，业务保存仍然成功，不重放写入。只有需要对话图示时才运行 `snapshotCommand`，没有内嵌能力时按需交付本机链接、离线图文件或文字。
 
-关闭页不会停止服务。需要停止时执行 `requirement-map ../my-prototype --stop`，仅停止该项目共用的图和完整工作台服务，Demo 预览独立保留；之后默认写命令会再次准备服务。停止不能与范围、版本或端口参数同用。图的已验证状态来自当前实际证据，不自动确认需求、制作 Demo 或扩大授权范围。
+关闭页不会停止服务。需要停止时执行 `requirement-map ../my-prototype --stop`，仅停止该项目共用的图和完整工作台服务，Demo 预览独立保留；之后普通写命令不会再次启动服务，显式请求查看时再准备。停止不能与范围、版本或端口参数同用。图的已验证状态来自当前实际证据，不自动确认需求、制作 Demo 或扩大授权范围；查看图也不要求补齐覆盖或截图。
 
 ## 打开完整本地工作台
 
@@ -230,7 +236,7 @@ python3 -B skills/prototype-flow/scripts/flow.py serve ../my-prototype --reuse
 
 ```bash
 python3 -B skills/prototype-flow/scripts/flow.py preview ../my-prototype --reuse
-python3 -B skills/prototype-flow/scripts/flow.py demo-entry ../my-prototype --requirement <需求ID>
+python3 -B skills/prototype-flow/scripts/flow.py demo-entry ../my-prototype --current
 python3 -B skills/prototype-flow/scripts/flow.py review-state ../my-prototype --view requirement --requirement <需求ID>
 ```
 
@@ -243,7 +249,9 @@ python3 -B skills/prototype-flow/scripts/flow.py demo-save ../my-prototype <任�
 
 省略目标标题时沿用当前名称；运行时不从任意需求正文猜测业务标题。声明后的名称在成功保存时更新，冻结原版本继续使用原标题。
 
-`preview` 不依赖工作台构建或管理进程。`demo-entry` 只使用已运行预览，目标为需求、产物或精确绑定；绑定使用 `--binding <绑定ID> --within-artifact <产物ID>`，历史加 `--version`。一个需求多页面时使用明确默认；旧数据无默认保留精确页面链接，不猜第一项、不自动写入默认。冻结与历史不会回退当前稿。
+日常复用最小 `saveTemplate` 记录本轮修改、实际检查和限制；未变绑定与模块阶段不重复提交。PRD 规则变更先保存正文，再建立 Demo 新基线；新增、删除或改变入口时维护必要关联。已有实际报告确需汇总时才用 `demo-assemble`，不为每轮保存编写全套报告。评审或交接时集中核对约定范围的覆盖和截图证据，明确缺口并冻结版本；冻结不等于用户确认。
+
+`preview` 不依赖工作台构建或管理进程，浏览器验证与交付复用同一服务。`demo-entry --current` 返回当前 Demo 及 PRD、修订信息；也可指定 `--requirement <需求ID>`、产物或精确绑定。绑定使用 `--binding <绑定ID> --within-artifact <产物ID>`，历史加 `--version`。一个需求多页面时使用明确默认；旧数据无默认保留精确页面链接，不猜第一项、不自动写入默认。冻结与历史不会回退当前稿。
 
 多对象选择、比较或复杂输入确有帮助时，Agent 可用 `review-state` 和 `render_conversation.py` 生成安全的只读快照。卡片不是项目权威源，旧请求仍需核对真实基线。真实内嵌消息桥未验收时使用完整可复制请求；普通对话、文件和独立 Demo 始终可以推进任务。
 

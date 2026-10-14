@@ -32,6 +32,54 @@ CONTENT_EXTENSIONS = IMAGE_EXTENSIONS | {'.pdf', '.txt', '.md', '.csv'}
 SERVICE_PROTOCOL = 2
 _PREVIEW_CHILDREN = {}
 _WORKBENCH_CHILDREN = {}
+_BUILD_CACHE = {}
+_BUILD_LOCK = threading.RLock()
+
+
+def runtime_fingerprint(package_root=None):
+    """Content identity of the installed Skill, independent of its install path."""
+    root = Path(package_root or Path(__file__).resolve().parents[1])
+    ignored = {'__pycache__', '.DS_Store', '.git'}
+    with _BUILD_LOCK:
+        signature = metadata_signature(root, ignored)
+        cached = _BUILD_CACHE.get(str(root))
+        if cached and cached[0] == signature:
+            return cached[1]
+        entries = []
+        for directory, dirs, names in os.walk(root, followlinks=False):
+            dirs[:] = sorted(name for name in dirs if name not in ignored)
+            for name in sorted(names):
+                path = Path(directory) / name
+                if name in ignored or name.endswith('.pyc'):
+                    continue
+                if path.is_symlink():
+                    raise FlowError('运行包不允许符号链接', 409)
+                entries.append((path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()))
+        fingerprint = hashlib.sha256(json.dumps(entries, separators=(',', ':')).encode()).hexdigest()
+        if signature != metadata_signature(root, ignored):
+            raise FlowError('运行包在检查期间发生变化，请重试', 409)
+        _BUILD_CACHE[str(root)] = (signature, fingerprint)
+        return fingerprint
+
+
+def runtime_status(started_fingerprint, installed_fingerprint=None, project_root=None, service_kind=None):
+    try:
+        installed = installed_fingerprint or runtime_fingerprint()
+        fingerprint_error = None
+    except (FlowError, OSError) as exc:
+        # A package being replaced must not make a healthy service disappear and
+        # accidentally start another process for the same project.
+        installed, fingerprint_error = None, str(exc)
+    valid = isinstance(started_fingerprint, str) and bool(re.fullmatch(r'[0-9a-f]{64}', started_fingerprint))
+    status = 'unknown' if not valid or installed is None else ('current' if started_fingerprint == installed else 'stale')
+    result = {'status': status, 'startedFingerprint': started_fingerprint if valid else None,
+              'installedFingerprint': installed, 'restartRequired': status != 'current'}
+    if fingerprint_error:
+        result['fingerprintError'] = fingerprint_error
+    if result['restartRequired'] and project_root and service_kind:
+        result['restartCommand'] = [sys.executable, '-B', str(Path(__file__).with_name('flow.py')),
+            'service', str(project_root), '--kind', service_kind, '--restart']
+    return result
 
 
 def metadata_signature(root, ignored=()):
@@ -138,6 +186,11 @@ class ServiceRegistry:
                     or result.get('protocolVersion') != SERVICE_PROTOCOL):
                 return None
             reused = {key: result[key] for key in ('url', 'previewOrigin', 'projectRoot', 'projectId', 'serviceKind', 'pid', 'transport')} | {'reused': True}
+            # The running process's package may have been replaced since startup,
+            # or it may run from an older copy. Compare against this caller's copy.
+            reported_runtime = result.get('runtime') if isinstance(result.get('runtime'), dict) else {}
+            reused['runtime'] = runtime_status(reported_runtime.get('startedFingerprint'),
+                                               project_root=self.project_root, service_kind=self.service_kind)
             if self.service_kind == 'workbench':
                 if result.get('requirementMapUrl') != result['url'] + '/requirement-map':
                     return None
@@ -220,6 +273,12 @@ class DemoAccess:
         self.store = store
         self._integrity_cache = {}
         self._integrity_lock = threading.RLock()
+
+    def _init_runtime(self):
+        self.started_fingerprint = runtime_fingerprint()
+
+    def runtime(self):
+        return runtime_status(self.started_fingerprint, project_root=self.store.root, service_kind=self.service_kind)
 
     def _checked_history(self, version):
         if not version:
@@ -349,10 +408,38 @@ class DemoAccess:
             self._entry_error('需求已从当前文档移除，请重新定位当前对象', 'requirement-missing', 404,
                               requirementId=requirement_id)
 
+    def _current_demo_metadata(self, artifact, project, root):
+        run = self.store._read('runs/' + artifact['runId'] + '.json', {}, base=root) if artifact.get('runId') else {}
+        document_index = {item['id']: item for item in run.get('documentIndex', [])}
+        modules = {item['documentId']: item for item in project.get('modules', [])}
+        documents = []
+        fixed_documents = {item['id']: item for item in artifact.get('inputDocuments', [])}
+        for document_id, business_hash in sorted(artifact.get('documentHashes', {}).items()):
+            document = fixed_documents.get(document_id, {})
+            identity = document_index.get(document_id, {})
+            module = modules.get(document_id, {})
+            documents.append({'id': document_id, 'businessHash': business_hash,
+                              'path': document.get('path') or identity.get('path') or module.get('documentPath'),
+                              'revision': document.get('revision') if document.get('businessHash') == business_hash else None,
+                              'title': identity.get('title') or module.get('title') or document_id})
+        return {'artifactId': artifact['id'], 'title': artifact.get('title') or artifact['id'],
+                'kind': artifact.get('kind', 'frozen'), 'draftRevision': artifact.get('draftRevision'),
+                'editStatus': artifact.get('editStatus'), 'status': artifact.get('status'),
+                'inputRevision': artifact.get('inputRevision'), 'projectRevision': project['revision'],
+                'documents': documents, 'requirementIds': sorted(artifact.get('requirementHashes', {})),
+                'updatedAt': artifact.get('updatedAt') or artifact.get('createdAt'),
+                'recentChange': {'runId': run.get('id'), 'summary': (run.get('change') or {}).get('summary') or
+                                ((run.get('outputs') or {}).get('summary') if isinstance(run.get('outputs'), dict) else None),
+                                'requirementIds': run.get('requirementIds', []), 'completedAt': run.get('finishedAt')},
+                'freeze': {key: copy.deepcopy(artifact.get(key)) for key in
+                           ('draftSourceArtifactId', 'lastFrozenArtifactId', 'lastFrozenRevision', 'frozenFrom')}}
+
     def resolve_entry(self, version=None, requirement_id=None, binding_id=None,
-                      artifact_id=None, within_artifact=None, check_files=True):
+                      artifact_id=None, within_artifact=None, check_files=True, current=False):
         """Resolve stable objects without discovering or starting a service."""
-        if sum(bool(value) for value in (requirement_id, binding_id, artifact_id)) != 1:
+        if current and (version not in (None, '', 'working') or within_artifact):
+            self._entry_error('当前 Demo 入口不接受历史版本或所属产物；历史请使用准确产物入口', 'target-invalid', 400)
+        if sum(bool(value) for value in (requirement_id, binding_id, artifact_id, current)) != 1:
             self._entry_error('请指定且只指定一个需求、页面绑定或 Demo 产物', 'target-invalid', 400)
         if within_artifact and not binding_id:
             self._entry_error('所属产物仅可用于定位页面绑定', 'target-invalid', 400)
@@ -364,13 +451,17 @@ class DemoAccess:
             artifacts = {artifact['id']: artifact for artifact in registry['items']}
             live = self.store._read('relations.json', {'bindings': []}, base=root)['bindings']
             binding = None
-            if requirement_id:
+            if current:
+                artifact_id = registry.get('currentArtifactId')
+                if not artifact_id:
+                    self._entry_error('当前项目尚未登记可打开的 Demo', 'current-demo-missing', 404)
+            elif requirement_id:
                 self._requirement_exists(root, project, requirement_id)
                 covering = [item for item in live if requirement_id in item.get('requirementIds', [])]
-                current = registry.get('currentArtifactId')
+                current_artifact_id = registry.get('currentArtifactId')
                 candidates = {item.get('artifactId') for item in covering}
-                if current in candidates:
-                    artifact_id = current
+                if current_artifact_id in candidates:
+                    artifact_id = current_artifact_id
                 elif len(candidates) == 1:
                     artifact_id = next(iter(candidates))
                 elif not candidates:
@@ -429,6 +520,8 @@ class DemoAccess:
             checked['integrityStatus'] = ('editing' if editing else 'intact') if check_files else 'unchecked'
             result = {'versionId': version or 'working', 'historical': bool(version),
                       'artifact': checked, 'route': route, 'entryHtml': artifact.get('entryHtml', 'index.html')}
+            if current:
+                result.update(current=True, currentDemo=self._current_demo_metadata(registered, project, root))
             if requirement_id:
                 result['requirementId'] = requirement_id
             if binding:
@@ -515,6 +608,20 @@ class DemoAccess:
             def do_GET(self):
                 try:
                     self.check_host()
+                    if urlsplit(self.path).path in ('/demo/current', '/demo/current/'):
+                        # Keep assets on the precise artifact namespace. A pointer
+                        # switch must not mix two bundles while a page is loading.
+                        entry = owner.resolve_entry(current=True)
+                        target = owner.demo_url({'id': entry['artifact']['id'], 'entryHtml': entry['entryHtml']}, route=entry['route'])
+                        query = urlsplit(self.path).query
+                        if query:
+                            parsed_target = urlsplit(target)
+                            target = parsed_target._replace(query=query).geturl()
+                        self.send_response(307)
+                        self.send_header('Location', target)
+                        self.send_header('Cache-Control', 'no-store')
+                        self.send_header('Content-Length', '0')
+                        return self.end_headers()
                     if urlsplit(self.path).path == '/api/health':
                         token = self.headers.get('X-Prototype-Flow-Token', '')
                         if not secrets.compare_digest(token, owner.token):
@@ -554,6 +661,7 @@ class PreviewServer(DemoAccess):
 
     def __init__(self, store, port=0):
         self._init_demo_access(store)
+        self._init_runtime()
         self.project_id = store._project()['id']
         self.token = secrets.token_urlsafe(32)
         self.instance_id = secrets.token_urlsafe(24)
@@ -571,7 +679,7 @@ class PreviewServer(DemoAccess):
         return {'url': self.origin, 'previewOrigin': self.preview_origin,
                 'projectRoot': str(self.store.root), 'projectId': self.project_id,
                 'serviceKind': self.service_kind, 'pid': os.getpid(),
-                'transport': 'loopback_http', 'reused': False}
+                'transport': 'loopback_http', 'reused': False, 'runtime': self.runtime()}
 
     def health(self):
         if self.store._project()['id'] != self.project_id or not self._threads or not all(thread.is_alive() for thread in self._threads):
@@ -587,10 +695,10 @@ class PreviewServer(DemoAccess):
 
 
 def resolve_demo_entry(store, version=None, requirement_id=None, binding_id=None,
-                       artifact_id=None, within_artifact=None, check_files=True):
+                       artifact_id=None, within_artifact=None, check_files=True, current=False):
     resolver = DemoAccess()
     resolver._init_demo_access(store)
-    return resolver.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact, check_files)
+    return resolver.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact, check_files, current)
 
 
 def preview(project_root, reuse=True, port=0):
@@ -639,7 +747,7 @@ def preview(project_root, reuse=True, port=0):
 ensure_preview = preview
 
 
-def stop_preview(project_root):
+def stop_preview(project_root, expected_instance_id=None):
     """Stop only the healthy registered preview, never a workbench process."""
     registry = ServiceRegistry(project_root, 'preview')
     with registry.lock():
@@ -647,6 +755,8 @@ def stop_preview(project_root):
         if not service:
             return False
         instance_id = registry._read().get('instanceId')
+        if expected_instance_id is not None and instance_id != expected_instance_id:
+            raise FlowError('预览服务实例已变化，请重新连接后再重启', 409)
         os.kill(service['pid'], signal.SIGTERM)
     process = _PREVIEW_CHILDREN.pop(service['pid'], None)
     if process:
@@ -664,18 +774,24 @@ def stop_preview(project_root):
 
 
 def demo_entry(store, version=None, requirement_id=None, binding_id=None,
-               artifact_id=None, within_artifact=None):
+               artifact_id=None, within_artifact=None, current=False):
     registry = ServiceRegistry(store.root, 'preview')
     with registry.lock():
         service = registry.reuse()
     if not service:
         raise FlowError('独立预览服务未运行，请先运行 preview', 503, {'code': 'preview-not-running'})
+    if current and service['runtime']['restartRequired']:
+        raise FlowError('预览服务运行旧版或未知版本，请显式重启后打开当前 Demo', 409,
+                        {'code': 'runtime-not-current', 'runtime': service['runtime']})
     resolver = DemoAccess()
     resolver._init_demo_access(store)
     resolver.preview_origin = service['previewOrigin']
-    result = resolver.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact)
+    result = resolver.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact, current=current)
     result['url'] = resolver.demo_url({'id': result['artifact']['id'], 'entryHtml': result['entryHtml']},
                                      None if result['versionId'] == 'working' else result['versionId'], result['route'])
+    if current:
+        result['canonicalUrl'], result['url'] = result['url'], service['previewOrigin'] + '/demo/current/'
+    result['runtime'] = service['runtime']
     return result
 
 
@@ -709,6 +825,7 @@ class WorkbenchServer(DemoAccess):
 
     def __init__(self, store: ProjectStore, port=0, preview_port=0, assets=None):
         self._init_demo_access(store)
+        self._init_runtime()
         self.project_id = store._project()['id']
         self.token = secrets.token_urlsafe(32)
         self.instance_id = secrets.token_urlsafe(24)
@@ -740,7 +857,7 @@ class WorkbenchServer(DemoAccess):
                 'requirementMapUrl': self.origin + '/requirement-map',
                 'projectRoot': str(self.store.root), 'projectId': self.project_id,
                 'serviceKind': self.service_kind, 'pid': os.getpid(),
-                'transport': 'loopback_http', 'reused': False}
+                'transport': 'loopback_http', 'reused': False, 'runtime': self.runtime()}
 
     def health(self):
         map_assets = Path(__file__).resolve().parents[1] / 'assets/conversation-ui'
@@ -762,7 +879,7 @@ class WorkbenchServer(DemoAccess):
         fast = {name: entry_signature(self.store.meta / name) for name in fast_paths}
         state_token = hashlib.sha256(json.dumps(fast, sort_keys=True).encode()).hexdigest()
         result = {'revisionToken': state_token, 'stateRevisionToken': state_token,
-                  'projectRoot': str(self.store.root)}
+                  'projectRoot': str(self.store.root), 'runtime': self.runtime()}
         if scope == 'active':
             return result
         # Scan only metadata. Integrity is checked separately before content is used.
@@ -850,11 +967,17 @@ class WorkbenchServer(DemoAccess):
 
 
     def demo_entry(self, version=None, binding_id=None, artifact_id=None,
-                   requirement_id=None, within_artifact=None):
-        result = self.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact)
+                   requirement_id=None, within_artifact=None, current=False):
+        result = self.resolve_entry(version, requirement_id, binding_id, artifact_id, within_artifact, current=current)
         self._preview_info = preview(self.store.root, port=self.preview_port)
+        if current and self._preview_info['runtime']['restartRequired']:
+            raise FlowError('预览服务运行旧版或未知版本，请显式重启后打开当前 Demo', 409,
+                            {'code': 'runtime-not-current', 'runtime': self._preview_info['runtime']})
         result['url'] = self.demo_url({'id': result['artifact']['id'], 'entryHtml': result['entryHtml']},
                                      None if result['versionId'] == 'working' else result['versionId'], result['route'])
+        if current:
+            result['canonicalUrl'], result['url'] = result['url'], self.preview_origin + '/demo/current/'
+        result['runtime'] = self._preview_info['runtime']
         return result
 
     def _workbench_handler(self):
@@ -897,7 +1020,10 @@ class WorkbenchServer(DemoAccess):
                             return self.json(owner.demo_entry(version=version,
                                 binding_id=query.get('binding', [None])[0], artifact_id=query.get('artifact', [None])[0],
                                 requirement_id=query.get('requirement', [None])[0],
-                                within_artifact=query.get('withinArtifact', [None])[0]))
+                                within_artifact=query.get('withinArtifact', [None])[0],
+                                current=query.get('current', ['false'])[0] in ('1', 'true')))
+                        if path == '/api/current-demo':
+                            return self.json(owner.resolve_entry(version=version, current=True))
                         if path.startswith('/api/modules/') and path.endswith('/package'):
                             parts = path.split('/')
                             if len(parts) != 5:
@@ -1007,7 +1133,7 @@ def ensure_workbench(project_root, reuse=True, port=0):
             process.stdout.close()
 
 
-def stop_workbench(project_root):
+def stop_workbench(project_root, expected_instance_id=None):
     """Stop only the healthy registered workbench; leave Demo preview alone."""
     registry = ServiceRegistry(project_root, 'workbench')
     with registry.lock():
@@ -1015,6 +1141,8 @@ def stop_workbench(project_root):
         if not service:
             return False
         instance_id = registry._read().get('instanceId')
+        if expected_instance_id is not None and instance_id != expected_instance_id:
+            raise FlowError('需求图服务实例已变化，请重新连接后再重启', 409)
         os.kill(service['pid'], signal.SIGTERM)
     process = _WORKBENCH_CHILDREN.pop(service['pid'], None)
     if process:
@@ -1026,6 +1154,38 @@ def stop_workbench(project_root):
             return True
         event.wait(0.05)
     raise FlowError('本地需求图服务尚未完成停止', 503)
+
+
+def reconnect_service(project_root, service_kind='workbench'):
+    """Inspect the existing authenticated service, without starting or stopping it."""
+    root = project_root.root if isinstance(project_root, ProjectStore) else project_root
+    registry = ServiceRegistry(root, service_kind)
+    with registry.lock():
+        service = registry.reuse()
+    if not service:
+        raise FlowError('没有可确认身份的本地服务，请先启动服务', 503,
+                        {'code': 'service-not-running', 'serviceKind': service_kind})
+    return dict(service, reconnected=True)
+
+
+def restart_service(project_root, service_kind='workbench', port=0):
+    """Explicitly replace only the discovered instance and preserve its old port."""
+    root = project_root.root if isinstance(project_root, ProjectStore) else project_root
+    registry = ServiceRegistry(root, service_kind)
+    with registry.lock():
+        service = registry.reuse()
+        instance_id = registry._read().get('instanceId')
+        if not service:
+            raise FlowError('无法确认要重启的服务身份；未停止任何进程', 409,
+                            {'code': 'service-identity-unavailable', 'serviceKind': service_kind})
+        target_port = port or urlsplit(service['url']).port
+    stop = stop_workbench if service_kind == 'workbench' else stop_preview
+    start = ensure_workbench if service_kind == 'workbench' else preview
+    if not stop(root, expected_instance_id=instance_id):
+        raise FlowError('原服务在重启前已失去连接；未启动替代进程', 409,
+                        {'code': 'service-identity-unavailable', 'serviceKind': service_kind})
+    started = start(root, reuse=True, port=target_port)
+    return dict(started, restarted=True, previousPid=service['pid'], previousUrl=service['url'])
 
 
 def _workbench_worker(project_root, port, registry_directory):

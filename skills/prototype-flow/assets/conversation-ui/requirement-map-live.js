@@ -8,6 +8,24 @@
   const status = root.querySelector('[data-role="connection-status"]');
   const retry = root.querySelector('[data-action="retry-sync"]');
   const initial = JSON.parse(root.querySelector('[data-role="payload"]').textContent);
+  const initialModel = initial.requirementMap || initial.snapshot.data?.requirementMap;
+  const storageKey = 'prototype-flow:map-view:' + JSON.stringify([
+    initial.snapshot.project.id, initial.snapshot.versionId, initialModel?.scopeKey]);
+  const rememberView = () => {
+    try {
+      const value = JSON.stringify(bridge.exportViewState?.());
+      if (value && value.length < 16000) sessionStorage.setItem(storageKey, value);
+    } catch (_) { /* Storage is optional; keep the live graph usable. */ }
+  };
+  try {
+    const saved = sessionStorage.getItem(storageKey);
+    if (saved && saved.length < 16000) bridge.restoreViewState?.(JSON.parse(saved));
+  } catch (_) { /* Invalid or unavailable local view state is disposable. */ }
+  const reconnect = document.createElement('button');
+  reconnect.type = 'button'; reconnect.className = 'rm-text-button';
+  reconnect.dataset.action = 'reconnect'; reconnect.textContent = '重新连接'; reconnect.hidden = true;
+  retry?.after(reconnect);
+  reconnect.addEventListener('click', () => { rememberView(); location.reload(); });
   const query = new URLSearchParams();
   for (const key of ['module', 'requirement', 'version']) {
     const value = new URLSearchParams(location.search).get(key);
@@ -17,10 +35,10 @@
     if (status) { status.textContent = message; status.dataset.connection = failed ? 'disconnected' : 'connected'; }
     if (retry) retry.hidden = !failed;
   };
+  window.addEventListener('pagehide', rememberView);
   if (initial.snapshot.historical) { show('历史版本 · 固定快照'); return; }
   let busy = false, stopped = false, initialized = false, timer, controller;
   let stateToken, externalToken, lastFullCheck = 0, generation = 0;
-  const initialModel = initial.requirementMap || initial.snapshot.data?.requirementMap;
   let sequence = initialModel?.sequence || 0;
   let fingerprint = initial.snapshot.sourceFingerprint;
   async function request(path) {
@@ -30,7 +48,13 @@
       const response = await fetch(path, { headers: { 'X-Prototype-Flow-Token': token },
         cache: 'no-store', credentials: 'same-origin', signal: controller.signal });
       const value = await response.json();
-      if (!response.ok) throw new Error(value.error || '无法读取最新数据');
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          reconnect.hidden = false;
+          throw new Error('连接凭据已失效，请重新连接以读取当前服务');
+        }
+        throw new Error(value.error || '无法读取最新数据');
+      }
       return value;
     } finally { clearTimeout(timeout); controller = null; }
   }
@@ -58,7 +82,12 @@
       stateToken = nextToken;
       if (revision.externalRevisionToken !== undefined) externalToken = revision.externalRevisionToken;
       initialized = true;
-      show('已连接 · 自动更新');
+      const runtime = revision.runtime;
+      reconnect.hidden = runtime?.status === 'current';
+      if (runtime?.status === 'stale') show('已连接 · 运行中服务为旧版，请重启服务后重新连接');
+      else if (runtime?.status !== 'current') show('已连接 · 服务版本未知，可重启服务后重新连接');
+      else show('已连接 · 自动更新');
+      rememberView();
     } catch (error) {
       if (!stopped && started === generation) show('更新暂停 · 保留上次内容：' + error.message, true);
     } finally { busy = false; }

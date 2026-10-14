@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 
 from pf_core import FlowError, valid_id
 from pf_queries import _artifact_inputs, _selected
+from pf_evidence import changed_keys, merge_review_reasons, review_reason
 
 
 CONTRACT = 'prototype-flow.coverage/1'
@@ -228,12 +229,32 @@ def requirement_coverage(store, requirements, documents, version=None, artifact_
                              or binding.get('status') == 'needs-review')
                 generated = entry_available and not stale
                 verified = generated and not stale and binding.get('verified') is True and binding.get('verificationStatus') != 'unchecked'
+                reasons = merge_review_reasons(binding.get('reviewReasons', [])) if not binding.get('verified') else []
+                if artifact['staleRequirementIds']:
+                    reasons.append(review_reason('requirement-input', requirementIds=artifact['staleRequirementIds']))
+                if not inputs_known:
+                    reasons.append(review_reason('requirement-input', requirementIds=sorted(
+                        rid for rid in binding.get('requirementIds', []) if rid not in artifact.get('requirementHashes', {}))))
+                if artifact['staleDocumentIds']:
+                    reasons.append(review_reason('shared-document', documentIds=artifact['staleDocumentIds']))
+                if not intact:
+                    reasons.append(review_reason('dependency-content', paths=changed_keys(artifact.get('fileHashes', {}), inventory)))
+                if editing:
+                    reasons.append(review_reason('draft-editing'))
+                if not entry_available:
+                    reasons.append(review_reason('entry-unavailable'))
+                if not verified and not reasons:
+                    reasons.append(review_reason('evidence-changed' if original.get('verified') else 'prior-needs-review'))
+                # Keep saved explanations and live invalidation causes in one projection.
+                # Old bindings have no extra fields; their existing validity stays unchanged.
+                unique_reasons = merge_review_reasons(reasons)
                 pages.append({**_selected(binding, 'id', 'title', 'artifactId', 'screenId', 'stateId', 'fixtureId',
-                    'route', 'screenshot', 'requirementIds', 'verificationStatus', 'evidence', 'verificationInheritedFrom'),
+                    'route', 'screenshot', 'requirementIds', 'verificationStatus', 'evidence', 'verificationInheritedFrom',
+                    'reviewChange', 'reviewRevision'),
                     'title': binding.get('title') or binding.get('screenId') or '关联页面',
                     'entryAvailable': entry_available, 'generated': bool(generated), 'verified': bool(verified),
                     'registeredVerified': original.get('verified') is True or original.get('registeredVerified') is True,
-                    'stale': stale, 'historical': historical})
+                    'stale': stale, 'historical': historical, 'reviewReasons': unique_reasons})
         directory = store._safe('.prototype-flow/runs', base=base)
         runs = [store._read('runs/' + path.name, base=base) for path in directory.glob('*.json')]
         tasks = _latest_tasks(store, base, project, runs, requirements, documents)

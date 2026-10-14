@@ -1,8 +1,8 @@
-# 默认需求图与对话呈现
+# 按需需求图与对话呈现
 
-任务通过对话和现有 CLI 执行。需求整理拆分、Demo 生成、需求及 Demo 变更默认提供本地实时需求图和本轮对话快照；首次打开图后，同一项目复用已有链接，后续阶段更新同一张图。简单查询、单项解释、空结果仍直接文字交付，不为它们插入卡片。结果以实际保存回执和验证证据为准，不为展示重复运行全量 `state`、`refresh` 或 `validate`。项目管理、长篇阅读与历史集中浏览仍按需打开完整工作台。
+任务通过对话和现有 CLI 执行。日常需求整理、Demo 生成和调整默认交付实际保存结果、可查看入口与必要检查说明；需求图、工作台和对话快照按需展示。用户已打开需求图时，同一项目继续复用已有链接，实际保存的数据由图自动读取更新。简单查询、单项解释、空结果直接文字交付。结果以实际保存回执和验证证据为准，不为展示重复运行全量 `state`、`refresh` 或 `validate`；打开图或工作台也不触发补齐覆盖、截图或验证材料。
 
-## 默认需求图
+## 按需需求图
 
 需求核对与 Demo 进度使用 `review-state <project-dir> --view requirement-map`，可用 `--module` 限定模块、`--requirement` 指定初始选中、`--version` 查看固定历史。同一图按项目 → 模块 → 需求展开，点击节点在图内右侧查看说明、原文验收条件、Demo 覆盖、任务、页面与来源。节点只保留标题、状态和覆盖数。此视图一次读取完整范围，最多 200 条需求；超限应按模块定向查看或文字交付，不截断成貌似完整的图。
 
@@ -14,9 +14,9 @@ python3 -B <skill-dir>/scripts/render_conversation.py --file <snapshot.json> --o
 
 `requirement-map` 后台准备或复用本项目服务，返回 `status:"ready"`、`url`、`projectId`、`reused`、`autoUpdate`、`snapshotCommand` 和实际 `snapshot`。`snapshotCommand` 是命令参数数组，不是可直接拼接执行的 shell 字符串。可选 `--module`、`--requirement`、`--version`、`--port`；历史 `autoUpdate:false`。命令本身不打开浏览器、不修改项目业务文件。Agent 首次将 `url` 展示在当前宿主的浏览器侧栏；同一项目已打开时继续复用该页，不重新打开或刷新页面。只需离线内容时直接运行 `review-state`；渲染器输入是需求图快照，不是整个命令回执。
 
-`init`、`intake`、`save`、`requirement` 及 Demo 任务、工作稿保存等相关写命令成功后，默认在回执附 `requirementMap`，包含链接、服务复用状态、`autoUpdate` 及 `snapshotCommand`。其中 `ready` 表示本地服务可用，不代替快照投影或业务验证。Agent 根据回执复用实时页，阶段完成时执行其中的只读快照命令并呈现本轮图；无需另行运行 `serve` 或全量状态检查。回执不含 API token。单个写命令可用 `--no-requirement-map` 跳过本次服务准备；这适用于明确要求纯命令执行的场景，不关闭已打开的需求图。
+写命令默认不准备需求图服务，回执不附 `requirementMap`。需要随本次保存准备需求图时，显式添加 `--requirement-map`；支持该选项的写命令会在成功回执附链接、服务复用状态、`autoUpdate` 及 `snapshotCommand`。其中 `ready` 只表示本地服务可用，回执不含 API token。旧 `--no-requirement-map` 保留兼容，与 `--requirement-map` 互斥。两者均不关闭已有服务；图已打开时，普通保存也会被自动读取，无需每轮添加开图选项。只在需要对话快照时执行 `snapshotCommand` 并呈现结果，不将其作为阶段收尾的必做步骤。
 
-本地实时页和对话快照共用模型及渲染器。需求图是上述实施流程的默认呈现，不必再次询问是否启用。实时页每 2 秒检查已保存项目与任务变化，每 30 秒检查外部 PRD、Demo 文件和证据变化；回到页面时立即检查。只有变化时重新读取覆盖，稳定 ID 仍存在时保留选中、展开与键盘焦点，以及搜索、模块及状态筛选、结构图/列表模式、详情页签和滚动阅读位置；改名或移动不重建选择，拆合或移除后只清理退役对象，不猜选新需求。断线时保留上次内容并显示更新暂停及重试入口。历史页不轮询。任务记录只报告实际登记状态，不证明 Agent 仍在运行。
+本地实时页和对话快照共用模型及渲染器。显式请求打开图或工作台时，使用 `requirement-map` 或 `serve`，继续遵循当前宿主的展示方式。实时页每 2 秒检查已保存项目与任务变化，每 30 秒检查外部 PRD、Demo 文件和证据变化；回到页面时立即检查。只有变化时重新读取覆盖，稳定 ID 仍存在时保留选中、展开与键盘焦点，以及搜索、模块及状态筛选、结构图/列表模式、详情页签和滚动阅读位置；改名或移动不重建选择，拆合或移除后只清理退役对象，不猜选新需求。断线时保留上次内容并显示更新暂停及重试入口。历史页不轮询。任务记录只报告实际登记状态，不证明 Agent 仍在运行。
 
 对话内仍是读取时的离线快照：不联网、不轮询，也不宣称原消息会自动刷新。每轮结果可按新数据呈现同款图；持续更新使用本地实时页。`updateSnapshot` 是本地页面复用接口，不表示已有 Codex 原生推送通道。旧服务如无此入口，应使用本次源码启动新的本地服务；不得把旧服务复用成功当作新能力已启用。
 
@@ -24,7 +24,7 @@ python3 -B <skill-dir>/scripts/render_conversation.py --file <snapshot.json> --o
 
 服务准备失败时，业务保存仍成功，`requirementMap.status:"unavailable"`、`error` 和数值 `errorStatus` 说明展示原因。先交付保存结果，再用 `snapshotCommand`、文件入口和文字降级；没有内嵌能力时提供实时链接及离线图文件。不要为了补图重放 `intake`、`save` 或 Demo 保存。`state`、`document`、`review-state` 等只读命令不自动启动服务。服务和链接仅供本机使用；关闭标签页不停止服务，停止服务后实时更新会暂停。
 
-显式停止使用 `requirement-map <project-dir> --stop`，不能同时指定 `--module`、`--requirement`、`--version` 或 `--port`。它停止该项目共用的需求图和完整工作台服务，返回 `status:"stopped"|"not-running"` 与 `autoUpdate:false`；独立 Demo 预览继续运行。后续成功的默认写命令会重新准备需求图服务，若继续纯命令执行则使用 `--no-requirement-map`。服务停止与项目保存、图的只读浏览状态互不替代。
+显式停止使用 `requirement-map <project-dir> --stop`，不能同时指定 `--module`、`--requirement`、`--version` 或 `--port`。它停止该项目共用的需求图和完整工作台服务，返回 `status:"stopped"|"not-running"` 与 `autoUpdate:false`；独立 Demo 预览继续运行。后续普通写命令保持服务停止，显式 `requirement-map`、`serve` 或写命令的 `--requirement-map` 才准备服务。日常轻量执行无需停止用户已打开的图。
 
 ### 布局与阅读操作
 
@@ -38,19 +38,23 @@ python3 -B <skill-dir>/scripts/render_conversation.py --file <snapshot.json> --o
 
 卡片暂时没有布局尺寸时保留上一次可见的阅读位置，恢复显示后再按锚点恢复，不把原生零值当作用户滚动。宿主状态只用于首次加载及尚未发生本地交互时的恢复；用户已经选择、输入或滚动后，迟到的状态回传不再覆盖当前视图。
 
+本地实时页另用当前标签页的 `sessionStorage` 保存项目、版本和读取范围隔离的视图状态，在同源重新加载后恢复选择、筛选、详情页签与阅读锚点；不保存业务正文或服务 token。存储不可用或范围不同则正常打开初始视图。服务版本为旧版或未知时，页脚保留已读内容并显示原因；连接凭据因重启失效时提供“重新连接”，由用户操作重新加载，不后台重启服务。
+
 宽屏并排显示两个区域；中等宽度在外框内打开可关闭的详情层；窄屏在需求结构与详情之间切换，返回时保留原位置。详情不叠加在结构下方，不触发整个对话或页面滚动。左右阅读区均支持键盘翻页。
 
 ### 覆盖口径
 
 覆盖只读取当前明确指向的 Demo 产物、真实页面入口、需求输入哈希、验证指纹和 Demo 阶段任务。历史产物、候选产物和其他阶段任务不混入当前覆盖；任务结束不代表需求已实现。有任一有效页面也不能推断完整覆盖。
 
-新拆分且需要 Demo 的需求，应按已明确的业务验收与异常分支声明 `demoCoverage`，提供预期页面状态分母；不制作 Demo 的需求或依据不足的范围可保持未声明并注明原因。各项 ID 在重命名时保留，页面目标由 `screenId`、`stateId` 和可选 `fixtureId` 对应。字段参与需求哈希，通过 `intake` / 显式需求操作保留，使用正常 PRD 保存流程维护：
+`demoCoverage` 用于声明约定的页面状态覆盖范围，可在评审或交接整理时按已明确的业务验收与异常分支补充。日常整理和调整无需逐项补齐完整覆盖分母；已声明的范围随相关业务规则维护，未声明的范围保持未知。各项 ID 在重命名时保留，页面目标由 `screenId`、`stateId` 和可选 `fixtureId` 对应。字段参与需求哈希，通过 `intake` / 显式需求操作保留，使用正常 PRD 保存流程维护：
 
 ```json
 {"schemaVersion":1,"items":[{"id":"REFUND-FORM","title":"退款申请表单","screenId":"SCREEN-AFTERCARE","stateId":"STATE-REFUND-FORM","fixtureId":"paid-order"},{"id":"REFUND-SUCCESS","title":"提交成功反馈","screenId":"SCREEN-AFTERCARE","stateId":"STATE-REFUND-SUCCESS"}]}
 ```
 
-上述对象放在 `pf:req` JSON 的 `demoCoverage` 字段。它声明页面状态覆盖范围，不能替代正文业务验收或实际交互验证。未声明的旧需求展示已登记页面数量和证据，完整覆盖保持未知，不按现有 bindings 反推分母。输入或产物变化后保留旧页面与旧计数，当前覆盖依据失效；这是整体 Demo 基线待核对，不断言每个页面的业务内容都已失效。实时读取从不回写 PRD、补声明或制造验证结果。
+上述对象放在 `pf:req` JSON 的 `demoCoverage` 字段。它声明页面状态覆盖范围，不能替代正文业务验收或实际交互验证。未声明的需求展示已登记页面数量和证据，完整覆盖保持未知，不按现有 bindings 反推分母。输入或产物变化后保留旧页面与旧计数，当前覆盖依据失效；这是整体 Demo 基线待核对，不断言每个页面的业务内容都已失效。实时读取从不回写 PRD、补声明或制造验证结果，也不要求为消除待复核标签扩大检查。
+
+日常 Demo 调整完成必要检查、及时更新变化的业务规则并保存修订即可；新增、修改或删除页面入口时，维护必要的精确需求关联，清理失效入口，未变化的关联无需重复登记。评审或交接再集中整理约定范围内的覆盖与截图，检查仍按实际结果记录，不自动确认需求或产物。
 
 ### 其他卡片
 
@@ -101,6 +105,10 @@ PRD 与 Demo 同改时，先核对原 PRD 基线并保存规则，再读取本�
 ## 独立预览与交付
 
 先 `preview <project-dir> --reuse`，再 `demo-entry <project-dir> --requirement <id>`，或 `--binding <id> --within-artifact <id>`、`--artifact <id>`；目标互斥，历史加 `--version`。没有预览时 demo-entry 报错，不隐式打开工作台。保留 route/query/hash，不缓存旧端口或 token。关闭标签页不停止服务，工作台退出不停止独立预览；修改后手动刷新。
+
+用户询问或打开“当前／最新 Demo”时，使用 `demo-entry <project-dir> --current`。它依据既有 `currentArtifactId` 返回固定入口 `/demo/current/`、本次准确入口 `canonicalUrl` 及 `currentDemo` 元数据：标题、工作稿修订、对应 PRD 基线、最近变化和冻结关系。固定入口每次打开重定向到当时的准确产物，资源继续从该产物加载；已打开的 Demo 不自动换版。历史与冻结版使用明确产物或版本，不把当前工作稿称为已确认评审版。业务版本只在已有标题或 PRD 有记录时引用，不从目录名推测。旧 `home/latest` 副本无需继续复制业务实现；迁移引用或删除历史仍按用户授权处理。
+
+`service <project-dir> --kind workbench|preview` 只读检查现有服务身份和 `runtime`；`status` 为 `current/stale/unknown`，附启动与安装指纹，后两者返回准确的 `restartCommand` 参数数组。不要把健康但旧的服务当作已载入新版本；`--current` 需要当前版本的独立预览。明确重启时使用 `service <project-dir> --kind workbench|preview --restart`，默认保留原端口以支持同源阅读状态恢复。运行时核对项目和实例后才停止进程；失败说明身份或端口问题，不终止其他进程。页面“重新连接”只重新加载，CLI `service` 默认只读，两者均不等于重启。指纹改变不自动重启用户正在使用的服务。
 
 多页面需求有默认时直接打开默认；无默认保留精确链接。冻结使用自己的 frozenRelations，历史使用自己的已验证快照，不退回当前稿。打开失败交付实际原因及可用本机链接，截图不能代替可交互 Demo。
 

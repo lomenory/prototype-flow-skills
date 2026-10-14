@@ -250,13 +250,19 @@
   }
   function renderPage(parent, pages, keyPrefix) {
     keyed(parent, pages, (page, position) => keyPrefix + ':' + (text(page.id) || position), () => {
-      const element = el('li', undefined, 'rm-page'), line = el('div', undefined, 'rm-page-line'), title = el('span'), status = el('span'), evidence = el('p'), route = el('p');
-      line.append(title, status); element.append(line, route, evidence); return { element, title, status, evidence, route };
+      const element = el('li', undefined, 'rm-page'), line = el('div', undefined, 'rm-page-line'), title = el('span'), status = el('span'), evidence = el('p'), route = el('p'), reasons = el('p');
+      reasons.dataset.reviewReasons = ''; line.append(title, status); element.append(line, route, reasons, evidence); return { element, title, status, evidence, route, reasons };
     }, (node, page) => {
       node.element.dataset.page = text(page.id); node.title.textContent = text(page.title) || text(page.id); node.status.textContent = text(page.label);
       node.route.textContent = [text(page.screenId), text(page.stateId), text(page.fixtureId)].filter(Boolean).join(' / ') || text(page.route); node.route.hidden = !node.route.textContent;
       const evidence = typeof page.evidence === 'string' ? page.evidence : page.evidence && typeof page.evidence === 'object' ? Object.entries(page.evidence).filter(([, value]) => ['string', 'number'].includes(typeof value)).map(([key, value]) => `${key}: ${text(value)}`).join('\n') : '';
       node.evidence.textContent = evidence || (text(page.verificationStatus) ? '验证记录：' + text(page.verificationStatus) : '尚无验证依据。');
+      const explanations = list(page.reviewReasons).map(reason => {
+        const details = [...list(reason?.paths), ...list(reason?.requirementIds), ...list(reason?.documentIds)].map(text).filter(Boolean);
+        return text(reason?.message) + (details.length ? '（' + details.join('、') + '）' : '');
+      }).filter(Boolean);
+      const change = page.reviewChange === 'new' ? '本次保存新增待复核' : page.reviewChange === 'continued' ? '此前待复核，本次仍待处理' : '待复核原因';
+      node.reasons.textContent = explanations.length ? change + '：' + explanations.join('\n') : ''; node.reasons.hidden = !explanations.length;
     });
   }
   function matchesPage(entry, page) {
@@ -466,6 +472,11 @@
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleDraw) : null;
   root.requirementMap = Object.freeze({
     updateSnapshot,
+    exportViewState: () => { captureScrolls(); return { privateContent: boundedView() }; },
+    restoreViewState: saved => {
+      if (!payload || localViewChanged || !restore(saved)) return false;
+      render(); restoreScrolls(); persist(); return true;
+    },
     getState: () => { captureScrolls(); return { selected: state.selected, collapsed: [...state.collapsed], detailOpen: state.detailOpen, query: state.query, moduleFilter: state.moduleFilter, statusFilter: state.statusFilter, viewMode: state.viewMode, activeDetailTab: state.activeDetailTab, expandedCoverage: [...state.expandedCoverage], scroll: JSON.parse(JSON.stringify(state.scroll)), snapshotId: payload?.snapshot.snapshotId, lastUpdate: { ...lastUpdate } }; },
     destroy: () => { disposed = true; closeTools(); if (frame) window.cancelAnimationFrame(frame); if (persistenceFrame) window.cancelAnimationFrame(persistenceFrame); observer?.disconnect(); document.removeEventListener('pointerdown', onOutsideTools); for (const event of ['pointerdown', 'keydown', 'wheel']) root.removeEventListener(event, onLocalInput); window.removeEventListener('resize', scheduleDraw); window.removeEventListener('openai:set_globals', onGlobals); root.removeEventListener('prototype-flow:requirement-map-snapshot', onSnapshot); }
   });

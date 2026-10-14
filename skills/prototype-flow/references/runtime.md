@@ -23,7 +23,7 @@ project/
 └── versions/<version-id>/    不可变项目快照
 ```
 
-需求整理拆分、Demo 生成与变更默认准备本地实时需求图，相关写命令回执返回 `requirementMap`；已有项目也可用 `requirement-map <project-dir>` 接入。Agent 首次展示图链接，同项目继续复用同一页。需要打开完整工作台时运行 `serve <project-dir> --reuse`，按项目路径发现并健康检查已有服务，成功复用时返回 `reused:true`；否则启动新服务。`serve` 新启动的前台进程仍需保持运行，需求图命令则后台准备服务。发现信息保存在本机临时目录，不进入项目修订或快照。产品 Demo 在另一 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，仅提供读取；POST、PUT、PATCH、DELETE 返回 405，Agent 通过本地 CLI 执行写入。不要把本地服务器绑定至公网或向他人分享 API 令牌。
+需求和 Demo 写命令默认只保存数据，不启动工作台或需求图。需要查看时运行 `requirement-map <project-dir>`，或在本次写命令加 `--requirement-map` 返回服务回执；旧 `--no-requirement-map` 兼容，不能与启用参数同时使用。需要完整工作台时运行 `serve <project-dir> --reuse`，按项目路径发现并健康检查已有服务，成功复用时返回 `reused:true`；否则启动新服务。`serve` 新启动的前台进程仍需保持运行，需求图命令则后台准备服务。已有图继续读取保存结果，不要求每轮准备服务或生成快照。发现信息保存在本机临时目录，不进入项目修订或快照。产品 Demo 在独立 loopback origin 下只读预览。工作台 API 有会话令牌和来源检查，仅提供读取；POST、PUT、PATCH、DELETE 返回 405，Agent 通过本地 CLI 执行写入。不要把本地服务器绑定至公网或向他人分享 API 令牌。
 
 目录与导航由内建运行时维护，无需外部文档维护 Skill。`00-ai-context/DOC_MAP.md` 是统一导航；旧工具生成的 `INDEX.md` 转为导航指针，用户自写 INDEX 保留。已有 `AI_GUIDE.md` 仅替换已知过期维护指引，保留自定义补充，不创建新指南。旧 dashboard 和 `prdlib:related` 正文块不删除、不再生成或回写；历史快照不参与当前文档库维护。
 
@@ -121,22 +121,19 @@ python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <
 
 `change.json` 与旧路径的 `run-start --change-file` 相同。Tier 3 开始前，若当前已保存修订尚未冻结，运行时自动保存检查点。未保存改动应先完成当前任务或明确恢复，不把它们冒充已保存修订。额外业务依据用 `--documents` 加入；输入变化仍需判断影响。
 
-CLI 必须通过 `--requirements`、`--bindings` 或 `change.affectedBindingIds` 明确本次范围；全项目使用 `--all-requirements`。未传 change 时 `--bindings` 只记录显式范围，不推断 Tier。命令返回 `affectedModules`、`bindings` 摘要和 `saveTemplate`，可直接在模板补实际结果。Python `edit_demo()` 的无参数调用保持原有全量兼容，回执以 `scopeExpandedToAll:true` 明示；旧 CLI 无范围调用应补显式选项。
+CLI 必须通过 `--requirements`、`--bindings` 或 `change.affectedBindingIds` 明确本次范围；全项目使用 `--all-requirements`。未传 change 时 `--bindings` 只记录显式范围，不推断 Tier。命令返回 `affectedModules`、`bindings` 摘要和最小 `saveTemplate`，模板只预填产物标题与本轮摘要，不生成无变化的 binding 补丁。直接补上实际检查与限制即可保存；只有关联或证据确实变化时再增加相应字段。Python `edit_demo()` 的无参数调用保持原有全量兼容，回执以 `scopeExpandedToAll:true` 明示；旧 CLI 无范围调用应补显式选项。
 
 需求变更涉及产物名称中的业务规则时，Agent 在本轮 `demo-edit --title "新标题"` 显式声明完成后的名称（Python 对应 `artifact_title`），如十四天改七天。任务以 `artifactTitle` 固定声明，`saveTemplate.artifact.title` 始终回显声明值或当前名称；原来未命名的产物以其 ID 显示。`demo-save` 省略 `artifact.title` 也会自动应用本轮声明；传入不同名称会拒绝保存。未声明时兼容已有行为：省略标题保留当前名称，也可在保存文件中显式提供非空 `artifact.title`。标题与业务产物、证据和修订一同成功保存后更新并在回执返回 `title`；编辑开始、失败或 PRD 单独保存不会提前改名，冻结产物与旧修订保留原名。运行时不从任意需求文字推断或替换业务名称。
 
-`demo-save` 可使用空对象 `{}` 保存修改；`artifact` 可选，`id`、`path`、`runId` 由任务固定，不可改成另一产物。省略 `status` 时保存为 `candidate`，不新增验证结论；明确保存为 `verified/current` 必须提供适用的 `evidence.frameworkReview`。框架依据仍有效时可以复用其真实来源，不能声称本轮重新观察。例如仅修改文案：
+`demo-save` 可使用空对象 `{}` 保存修改；日常流程优先用最小模板记录本轮修改、必要检查及限制。`artifact` 可选，`id`、`path`、`runId` 由任务固定，不可改成另一产物。省略 `status` 时保存为 `candidate`，不新增验证结论，仍保留工作稿修订和恢复数据；不要求为了保存进度整理全套覆盖材料。明确保存为 `verified/current` 必须提供适用的 `evidence.frameworkReview`；框架依据仍有效时可复用其真实来源，不能声称本轮重新观察。例如仅修改文案：
 
 ```json
 {
-  "artifact": {"title": "订单工作稿", "entryHtml": "index.html"},
-  "bindings": [],
-  "flows": [],
   "outputs": {"summary": "修改页面标题并完成静态检查；受影响旧截图待复核"}
 }
 ```
 
-`bindings`、`flows` 只提供本次新增或更新条目，按 ID 替换完整记录；空数组保留已有条目。已有页面优先使用 `bindingPatches`，按 ID 只提交变化字段，不能同时在 `bindings` 中更新同一个 ID，也不能改产物身份、验证指纹或修订字段。实际重新验证时，当前 patch 必须明确提供真实 `evidence`、`verified:true` 和 `reverify:true`；仅重复旧字段不会更新验证结论。完整依赖范围及继承规则见[页面状态入口](demo-and-change.md#页面状态入口)。运行时以 `verificationDraftRevision` 记录工作稿证据的修订，受影响页面不会因重新保存而继续标为已验证。Tier 0 可保存静态检查结果并保留截图待复核。
+`bindings`、`bindingPatches`、`flows` 和 `moduleStages` 均可省略。`bindings`、`flows` 只提供本次新增或更新条目，按 ID 替换完整记录；空数组保留已有条目。已有页面优先使用 `bindingPatches`，按 ID 只提交变化字段，不能同时在 `bindings` 中更新同一个 ID，也不能改产物身份、验证指纹或修订字段。需要登记本轮页面验证时，patch 必须明确提供真实 `evidence`、`verified:true` 和 `reverify:true`；仅重复旧字段不会更新验证结论。完整依赖范围及继承规则见[页面状态入口](demo-and-change.md#页面状态入口)。运行时以 `verificationDraftRevision` 记录工作稿证据的修订，受影响页面不会因重新保存而继续标为已验证。日常完成必要检查后，可将未整理的覆盖证据保留为待复核，评审或交接再集中登记。页面入口改变或删除必须同时修正关联和流程引用；轻量保存不跳过缺失入口、输入冲突或框架一致性校验。
 
 例如单个页面已经完成本次浏览器检查，可在实际保存文件中提交以下字段（编号、截图和证据替换为本轮结果）：
 
@@ -156,7 +153,36 @@ CLI 必须通过 `--requirements`、`--bindings` 或 `change.affectedBindingIds`
 
 `moduleStages` 只允许本轮需求所属模块，未指定保持原阶段；相同阶段且确认依据未变不新增历史或重写导航。真实阶段变化批量处理一次，PRD 未变时复用已有需求索引；外部 PRD 变化仍更新索引及影响。`confirmed` 仍需每条更新提供用户确认 `evidence`，不能由任务完成或浏览器检查推断。
 
-保存产生新 `draftRevision`，返回 `artifactId`、`title`、`path`、`validation`、`affectedModules` 和 `evidenceSummary` 并结束本次任务。`evidenceSummary` 区分已验证、待复核及本轮复验绑定，回执可直接作为收尾依据；无后续改动不重复查询或校验。失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。同次操作复用文件读取、哈希和已有恢复对象，最终检查文件是否在读取期间变化；缓存不跨命令，不跳过外部篡改检查。修订用于恢复，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
+保存产生新 `draftRevision`，返回 `artifactId`、`title`、`path`、`validation`、`affectedModules` 和 `evidenceSummary` 并结束本次任务。`evidenceSummary` 保留已验证、待复核及本轮复验绑定，并用 `newNeedsReviewBindingIds`、`continuedNeedsReviewBindingIds` 与 `reviewDetails` 区分新增和延续的待复核。原因会说明本轮受影响页面、需求输入、共享文档、资源内容、依赖不明或此前待复核，并列出相关文件或编号；待复核不等于页面功能已损坏。回执可直接作为收尾依据；无后续改动不重复查询或校验。失败不登记成功修订，工作文件和运行中的任务保留，修正后可用同一任务重试。修订保存文件清单及新增内容对象，未改变的字节复用，不生成每轮独立完整 Demo。同次操作复用文件读取、哈希和已有恢复对象，最终检查文件是否在读取期间变化；缓存不跨命令，不跳过外部篡改检查。修订用于恢复，不能替代长期交付版本；`measurements` 仍只填写实际计量结果。
+
+### 复用实际证据组装保存内容
+
+评审、交接或局部任务已有多份实际报告需要汇总时，用 `demo-assemble` 代替手写收尾脚本。日常轻量保存可直接使用 `saveTemplate`，不为装配命令先创建整套报告。它读取运行中的 `demo-edit`、实际报告及截图，校验基线、范围和文件哈希，生成候选，不执行浏览器、保存修订或结束任务。已有保存内容可直接 `demo-save`，不必额外装配。
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py demo-assemble <project-dir> <run-id> --file <assembly.json> --output local_tasks/<本轮>/assembled
+python3 -B <skill-dir>/scripts/flow.py demo-save <project-dir> <run-id> --file <project-dir>/local_tasks/<本轮>/assembled/save.json
+```
+
+`assembly.json` 最小为 `{"reports":["demos/<draft>/evidence/browser.json"]}`，默认按候选状态保存。可带 `summary`、`screenshots`（绑定 ID 到项目相对截图路径），以及 `artifactStatus:"current"`。`current/verified` 还需实际框架报告 `frameworkReport`，或 `frameworkReview:{"mode":"inherited"}` 申请复用固定基线的框架依据；运行时检查来源、框架和报告字节，不能借继承声明补造新观察。
+
+真实报告使用 [证据装配 schema](../schemas/evidence-assembly.schema.json) 的 `$defs.recordedReport`。浏览器记录示例如下，编号、尺寸、结果及 SHA-256 必须来自本轮实际检查：
+
+```json
+{
+  "schemaVersion": 1,
+  "runId": "本轮任务ID", "draftId": "工作稿ID", "draftRevision": 3,
+  "kind": "browser", "method": "实际使用的浏览器及检查方法",
+  "scope": {"bindingIds": ["BIND-ORDER"], "files": ["index.html", "order.css"], "viewports": [{"width": 1440, "height": 900}]},
+  "fileHashes": {"index.html": "实际SHA-256", "order.css": "实际SHA-256"},
+  "results": [{"id": "order-layout", "status": "passed", "summary": "实际操作路径与观察结果"}],
+  "screenshots": {"BIND-ORDER": {"path": "demos/<draft>/evidence/order.png", "sha256": "实际SHA-256"}}
+}
+```
+
+报告只列实际检查范围；`scope.files` 包含观察入口和该检查涉及的资源，不等于页面证据继承的完整依赖声明。静态报告使用 `kind:"static"`，可无绑定，不需要截图或视口。`failed/not-run/inherited` 原样保留；只有本轮浏览器通过且无相应静态失败的绑定才提出 `reverify` 补丁，继承或未跑不能升级为本轮通过。装配输出的 `proposedReverificationBindingIds` 只表示待保存候选。
+
+输出限于项目 `local_tasks/` 下的新目录，不能覆盖已有目录或写入已登记 Demo；包含 `save.json` 与装配用 `validation-report.json`。后者是工作记录，不冒充 Demo 包内证据，实际引用的报告和截图必须已在工作稿内。报告过期或范围不匹配时保留原文件与任务，修正真实证据后重试。工具不会判断观察是否真实发生，Agent 仍对报告真实性负责。
 
 冻结与恢复：
 
@@ -230,7 +256,7 @@ Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时�
 
 ## 对话查询、独立服务和默认入口
 
-默认需求图的显式接入命令：
+按需查看需求图的命令：
 
 ```bash
 python3 -B <skill-dir>/scripts/flow.py requirement-map <project-dir> --requirement <需求ID>
@@ -238,11 +264,11 @@ python3 -B <skill-dir>/scripts/flow.py requirement-map <project-dir> --requireme
 
 可选 `--module`、`--requirement`、`--version`、`--port`。命令后台准备或复用服务，返回 `status:"ready"`、`url`、`projectId`、`reused`、`autoUpdate`、参数数组 `snapshotCommand` 和真实 `snapshot`；历史 `autoUpdate:false`。它不修改项目业务文件、不打开浏览器、不启动 Demo 预览。Agent 首次打开回执链接，后续使用已有图页，不以 reload 更新进度。命令回执和链接不含 API token。
 
-`init`、`intake`、`save`、`requirement` 及 Demo 任务、工作稿保存等相关写命令默认附 `requirementMap`，同样返回准备结果、链接、复用状态和 `snapshotCommand`，不把完整快照塞入写入回执；`ready` 仅表示本地服务可用。服务失败用 `status:"unavailable"`、`error` 与数值 `errorStatus` 报告，业务操作保持实际成功结果；此时只重建展示，不重放保存。单个写命令的 `--no-requirement-map` 跳过本次服务准备，不关闭已开图。只读 `state`、`document`、`review-state` 仍不自动启动服务。
+`init`、`intake`、`save`、`requirement` 及 Demo 任务、工作稿保存等相关写命令仅在显式添加 `--requirement-map` 时附 `requirementMap`，返回准备结果、链接、复用状态和 `snapshotCommand`，不把完整快照塞入写入回执；`ready` 仅表示本地服务可用。服务失败用 `status:"unavailable"`、`error` 与数值 `errorStatus` 报告，业务操作保持实际成功结果；按需求降级为文字或链接，不重放保存或自动补图。默认写命令和兼容的 `--no-requirement-map` 都不准备服务，也不关闭已开图；启用与关闭参数互斥。只读 `state`、`document`、`review-state` 仍不自动启动服务。
 
-实时页每 2 秒检查已保存项目及任务变化，每 30 秒检查外部 PRD、Demo 与证据变化，回焦立即检查；读取只更新展示。稳定 ID 仍存在时保留选中、展开及键盘焦点，历史固定不轮询。对话按 `snapshotCommand` 读取并呈现本轮离线快照，不声明旧消息实时刷新。一次投影最多 200 条需求，超限时按 `--module` 定向查看或文字交付。覆盖分母由明确 `demoCoverage` 提供，未声明保持未知；验证由当前输入、页面与真实证据决定，不能以任务结束补造。详见[默认需求图与对话呈现](conversation-ui.md)。
+实时页每 2 秒检查已保存项目及任务变化，每 30 秒检查外部 PRD、Demo 与证据变化，回焦立即检查；读取只更新展示。稳定 ID 仍存在时保留选中、展开及键盘焦点，历史固定不轮询。只有需要对话图时才按 `snapshotCommand` 读取并呈现离线快照，不声明旧消息实时刷新。一次投影最多 200 条需求，超限时按 `--module` 定向查看或文字交付。覆盖分母由明确 `demoCoverage` 提供，未声明保持未知；验证由当前输入、页面与真实证据决定，不能以任务结束补造。详见[按需需求图与对话呈现](conversation-ui.md)。
 
-`requirement-map <project-dir> --stop` 显式停止该项目共用的需求图与工作台服务，独立 Demo 预览保留。`--stop` 不能和 `--module`、`--requirement`、`--version`、`--port` 同用；返回 `status:"stopped"|"not-running"`、`autoUpdate:false`。关闭标签页不停止后台 worker。停止后下一次成功的默认写命令会重新准备服务，`--no-requirement-map` 可跳过单次准备，不会停止已有服务。
+`requirement-map <project-dir> --stop` 显式停止该项目共用的需求图与工作台服务，独立 Demo 预览保留。`--stop` 不能和 `--module`、`--requirement`、`--version`、`--port` 同用；返回 `status:"stopped"|"not-running"`、`autoUpdate:false`。关闭标签页不停止后台 worker。停止后普通写命令不会重启服务；再次显式查看或追加 `--requirement-map` 才会准备服务。
 
 `review-state` 按对象范围查询，展示 schema 独立版本化；列表游标绑定实际来源。`preview --reuse` 独立运行，不加载工作台构建或全量 state；`demo-entry` 仅使用已运行预览。注册与健康检查区分 workbench/preview，核对根目录、项目、协议和进程身份，退出只清理本实例注册。`serve --port` 是工作台端口，`--preview-port` 是之后按需启动的预览端口；关闭标签页不停止服务。
 

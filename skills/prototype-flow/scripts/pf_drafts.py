@@ -11,7 +11,7 @@ import shutil
 import time
 
 from pf_core import FlowError, canonical, digest, now, uid, valid_id
-from pf_evidence import page_content
+from pf_evidence import changed_keys, content_review_reasons, merge_review_reasons, page_content, review_reason
 
 
 def _draft(store, artifact_id=None):
@@ -294,8 +294,8 @@ def _edit_receipt(store, run, draft):
     run['saveTemplate'] = {
         'artifact': {'title': run.get('artifactTitle', draft.get('title') or draft['id'])},
         'outputs': {'summary': (run.get('change') or {}).get('summary', '')}}
-    if bindings:
-        run['saveTemplate']['bindingPatches'] = [{'id': b['id']} for b in bindings]
+    # A routine save needs no binding updates. Keep bindings in the receipt for
+    # navigation; add patches only for actual relation changes or new evidence.
 
 
 def demo_edit_basis(store, requirement_ids=None, shared_document_ids=None, binding_ids=None,
@@ -582,15 +582,54 @@ def _save_bindings(store, draft, previous, payload, run):
     old = {b['id']: b for b in previous['bindings']}
     affected = set(run.get('affectedBindingIds', [])) | set((run.get('change') or {}).get('affectedBindingIds', []))
     for binding in relations['bindings']:
-        if binding['artifactId'] != draft['id'] or binding['id'] in actual:
+        if binding['artifactId'] != draft['id']:
             continue
         prior = old.get(binding['id'])
+        if binding['id'] in actual:
+            if binding.get('verified'):
+                for field in ('reviewReasons', 'reviewChange', 'reviewRevision'):
+                    binding.pop(field, None)
+            else:
+                binding.update(reviewReasons=[review_reason('new-binding' if not prior else 'explicitly-unverified')],
+                               reviewChange='new' if not prior or prior.get('verified') else 'continued',
+                               reviewRevision=draft['draftRevision'])
+            continue
         inherited = False
+        reasons = []
+        if binding['id'] in affected:
+            reasons.append(review_reason('affected-page'))
+        if binding['id'] in explicitly_unverified:
+            reasons.append(review_reason('explicitly-unverified'))
+        old_content = previous.get('bindingContents', {}).get(binding['id'])
+        new_content = None
+        if prior and not prior.get('verified'):
+            for field, code, detail in (('requirementHashes', 'requirement-input', 'requirementIds'),
+                                       ('documentHashes', 'shared-document', 'documentIds')):
+                changes = changed_keys(previous['artifact'].get(field, {}), draft.get(field, {}))
+                if changes:
+                    reasons.append(review_reason(code, **{detail: changes}))
+        if prior and prior.get('verified'):
+            if binding.get('verificationScope') and old_content is not None:
+                try:
+                    new_content = page_content(store, binding, draft)
+                    reasons.extend(content_review_reasons(old_content, new_content))
+                except (FlowError, OSError, UnicodeError):
+                    reasons.append(review_reason('evidence-unavailable'))
+            else:
+                changes = changed_keys(previous['fileHashes'], draft['fileHashes'])
+                if changes:
+                    reasons.append(review_reason('dependency-content', paths=changes))
+                    if not binding.get('verificationScope'):
+                        reasons.append(review_reason('missing-verification-scope'))
+                for field, code, detail in (('requirementHashes', 'requirement-input', 'requirementIds'),
+                                           ('documentHashes', 'shared-document', 'documentIds')):
+                    changes = changed_keys(previous['artifact'].get(field, {}), draft.get(field, {}))
+                    if changes:
+                        reasons.append(review_reason(code, **{detail: changes}))
         if prior and prior.get('verified') and binding['id'] not in affected | explicitly_unverified:
             try:
-                old_content = previous.get('bindingContents', {}).get(binding['id'])
                 if binding.get('verificationScope') and old_content is not None:
-                    inherited = canonical(old_content) == canonical(page_content(store, binding, draft))
+                    inherited = new_content is not None and canonical(old_content) == canonical(new_content)
                 elif (not binding.get('verificationScope') and draft['fileHashes'] == previous['fileHashes']
                       and draft.get('requirementHashes') == previous['artifact'].get('requirementHashes')
                       and draft.get('documentHashes') == previous['artifact'].get('documentHashes')):
@@ -610,8 +649,17 @@ def _save_bindings(store, draft, previous, payload, run):
                                'draftRevision': previous['artifact']['draftRevision'],
                                'verificationHash': prior['verificationHash'], 'inheritedAt': now()})
             binding.pop('status', None)
+            for field in ('reviewReasons', 'reviewChange', 'reviewRevision'):
+                binding.pop(field, None)
         else:
             binding.update(verified=False, status='needs-review', verificationStatus='draft-changed')
+            if prior and not prior.get('verified'):
+                reasons = merge_review_reasons(prior.get('reviewReasons', [])) + reasons
+                if not any(reason.get('code') == 'prior-needs-review' for reason in reasons):
+                    reasons.append(review_reason('prior-needs-review'))
+            binding.update(reviewReasons=merge_review_reasons(reasons) or [review_reason('evidence-changed' if prior else 'new-binding')],
+                           reviewChange='new' if not prior or prior.get('verified') else 'continued',
+                           reviewRevision=draft['draftRevision'])
     store._write('relations.json', relations)
     return sorted(touched)
 
@@ -701,7 +749,14 @@ def save_demo(store, run_id, payload):
             'verifiedBindingIds': sorted(b['id'] for b in current_bindings if b.get('verified')),
             'needsReviewBindingIds': sorted(b['id'] for b in current_bindings if not b.get('verified')),
             'reverifiedBindingIds': sorted(b['id'] for b in current_bindings
-                if b.get('verified') and b.get('verificationStatus') == 'verified')}
+                if b.get('verified') and b.get('verificationStatus') == 'verified'),
+            'newNeedsReviewBindingIds': sorted(b['id'] for b in current_bindings
+                if not b.get('verified') and b.get('reviewChange') == 'new'),
+            'continuedNeedsReviewBindingIds': sorted(b['id'] for b in current_bindings
+                if not b.get('verified') and b.get('reviewChange') == 'continued'),
+            'reviewDetails': [{'bindingId': b['id'], 'change': b.get('reviewChange'),
+                               'revision': b.get('reviewRevision'), 'reasons': b.get('reviewReasons', [])}
+                              for b in sorted(current_bindings, key=lambda item: item['id']) if not b.get('verified')]}
         outputs = copy.deepcopy(payload.get('outputs', {}))
         paths = outputs.pop('paths', [])
         # A mutable Demo path is a revision reference, never a historical output copy.

@@ -9,6 +9,66 @@ from urllib.parse import unquote, urlsplit
 from pf_core import FlowError, canonical, now
 
 
+REVIEW_MESSAGES = {
+    'affected-page': '此页面在本轮声明的修改范围内，需要对应的新验证。',
+    'requirement-input': '需求依据已变化，需要核对页面是否符合新规则。',
+    'shared-document': '关联文档依据已变化，需要核对其中的共享规则。',
+    'dependency-content': '页面或共享资源内容已变化，原验证不能直接沿用。',
+    'unresolved-dependencies': '存在无法确定的动态或外部依赖，原验证不能跨修订沿用。',
+    'prior-needs-review': '此前已待复核，本轮尚未提供新的有效验证。',
+    'new-binding': '此页面尚未建立有效验证依据。',
+    'explicitly-unverified': '本轮明确将此页面保留为待验证。',
+    'page-state': '页面入口、状态或演示数据关联已变化。',
+    'screenshot-content': '截图内容或位置已变化，需要核对新的页面证据。',
+    'missing-verification-scope': '旧证据没有完整页面依赖范围，内容变化后不能直接沿用。',
+    'evidence-unavailable': '无法完整读取或核对原验证依据。',
+    'evidence-changed': '原验证指纹已失效，需要重新核对页面证据。',
+    'draft-editing': '工作稿正在编辑或尚未保存，旧证据暂不计入当前验证。',
+    'entry-unavailable': '登记的页面入口当前不可用。',
+}
+
+
+def review_reason(code, **details):
+    """Additive explanation only; never changes evidence validity or scope."""
+    return {'code': code, 'message': REVIEW_MESSAGES[code], **{key: value for key, value in details.items() if value}}
+
+
+def changed_keys(before, after):
+    return sorted(key for key in set(before) | set(after) if before.get(key) != after.get(key))
+
+
+def merge_review_reasons(reasons):
+    merged = {}
+    if not isinstance(reasons, list):
+        return []
+    for reason in reasons:
+        if not isinstance(reason, dict) or reason.get('code') not in REVIEW_MESSAGES:
+            continue
+        current = merged.setdefault(reason['code'], review_reason(reason['code']))
+        for field in ('paths', 'requirementIds', 'documentIds'):
+            if isinstance(reason.get(field), list):
+                current[field] = sorted(set(current.get(field, [])) | {value for value in reason[field] if isinstance(value, str)})
+    return list(merged.values())
+
+
+def content_review_reasons(before, after):
+    reasons = []
+    for field, code, detail in (('requirementHashes', 'requirement-input', 'requirementIds'),
+                               ('documentHashes', 'shared-document', 'documentIds'),
+                               ('dependencies', 'dependency-content', 'paths')):
+        changed = changed_keys(before.get(field, {}), after.get(field, {}))
+        if changed:
+            reasons.append(review_reason(code, **{detail: changed}))
+    if before.get('unresolvedDependencies') != after.get('unresolvedDependencies'):
+        reasons.append(review_reason('unresolved-dependencies'))
+    if before.get('screenshotHash') != after.get('screenshotHash'):
+        reasons.append(review_reason('screenshot-content'))
+    if any(before.get(key) != after.get(key) for key in
+           ('screenId', 'stateId', 'route', 'fixtureId', 'requirementIds', 'verificationScope', 'frameworkId')):
+        reasons.append(review_reason('page-state'))
+    return reasons
+
+
 class Resources(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -132,3 +192,5 @@ def inherit_binding(store, binding, source, artifacts, intact):
                    verificationInheritedFrom={'bindingId': source['id'], 'artifactId': source['artifactId'],
                        'verificationHash': source['verificationHash'], 'inheritedAt': now()})
     binding.pop('status', None)
+    for field in ('reviewReasons', 'reviewChange', 'reviewRevision'):
+        binding.pop(field, None)
