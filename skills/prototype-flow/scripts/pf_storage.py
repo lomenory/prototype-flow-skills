@@ -105,10 +105,10 @@ def enabled(store, base=None):
 
 def _groups(store, base=None, config=None):
     base = Path(base or store.root)
-    cache, key = (None, None) if config is not None else _cache(
+    cache, cache_key = (None, None) if config is not None else _cache(
         store, 'groups', store._safe('.prototype-flow/storage.json', base=base))
-    if cache is not None and key in cache:
-        return cache[key]
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
     config = config if config is not None else _config(store, base)
     groups = {} if config is None else config['groups']
     seen = {}
@@ -139,7 +139,7 @@ def _groups(store, base=None, config=None):
             seen[logical] = sha
     result = groups, seen
     if cache is not None:
-        cache[key] = result
+        cache[cache_key] = result
     return result
 
 
