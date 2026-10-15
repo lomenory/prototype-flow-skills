@@ -38,7 +38,7 @@ python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称"
 python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 ```
 
-新项目默认启用按内容去重的存储；工作稿保持可编辑目录，冻结 Demo、证据和固定输入通过完整清单引用内容库。文件尚未展开不等于丢失，不要自行补造输入、改写历史哈希或把缺失缓存当成删除。旧项目保留原布局；需要精简时先运行 `storage <project-dir> --action status` 与只读迁移计划，按[内容存储与兼容迁移](references/runtime.md#内容存储与兼容迁移)显式迁移。对外交付仍导出完整、可独立打开的文件夹。
+新项目默认启用按内容去重的存储；工作稿保持可编辑目录，冻结 Demo、证据和固定输入通过完整清单引用内容库。文件尚未展开不等于丢失，不要自行补造输入、改写历史哈希或把缺失缓存当成删除。旧项目保留原布局；需要精简时先运行 `storage <project-dir> --action status` 与只读迁移计划，按[内容存储与兼容迁移](references/runtime.md#内容存储与兼容迁移)显式迁移。对外交付完整 Demo 文件夹，默认兼容解压后双击入口（通常为 `index.html`）；实现与检查遵循 [Demo 交付兼容](references/demo-and-change.md#解压与双击兼容)。
 
 项目初始化及需求、Demo 写命令默认只保存数据，不准备工作台或需求图服务。用户要求查看需求图时运行 `requirement-map <project-dir>`；也可在相关写命令加 `--requirement-map`，显式准备或复用服务并返回 `requirementMap` 回执。已有图页继续复用，默认保存不会停止其自动更新；旧 `--no-requirement-map` 参数仍兼容。仅在用户需要对话图或可留存的图示时读取、渲染快照，服务不可用不影响业务保存。详细步骤见[按需需求图](references/conversation-ui.md#按需需求图)。
 

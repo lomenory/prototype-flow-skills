@@ -62,8 +62,9 @@ def _derived_resource_record(store, root, artifact, state, declaration):
 
 
 def module_package(store, module_id, version=None, resource_manifest=None, receipt=None):
-    # Keep CLI writes out while collecting one coherent set of project bytes.
-    with store._transaction(read_only=True):
+    # Keep reads and storage metadata cached through ZIP collection, not just
+    # state inspection. The session also checks for external edits before return.
+    with store._transaction(read_only=True), store._read_session():
         state = store.state(version=version)
         module = next((m for m in state['project']['modules'] if m['id'] == module_id), None)
         if not module:
@@ -200,10 +201,9 @@ def module_package(store, module_id, version=None, resource_manifest=None, recei
             '版本：' + (version or '当前工作稿') + '；项目修订：R' + str(state['project']['revision']), '',
             '## PRD', '', '- ' + document['path'], '', '## Demo 入口', '',
             *['- ' + entry for entry in entries], '',
-            '解压完整 ZIP 后，保留目录结构。可先用浏览器打开上述 HTML。',
-            '如 Demo 使用模块脚本或本地数据请求，请在解压目录运行：', '',
-            '```sh', 'python3 -m http.server 8000 --bind 127.0.0.1', '```', '',
-            '再访问 http://127.0.0.1:8000/ 加上上述 Demo 入口路径。', '',
+            '解压完整 ZIP 后，保留目录结构，双击上述 Demo HTML 入口（通常为 index.html）。',
+            '默认交付兼容直接打开，无需启动服务；本包是否经过实际双击验证，以 Demo 随附的验证记录为准。',
+            '若历史 Demo 或明确约定的交付使用 HTTP，请按该 Demo 随附说明打开；打包不会自动转换加载方式。', '',
             '## Demo 资源范围', '',
             *['- ' + item['artifactId'] + '：' + item['resourceMode'] for item in resource_modes], '',
             'runtime-only：按已登记清单提供预览运行资源。',
