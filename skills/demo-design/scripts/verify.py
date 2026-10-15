@@ -65,6 +65,16 @@ CONTRACT_AFFECTING_ASPECTS = {
     "bindings",
     "business-state",
 }
+FULL_DELIVERY_ASPECTS = {
+    "business-model",
+    "permission",
+    "permissions",
+    "permission-boundary",
+    "shared-object-identity",
+    "primary-task",
+    "information-architecture",
+    "design-language",
+}
 STATIC_ASPECTS = {"copy"}
 TARGET_VISUAL_ASPECTS = {
     "color",
@@ -85,6 +95,7 @@ SUPPORTED_CHANGED_ASPECTS = (
     | STATE_ASPECTS
     | ASSET_ASPECTS
     | CONTRACT_AFFECTING_ASPECTS
+    | FULL_DELIVERY_ASPECTS
     | {"contract"}
 )
 
@@ -2673,6 +2684,12 @@ def build_parser():
         help="explicitly run resource portability checks; Tier 3 enables them by default",
     )
     parser.add_argument(
+        "--opening-mode",
+        choices=("file", "http"),
+        default="file",
+        help="delivery opening mode; http requires an explicit user request (default: file)",
+    )
+    parser.add_argument(
         "--visual-diff-channel-threshold",
         type=int,
         default=16,
@@ -2694,6 +2711,12 @@ def build_parser():
         "--changed-aspects",
         default="",
         help="逗号分隔的修改维度，例如 spacing,color",
+    )
+    parser.add_argument(
+        "--contract-change-scope",
+        choices=("bounded", "major", "unknown"),
+        default="unknown",
+        help="契约修改范围；Tier 2 业务修改须声明 bounded，模型或权限边界变化仍用 Tier 3",
     )
     parser.add_argument(
         "--target-selector",
@@ -2877,6 +2900,8 @@ def main(argv=None, probe_func=None, verify_func=verify_html):
                     else report.get("status")
                 ),
             )
+            if args.profile == "product-contract":
+                report.setdefault("execution", {})["contractChangeScope"] = args.contract_change_scope
             report["evidenceRuns"] = build_evidence_runs(previous_report, report)
             _write_report(report_path, report)
 
@@ -2972,15 +2997,25 @@ def main(argv=None, probe_func=None, verify_func=verify_html):
                 "product-contract Tier 0 requires changed-aspects=copy, "
                 "--semantic-impact none, and at least one --expected-copy"
             )
-        if (
-            args.profile == "product-contract"
-            and (CONTRACT_AFFECTING_ASPECTS | {"contract"}).intersection(
-                changed_aspects
-            )
-            and args.tier != "tier_3_full_delivery"
+        if args.tier != "tier_3_full_delivery" and (
+            FULL_DELIVERY_ASPECTS.intersection(changed_aspects)
+            or args.contract_change_scope == "major"
         ):
             raise InputError(
-                "Product Contract-affecting changes require tier_3_full_delivery"
+                "business model, permission boundary or primary task changes require tier_3_full_delivery"
+            )
+        if (
+            args.profile == "product-contract"
+            and (CONTRACT_AFFECTING_ASPECTS | {"contract"}).intersection(changed_aspects)
+            and args.tier != "tier_3_full_delivery"
+            and not (
+                args.tier == "tier_2_layout_or_interaction"
+                and args.contract_change_scope == "bounded"
+            )
+        ):
+            raise InputError(
+                "bounded Product Contract changes require tier_2_layout_or_interaction "
+                "with --contract-change-scope bounded; otherwise use tier_3_full_delivery"
             )
         product_contract = None
         static_contract_report = None
@@ -3151,6 +3186,7 @@ def main(argv=None, probe_func=None, verify_func=verify_html):
             try:
                 portability_errors, static_portability_report = validator.validate_portability(
                     html_path,
+                    opening_mode=args.opening_mode,
                 )
             except ValueError as error:
                 raise InputError(str(error)) from error
@@ -3205,6 +3241,7 @@ def main(argv=None, probe_func=None, verify_func=verify_html):
             "resultSelectors": result_selectors,
             "expectedCopy": expected_copies,
             "semanticImpact": args.semantic_impact,
+            "contractChangeScope": args.contract_change_scope,
             "viewports": viewports,
             "waitMs": wait,
             "launchTimeoutMs": args.launch_timeout_ms,
@@ -3251,6 +3288,7 @@ def main(argv=None, probe_func=None, verify_func=verify_html):
             ),
             "portability": portability_enabled,
             "deliveryFormat": "project_bundle",
+            "openingMode": args.opening_mode,
             "primaryShareArtifact": (
                 Path(args.html_path).resolve().parent.name if args.html_path else None
             ),

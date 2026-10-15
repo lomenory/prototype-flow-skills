@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: e0a96def6e9c; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
 # Prototype Brief Gate
 
 先使用 Request Intent Schema 判断当前请求允许只读、提案、实施或 Git 操作，再使用 Execution Tier 对应的 Brief Policy；`tier_3_full_delivery` 再使用 Route Schema，命中 Mode 时追加 Mode Schema。
@@ -12,6 +12,7 @@
 - 修改范围不明确时先做有界定位；只有定位后仍无法限定影响范围才升级完整交付。
 - Web 与 App Flow 默认只设计一个目标展示环境；Web 未指定时使用 `1440x900`。
 - Web 与 App Flow 默认首要交付 `project_bundle`，不为此追问；页面与资源放在同一个独立文件夹，整个文件夹就是分享边界。
+- 默认打开方式为 `file`，解压后双击入口（默认 `index.html`），不要求用户启动服务；HTTP 交付仅在用户明确要求时使用，不为默认打开方式重复确认。
 - 只有用户或权威设计范围明确要求时，才增加 Viewport、设备、平台、方向或断点适配；不为默认单目标追问多端策略。
 - Tier 0/1 默认不读取 Design Reference、不跑视觉 Diff、不做完整资源可携带性扫描；这些阶段只能由明确升级条件进入。
 

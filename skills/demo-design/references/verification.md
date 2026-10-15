@@ -48,7 +48,7 @@ Tier 0/1 使用 `references/quick-patch.md`；Tier 2/3 读取 `references/routin
 - Tier 3 App Flow：从起始状态完成一个声明的主要任务，检查适用的 cancel/back/error/recovery、目标状态，以及设备框与内容不重叠；不得用固定点击次数代替任务完成。
 - Review：已有截图、渲染或可静态检查代码时保持 `static_only`；URL 或动态页面需要可见证据时可使用 Browser，但不自动升级为 Strict Regression。
 - Data Viz：观察非零容器、主要数据状态、Resize 后可见结果、Tooltip/Legend/Axis 遮挡和不依赖颜色的区分。
-- Product Contract：先静态验证 Schema、来源、ID、关键映射和阻塞问题；Browser 默认执行主要场景与关键状态。完整自动执行全部 `TEST-*` 属于 Strict Regression。
+- Product Contract：先静态验证 Schema、来源、ID、关键映射和阻塞问题；Tier 2 Browser 验证受影响需求、转换、验收路径与关键状态，Tier 3 执行主要场景与关键状态。完整自动执行全部 `TEST-*` 属于 Strict Regression。
 - Experience Checks：Tier 2 多步交互与 Tier 3 非 Product Contract 的交互 Demo，先检查 `primary/error/cancel/recovery` 覆盖、重置边界和 HTML 控件闭包，再按 Step 记录 action、expected、actual、timing 与状态截图。
 - Design Guidance：对适用规则记录 Browser 实际观察到的可见标签、焦点、目标尺寸、Overflow、图片替代文本和 Reduced Motion 结果；无法从当前 Browser 证明的规则写 `not_run`。
 - 外部设计源：使用相同目标 Viewport 截图并对照 Design Reference 做人工可见比较；声明 `STATE-*` 时必须从 Experience Checks 或 Product Contract 的具体 Step 取得状态截图。只有用户明确要求像素级结论时才运行 Strict Regression，对默认状态与每个声明状态分别 PNG Diff；有界 region/mask 必须记录实际 selector 几何，不能静默忽略。
@@ -81,9 +81,15 @@ python3 scripts/validate-design-reference.py design-reference.json --html protot
 python3 scripts/validate-portability.py demo/prototype.html --report-json portability-report.json
 ```
 
-交付格式固定为 `project_bundle`，无需格式选项。`primaryShareArtifact` 是完整 Demo 文件夹，`entryHtml` 是根目录中的入口页面，`shareBoundary` 是资源边界。`requiredFiles` 列出入口和静态扫描已识别的本地资源引用，不是可裁剪文件夹的完整依赖证明；JavaScript 动态资源与模块链路还需主要路径的浏览器证据。发送时保留整个文件夹及子目录，不只发送入口 HTML。
+交付格式固定为 `project_bundle`，默认 `openingMode: file`：保留完整目录，解压后双击根目录入口（默认 `index.html`）即可演示，不要求安装工具或启动服务。`primaryShareArtifact` 是完整 Demo 文件夹，`entryHtml` 是入口页面，`shareBoundary` 是资源边界。`requiredFiles` 仅列出静态扫描已识别的本地资源引用，不是可裁剪文件夹的完整依赖证明；发送时保留整个文件夹及子目录。
 
-本地 CSS、JavaScript、图片和字体允许分文件；已识别引用缺失、绝对路径或越出 Demo 根目录时失败。固定 CDN 仍按依赖契约与 fallback 规则处理，交付说明必须明确联网要求；文件夹交付不自动保证离线可用。普通页面可手动打开入口，需要模块或 HTTP 加载的页面应提供预览服务打开方式。
+本地 CSS、经典 JavaScript、图片和字体允许分文件；已识别引用缺失、绝对路径或越出 Demo 根目录时失败。默认交付避免本地 ES module、`fetch`/XHR 读取本地数据等依赖 HTTP 的加载方式，改用经典脚本、内嵌数据等兼容实现。固定 CDN 仍按依赖契约与 fallback 规则处理，说明联网要求；双击可用不等于完全离线。
+
+图标不能只检查 SVG/PNG 文件存在：CSS `mask` / `mask-image`（含 `-webkit-`、自定义属性和主题覆盖）引用外部本地文件可能受 `file://` 跨源限制。使用保留原始图形的 data URI 或内联 SVG，并核对脚本动态生成的图标、激活/深色状态和关键弹层。普通 `<img>` 与背景图不因这一 mask 限制强制内嵌。`validate-portability.py` 默认检查可识别的样式和本地模块风险；JavaScript 动态资源、本地数据请求及运行时样式仍需定向人工核对，静态扫描不证明完整运行。
+
+交付验证分别记录：静态检查结果、HTTP 浏览器观察、解压后双击的人工结果。静态报告的 `evidenceLevel: static` 和 `fileOpenVerification: unverified` 不代表实际打开通过；HTTP 成功不能替代双击验证。需要本地打开验收时，先完成兼容修改与静态检查，再请用户解压具体新包、双击具体入口并检查首页图标和受影响路径；保留包版本、入口、检查范围及用户实际回复，无回复保持未验证。Browser 自动化仍遵守上文的 `file://` 限制，不绕过工具策略。
+
+只有用户明确选择 HTTP 交付时，才使用 `--opening-mode http`（严格回归的 `verify.py` 同名选项）并提供服务命令和入口；HTTP 自动化预览本身不构成这个交付例外。已有 Demo 的无关小改不触发全包重验；新交付、资源路径、图标或加载方式变化时按受影响范围检查。
 
 ## 按需严格回归
 

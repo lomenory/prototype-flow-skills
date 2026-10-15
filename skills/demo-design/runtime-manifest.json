@@ -1,8 +1,8 @@
 {
   "runtime_version": 9,
   "contract_version": 9,
-  "contract_hash": "e0a96def6e9c",
-  "source_commit": "b95393d647ab97c28dded999ccb166de076483aa",
+  "contract_hash": "4bbf2a253c88",
+  "source_commit": "92c6dbbef2d2e70d78ebb351ab535d5ae14b0011",
   "capabilities": {
     "request_intents": [
       "inspect_only",
@@ -49,8 +49,8 @@
   "max_bytes": 2097152,
   "files": {
     "SKILL.md": {
-      "sha256": "f0876d4360eda48128f55b86bcde9b3dca5abc90f3cf5cde7691c436fe4a2412",
-      "bytes": 6997
+      "sha256": "44874755b848cd8ad365e995784019f197b58adfbd4999237b3885de9cf7446d",
+      "bytes": 7476
     },
     "assets/android_frame.jsx": {
       "sha256": "8c1c951518e5f0d39c07212d0bb9e8f1b5363b4ad4d1f903dca26d6a485e08bf",
@@ -137,7 +137,7 @@
       "bytes": 2470
     },
     "references/dependencies.md": {
-      "sha256": "bbf5ccad25e5e27a83631cba72a9271e96b7b0933ec23fd732d01c31145ccfdb",
+      "sha256": "09222ae54b4ffac90fabcb16c086d412a01f15aea2d25e6407aef2e8417b3d8a",
       "bytes": 1134
     },
     "references/design-context.md": {
@@ -157,20 +157,20 @@
       "bytes": 774
     },
     "references/product-contract-mode.md": {
-      "sha256": "e1cb80c44a7dd6d7b81789e6064ba6f851ed35490b1f7a6f97482a912751072e",
-      "bytes": 6458
+      "sha256": "326f5645d95792deb272da8d5cf8f1e5f254009ff8c1488f3f11334a1f92ce96",
+      "bytes": 7258
     },
     "references/prototype-brief-gate.md": {
-      "sha256": "daa1e7a53efc993a47910ef800bdcd5d91cff22d892c481dfc9c7398eb89fe61",
-      "bytes": 6244
+      "sha256": "fb247ff6018eb22d29da7ed208d0eef1370d187f7d6af4c6bde4c5aa256cc9e8",
+      "bytes": 6443
     },
     "references/quality.md": {
       "sha256": "5572e1210fb95bc662d6cad59894b3ad0b78d2c84d34673b3a12302c80f61a24",
       "bytes": 4953
     },
     "references/quick-patch.md": {
-      "sha256": "9e543927f66879e1723b9f537a381770a33450bcf6ea164a6a8b40754bc0f3ca",
-      "bytes": 2559
+      "sha256": "cffd7ec7d57854d7d667e377133165156225d8d07cdd500cf0c0b05d6ed63e33",
+      "bytes": 2636
     },
     "references/routes/app.md": {
       "sha256": "4b7bbbe33c9718a7e9eb5dc573ae7f771c2b4a9257393acf6b0b362653cf44ae",
@@ -185,16 +185,16 @@
       "bytes": 2615
     },
     "references/routing-contract.md": {
-      "sha256": "5b474dad4592426cb95403344d9d32fea6564b06beae4a7e75d5d4b86c3df757",
-      "bytes": 9998
+      "sha256": "2e09efc8688636d66dcb3a5581bfb9f823508ab9e0ff6e0e6ce0c2cbb59fdaf1",
+      "bytes": 10510
     },
     "references/strict-regression.md": {
       "sha256": "d185011d5201577e43184f446ce8ea899e1d4ce84d68cfdd21843cd27041b74f",
       "bytes": 5088
     },
     "references/verification.md": {
-      "sha256": "d05068a0b44d91f09865b01e381ea709d7ec40731366086602f460ac81318f50",
-      "bytes": 9418
+      "sha256": "841d249f48095479c4d3dc5968ee1f27004b104daf193328819de89384c2beda",
+      "bytes": 11039
     },
     "references/web-preflight.md": {
       "sha256": "ac9d70940166b3b6f0086cd166bee9f5bae0c4e203cd2f556fc9d9f22d13327b",
@@ -225,21 +225,21 @@
       "bytes": 18513
     },
     "scripts/validate-portability.py": {
-      "sha256": "41e98c0f1003273595a0ec992c630620a52b1955674e13bae0ab27ce39c550ed",
-      "bytes": 8829
+      "sha256": "7dc789cbc529940f6ef379cac839a6d9dea228037c651df81202be3d0bc880c1",
+      "bytes": 15680
     },
     "scripts/validate-product-contract.py": {
       "sha256": "4c8b35811c8a173e4fb5b184e3cc77b34b8554289368208631719803de4e4b52",
       "bytes": 40675
     },
     "scripts/verify.py": {
-      "sha256": "29a9746e6bf0996e51b5c863cd13c4bb1b915c385e826c68d6f1eec9ecdf315a",
-      "bytes": 135905
+      "sha256": "71f231b7ced6a1cb179dc34a3b7d4d0bcd63b06cac34e12dc078b4ec51defbbc",
+      "bytes": 137491
     },
     "scripts/visual-diff.py": {
       "sha256": "78aa3391a6f0e8d3366cc2b1688d0f8b2e333939cd30ee308e70129c1361a2eb",
       "bytes": 10954
     }
   },
-  "total_bytes": 466351
+  "total_bytes": 478476
 }

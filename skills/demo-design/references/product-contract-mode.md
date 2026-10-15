@@ -51,7 +51,11 @@ Schema v3 的 HTML 映射采用精确闭包：契约中的 `actionId`、`UI-*` b
 
 ## Validation
 
-明确不改变字段、状态、权限、规则、场景或 UI binding 的文案 follow-up 可使用 Tier 0 静态路径；必须声明 `--changed-aspects copy --semantic-impact none` 并提供至少一个 `--expected-copy`。任何业务语义或追踪映射变化仍升级到 `tier_3_full_delivery`。
+明确不改变字段、状态、权限、规则、场景或 UI binding 的文案 follow-up 可使用 Tier 0 静态路径；必须声明 `--changed-aspects copy --semantic-impact none` 并提供至少一个 `--expected-copy`。
+
+现有业务模型内可限定影响范围的字段规则、状态转换或 UI/需求映射调整使用 Tier 2：先列出受影响需求、转换与验收场景，更新对应契约和 HTML，保持其他稳定 ID 与映射；静态检查契约闭包，浏览器验证受影响路径及适用的错误/取消/恢复状态。仅因契约文件变化不升级完整交付。业务模型、权限边界、共享业务对象身份或主要用户任务变化，以及有界定位后仍不能限定范围时，进入 Tier 3。
+
+明确请求 Strict Regression 时，有界 Tier 2 契约修改须额外声明 `--contract-change-scope bounded`；该声明记录影响判断，不代替契约与浏览器检查。权限变化及 `business-model`、`permission-boundary`、`primary-task` 等主要变更维度仍要求 Tier 3。默认 Interactive Demo 无需运行严格回归命令。
 
 先运行静态契约验证：
 

@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: e0a96def6e9c; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
 # Runtime Dependencies
 
 所有版本由 Canonical Dependency Contract 固定，并记录在本 Runtime 快照中。不得使用 `latest`、占位版本或未声明依赖。

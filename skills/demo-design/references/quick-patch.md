@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: e0a96def6e9c; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
 # 局部修改快路径
 
 只适用于已定位的 Tier 0 文案或 Tier 1 单父容器视觉修改。Review-only 读 `references/routes/review.md` 与 `references/quality.md`。这里只继承已有页面、组件与设计语言，不读取完整 Route、Brief Gate、设计系统或严格回归说明。
@@ -23,6 +23,6 @@
 
 ## 升级
 
-- 跨父容器、多个独立区域、响应式、交互/状态或资源路径变化至少 Tier 2；再读 `references/routing-contract.md`。
-- 主要任务、信息架构、设计语言、业务状态/权限/需求绑定变化，外部高保真复刻，或有界定位后仍无法限定范围，进入 Tier 3。
+- 跨父容器、多个独立区域、响应式、交互/状态、资源路径，或现有业务模型内有界的规则/需求映射变化至少 Tier 2；再读 `references/routing-contract.md`。
+- 主要任务、信息架构、设计语言、业务模型、权限边界或共享业务对象身份变化，外部高保真复刻，或有界定位后仍无法限定范围，进入 Tier 3。
 - 只有明确要求严格回归证据时才读 `references/strict-regression.md`；默认 `strict_regression: not_requested` 不是降级。

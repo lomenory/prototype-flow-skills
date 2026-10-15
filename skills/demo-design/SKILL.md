@@ -17,8 +17,8 @@ Execution Tier 决定范围与读取深度：
 | --- | --- | --- |
 | 0 | 静态评审或不改变语义的文案 | 有界文案只读 `references/quick-patch.md`；评审走 Review Route |
 | 1 | 单一父容器内可定位的颜色、字号、间距、尺寸或排列 | 只读 `references/quick-patch.md` 的 Tier 1 部分 |
-| 2 | 跨容器布局、响应式、交互、状态或资源变化 | 读 `references/routing-contract.md` 和匹配 Route/Mode/Facet |
-| 3 | 新交付、主要任务/信息架构/设计语言/业务模型变化、外部复刻，或有界定位后仍无法限定范围 | 完整路由与所需 Preflight |
+| 2 | 跨容器布局、响应式、交互、资源，或现有业务模型内有界的规则、状态与需求映射变化 | 读 `references/routing-contract.md` 和匹配 Route/Mode/Facet |
+| 3 | 新交付、主要任务/信息架构/设计语言/业务模型/权限边界变化、外部复刻，或有界定位后仍无法限定范围 | 完整路由与所需 Preflight |
 
 Tier 0/1 直接使用快路径的 Required Fields，不重新提取设计语言，不读取完整路由或 Brief Gate。Tier 2/3 再读 `references/prototype-brief-gate.md` 的匹配 policy，只补影响结果的未知项；字段完整且有明确实施请求时直接执行。
 
@@ -45,7 +45,7 @@ Tier 0/1 直接使用快路径的 Required Fields，不重新提取设计语言�
 
 ## 交付与证据边界
 
-- `primaryShareArtifact` 是完整 Demo 文件夹，`entryHtml` 是根目录入口。CSS、JavaScript、图片等放入该目录或子目录，使用相对路径，发送整个文件夹；不另生成分享 HTML，不默认压缩。
+- `primaryShareArtifact` 是完整 Demo 文件夹，`entryHtml` 是根目录入口，默认 `index.html`。默认兼容解压后双击入口（`openingMode: file`），不要求用户启动服务；CSS、JavaScript、图片等使用相对路径并随整个文件夹发送。资源或图标变化时按 [可携带性检查](references/verification.md#适用的静态校验)检查直接打开兼容性；仅用户明确要求 HTTP 交付时使用例外。不另生成分享 HTML，不默认压缩。
 - Web 默认只验证 1440×900；App 默认一个平台、设备框、方向和尺寸。只有明确要求才增加目标。iOS 使用 `assets/ios_frame.jsx`，Android 使用 `assets/android_frame.jsx`，不重画平台 chrome。
 - 外部设计源或中高风险多文件任务使用项目级 `DESIGN.md`；旧 `design.md` 只读兼容。低风险单文件可用 Design Context 注释。Tier 0/1 不因辅助文件缺失扩大任务。
 - `DESIGN.md` 记录视觉规范，Guidance 记录任务和设计决策，Product Contract 记录产品语义，`validation-report.json` 记录实际证据；旁路内容不进入产品 UI。所有范围内控件必须可用、disabled 或有明确范围外说明。
@@ -53,7 +53,7 @@ Tier 0/1 直接使用快路径的 Required Fields，不重新提取设计语言�
 - Tier 0/Review 默认 `static_only`；Tier 1/2/3 默认 `interactive_demo`。本地页面用 `python3 scripts/preview-server.py --root <demo-root> --entry <relative-html>`，读取 JSON `url`，验证结束停止服务。
 - Browser 自动化不得导航或读取 `file://`，只通过 loopback HTTP，不通过 Raw CDP、其他浏览器表面或间接执行绕过 URL 策略。会话列出 Browser skill 时先读 `browser:control-in-app-browser`。服务或 Browser 不可用只把对应交互证据记为 degraded，不安装依赖。
 - `strict_regression` 仅在明确要求自动化回归、完整场景、错误捕获、硬规则测量、像素 Diff 或 CI 时启用，届时才读 `references/strict-regression.md` 并使用 `scripts/verify.py`。未请求写 `not_requested`，不是 degraded；环境 unavailable 不覆盖已有交互证据。
-- 不声称未观察的 Console/Page Error、网络、像素 Diff 或完整场景通过。Contextual/Advisory 是专业判断，不是机器证明。
+- 不声称未观察的 Console/Page Error、网络、像素 Diff 或完整场景通过。静态资源完整和 HTTP 预览通过不能证明双击可用；实际解压双击由用户手动确认，未确认时如实记录未验证。Contextual/Advisory 是专业判断，不是机器证明。
 - Reference 路径以 Skill 根目录为准。Runtime manifest 记录契约和文件 Hash；开发测试与 Evals 不进入 Core。
 
 ## 最终说明

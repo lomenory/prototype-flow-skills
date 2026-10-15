@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: e0a96def6e9c; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
 # Routing Contract
 
 先判断 Request Intent 与当前授权，再选择 Execution Tier 和 Delivery Route；最后叠加 0 个或多个 Mode 与 Facet。Request Intent 决定只读、提案或执行；Tier 决定读取、辅助产物和验证深度；Route 决定交付形态。
@@ -37,7 +37,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `tier_0_text_copy_only` | required | `inspectable_artifact`<br>`exact_target`<br>`requested_change`<br>`semantic_impact` | `unchanged` | `inherit_existing` | `static_only` | `off` | static artifact scan<br>exact target and requested copy |
 | `tier_1_local_ui_patch` | required | `inspectable_artifact`<br>`exact_target`<br>`target_selectors`<br>`requested_change`<br>`expected_result`<br>`protected_scope` | `reuse_if_present_never_create` | `inherit_existing` | `interactive_demo` | `reuse` | one relevant viewport<br>visible target and expected result<br>unauthorized emoji<br>affected interaction when applicable<br>target screenshot |
-| `tier_2_layout_or_interaction` | required | `inspectable_artifact`<br>`affected_layout_or_interaction`<br>`verification_targets`<br>`expected_result`<br>`affected_viewports_or_states` | `reuse_and_update_affected_fields_if_present` | `inherit_existing` | `interactive_demo` | `reuse` | affected viewports or states<br>named interactions<br>observable results<br>experience checks for multi-step interaction paths<br>key-state screenshots<br>portability when resources change<br>keep the HTML entry and changed resources together in the demo folder |
+| `tier_2_layout_or_interaction` | required | `inspectable_artifact`<br>`affected_layout_or_interaction`<br>`verification_targets`<br>`expected_result`<br>`affected_viewports_or_states` | `reuse_and_update_affected_fields_if_present` | `inherit_existing` | `interactive_demo` | `reuse` | affected viewports or states<br>named interactions<br>observable results<br>affected Product Contract requirements, transitions and acceptance when semantics change<br>experience checks for multi-step interaction paths<br>key-state screenshots<br>portability when resources change<br>keep the HTML entry and changed resources together in the demo folder |
 | `tier_3_full_delivery` | not required | selected Route schema | `create_or_fully_refresh_for_web_app_only` | `select_core_or_follow_authoritative_context` | `interactive_demo` | `off` | main user path<br>key visible states and screenshots<br>experience checks for applicable primary, error, cancel and recovery paths<br>one bounded rendered-quality correction loop<br>resource portability<br>primary share artifact is the complete demo folder containing its HTML entry and resources<br>main product scenarios when applicable<br>design-reference comparison when external fidelity applies |
 
 ## Verification Profiles
@@ -76,6 +76,7 @@
 - 截图、URL、Figma、组件库或需要提取设计语言的现有代码会影响产物时才触发 Design Context Facet；Tier 0/1 有界修改直接继承现有设计语言。
 - 外部设计源或中高风险多文件交付使用统一 `DESIGN.md`；旧 `design.md` 只读兼容，单文件低风险 Demo 可用 HTML 注释，Review-only 不创建文件。
 - Web/App 的默认主分享格式是 `project_bundle`：入口 HTML 与 CSS、JavaScript、图片等资源集中在同一个独立文件夹，使用相对路径，发送整个文件夹；不另生成分享 HTML。
+- 默认打开方式是 `file`：解压后双击入口（默认 `index.html`），图标、数据和主要路径须兼容直接打开。仅用户明确要求时改为 HTTP 交付；loopback HTTP 自动化预览不改变交付要求。检查与证据边界见 `references/verification.md`。
 - Route、Mode 或 Facet 的 material blocker 未解决时停止；低影响未知项记录为 assumption。
 - Tier 决定范围和证据深度，不决定浏览器引擎；Web/App 默认使用 `interactive_demo`，只有用户明确要求时才进入 `strict_regression`。
 - Interactive Demo 验证本地 HTML 时先运行 `scripts/preview-server.py`，通过它输出的 `http://127.0.0.1:<port>/...` 地址访问；`file://` 只用于人工打开，不作为 Browser 自动化证据。
@@ -86,6 +87,7 @@
 
 - layout crosses a bounded parent container or changes responsive strategy
 - navigation, interaction, or observable state changes
+- bounded business rules, states or requirement bindings change within the existing business model and permission boundaries
 - multiple independent page regions are affected
 - asset or resource paths change
 
@@ -94,7 +96,7 @@
 - no inspectable existing artifact
 - page goal or primary user task changes
 - information architecture or design language changes
-- business state, permission, requirement binding, or Product Contract changes
+- business model, permission boundaries or shared business object identity changes
 - multiple pages or core sections change
 - external replication or brand-sensitive fidelity is required
 - change scope still cannot be bounded safely after bounded discovery

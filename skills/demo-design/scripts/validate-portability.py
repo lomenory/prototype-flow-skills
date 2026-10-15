@@ -16,6 +16,125 @@ CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.IGNORECASE)
 FALLBACK_COMMENT_RE = re.compile(r"demo-design:\s*fallback=([a-z0-9_-]+)", re.IGNORECASE)
 REMOTE_SCHEMES = {"http", "https"}
 EMBEDDED_SCHEMES = {"data", "blob"}
+CSS_DECLARATION_RE = re.compile(
+    r"^\s*(--[\w-]+|(?:-webkit-)?mask(?:-image)?)\s*:\s*(.*?)\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _css_declarations(text: str) -> list[tuple[str, str]]:
+    """Read mask and variable declarations without splitting quoted/data URLs."""
+    declarations: list[tuple[str, str]] = []
+    segment: list[str] = []
+    quote = ""
+    depth = 0
+    index = 0
+
+    def finish() -> None:
+        match = CSS_DECLARATION_RE.match("".join(segment))
+        if match:
+            declarations.append((match.group(1), match.group(2)))
+        segment.clear()
+
+    while index < len(text):
+        char = text[index]
+        if quote:
+            segment.append(char)
+            if char == "\\" and index + 1 < len(text):
+                index += 1
+                segment.append(text[index])
+            elif char == quote:
+                quote = ""
+        elif text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            index = len(text) if end < 0 else end + 1
+            segment.append(" ")
+        elif char in "\"'":
+            quote = char
+            segment.append(char)
+        elif char == "(":
+            depth += 1
+            segment.append(char)
+        elif char == ")":
+            depth = max(0, depth - 1)
+            segment.append(char)
+        elif depth == 0 and char == "{":
+            segment.clear()
+        elif depth == 0 and char in ";}":
+            finish()
+        else:
+            segment.append(char)
+        index += 1
+    finish()
+    return declarations
+
+
+def _css_function_arguments(value: str, name: str) -> list[str]:
+    """Return balanced function arguments, including nested var() fallbacks."""
+    arguments: list[str] = []
+    pattern = re.compile(r"(?<![\w-])" + re.escape(name) + r"\(", re.IGNORECASE)
+    for match in pattern.finditer(value):
+        index = match.end()
+        start = index
+        depth = 1
+        quote = ""
+        while index < len(value):
+            char = value[index]
+            if quote:
+                if char == "\\":
+                    index += 1
+                elif char == quote:
+                    quote = ""
+            elif char in "\"'":
+                quote = char
+            elif char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    arguments.append(value[start:index])
+                    break
+            index += 1
+    return arguments
+
+
+def _file_mask_errors(
+    styles: list[tuple[str, str]],
+) -> tuple[list[str], list[str]]:
+    variables: dict[str, list[tuple[str, str]]] = {}
+    masks: list[tuple[str, str]] = []
+    for origin, style in styles:
+        for property_name, value in _css_declarations(style):
+            if property_name.startswith("--"):
+                variables.setdefault(property_name, []).append((origin, value))
+            else:
+                masks.append((f"{origin} {property_name}", value))
+    errors: set[str] = set()
+    unresolved: set[str] = set()
+
+    def inspect(origin: str, value: str, seen: set[str]) -> None:
+        for argument in _css_function_arguments(value, "url"):
+            url = argument.strip().strip("\"'").strip()
+            parsed = urlsplit(url)
+            if url and not url.startswith("#") and parsed.scheme.lower() in {"", "file"}:
+                errors.add(
+                    f"file opening cannot use an external local CSS mask from {origin}: {url}; "
+                    "embed the mask as a data URI or an inline SVG fragment"
+                )
+        for argument in _css_function_arguments(value, "var"):
+            name = argument.split(",", 1)[0].strip()
+            if name in seen:
+                unresolved.add(name)
+                continue
+            definitions = variables.get(name, [])
+            if not definitions:
+                unresolved.add(name)
+            for variable_origin, variable_value in definitions:
+                inspect(f"{origin} -> {name} ({variable_origin})", variable_value, seen | {name})
+
+    for origin, value in masks:
+        inspect(origin, value, set())
+    return sorted(errors), sorted(unresolved)
 
 
 def _srcset_urls(value: str) -> list[str]:
@@ -32,6 +151,8 @@ class ResourceParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.resources: list[tuple[str, str]] = []
         self.fallbacks: set[str] = set()
+        self.styles: list[tuple[str, str]] = []
+        self.local_modules: list[tuple[str, str]] = []
         self._in_style = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -43,6 +164,8 @@ class ResourceParser(HTMLParser):
             self._in_style = True
         if tag in {"img", "script", "source"} and attributes.get("src"):
             self.resources.append((f"{tag}[src]", str(attributes["src"])))
+        if tag == "script" and (attributes.get("type") or "").strip().lower() == "module" and attributes.get("src"):
+            self.local_modules.append(("script[type=module]", str(attributes["src"])))
         if tag in {"img", "source"} and attributes.get("srcset"):
             self.resources.extend(
                 (f"{tag}[srcset]", value)
@@ -54,8 +177,11 @@ class ResourceParser(HTMLParser):
             rel = set((attributes.get("rel") or "").lower().split())
             if rel & {"stylesheet", "icon", "preload", "modulepreload"}:
                 self.resources.append(("link[href]", str(attributes["href"])))
+            if "modulepreload" in rel:
+                self.local_modules.append(("link[rel=modulepreload]", str(attributes["href"])))
         style = attributes.get("style")
         if style:
+            self.styles.append((f"{tag}[style]", style))
             for match in CSS_URL_RE.finditer(style):
                 self.resources.append((f"{tag}[style]", match.group(2)))
 
@@ -65,6 +191,7 @@ class ResourceParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self._in_style:
+            self.styles.append(("style", data))
             for match in CSS_URL_RE.finditer(data):
                 self.resources.append(("style[url]", match.group(2)))
 
@@ -104,7 +231,11 @@ def _css_resources(path: Path) -> list[tuple[str, str]]:
 def validate_portability(
     html_path: str | Path,
     dependencies_path: str | Path | None = None,
+    *,
+    opening_mode: str = "file",
 ) -> tuple[list[str], dict[str, Any]]:
+    if opening_mode not in {"file", "http"}:
+        raise ValueError("opening_mode must be 'file' or 'http'")
     html = Path(html_path).resolve()
     dependencies_source = (
         Path(dependencies_path)
@@ -130,6 +261,7 @@ def validate_portability(
     remote_assets: set[str] = set()
     errors: list[str] = []
     scanned_css: set[Path] = set()
+    styles = list(parser.styles)
     index = 0
     while index < len(queue):
         origin, raw = queue[index]
@@ -171,6 +303,7 @@ def validate_portability(
             continue
         if resolved.suffix.lower() == ".css" and resolved not in scanned_css:
             scanned_css.add(resolved)
+            styles.append((f"css:{resolved.relative_to(html.parent).as_posix()}", resolved.read_text(encoding="utf-8", errors="ignore")))
             for css_origin, css_value in _css_resources(resolved):
                 css_parsed = urlsplit(css_value)
                 if css_parsed.scheme or css_parsed.netloc or css_value.startswith("/"):
@@ -179,11 +312,37 @@ def validate_portability(
                     queue.append(
                         (css_origin, Path(relative.parent, css_value).as_posix())
                     )
+    unresolved_mask_variables: list[str] = []
+    if opening_mode == "file":
+        mask_errors, unresolved_mask_variables = _file_mask_errors(styles)
+        errors.extend(mask_errors)
+        for origin, value in parser.local_modules:
+            parsed = urlsplit(value.strip())
+            if parsed.scheme.lower() in {"", "file"}:
+                errors.append(
+                    f"file opening cannot load a local ES module from {origin}: {value}; "
+                    "bundle it into a classic script or inline its dependency-free code"
+                )
     required_files = [html.name, *sorted(local_resources)]
     report = {
         "status": "failed" if errors else "passed",
         "requestedDeliveryFormat": "project_bundle",
         "deliveryMode": "directory",
+        "openingMode": opening_mode,
+        "evidenceLevel": "static",
+        "fileOpenVerification": "unverified",
+        "unresolvedMaskVariables": unresolved_mask_variables,
+        "limitations": [
+            "Static resource checks do not verify browser rendering or interactions.",
+            "CSS variable mask checks inspect all declared values and fallbacks, not the computed cascade.",
+            "JavaScript-generated masks, dynamic imports, fetch requests, and runtime CSS changes require actual opening checks.",
+        ],
+        "manualChecks": [
+            "Extract the complete delivery folder, double-click the entry HTML, and verify icons and the main interaction path.",
+            "Record actual file opening evidence separately; an HTTP preview does not verify file opening.",
+        ] if opening_mode == "file" else [
+            "Verify the declared HTTP entry and record the user's explicit HTTP delivery requirement.",
+        ],
         "primaryShareArtifact": html.parent.name,
         "entryHtml": html.name,
         "requiredFiles": required_files,
@@ -202,11 +361,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("html", type=Path)
     parser.add_argument("--dependencies", type=Path)
     parser.add_argument("--report-json", type=Path)
+    parser.add_argument("--opening-mode", choices=("file", "http"), default="file", help="Default: unzip and double-click HTML; HTTP requires an explicit user delivery requirement")
     args = parser.parse_args(argv)
     try:
         errors, report = validate_portability(
             args.html,
             args.dependencies,
+            opening_mode=args.opening_mode,
         )
     except ValueError as error:
         errors = [str(error)]
@@ -217,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     for error in errors:
         print(f"ERROR: {error}")
     if not errors:
-        print("OK: demo resources are portable")
+        print("OK: static demo resource checks passed; actual opening remains unverified")
     return 1 if errors else 0
 
 
