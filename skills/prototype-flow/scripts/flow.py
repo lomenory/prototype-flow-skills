@@ -217,6 +217,12 @@ def parser():
     cmd.add_argument('--output', required=True)
     cmd.add_argument('--version')
     cmd.add_argument('--resource-manifest', help='旧 Demo 的只读运行资源声明 JSON，按最终冻结 Demo ID 放入 artifacts 映射')
+    cmd = command('storage', '检查内容存储、显式迁移旧项目、展开资源或导出独立 Demo 文件夹')
+    cmd.add_argument('--action', required=True, choices=['status', 'migrate', 'materialize', 'export'])
+    cmd.add_argument('--group', help='materialize 使用的存储组编号，从 status 结果读取')
+    cmd.add_argument('--artifact', help='export 使用的已登记 Demo 产物 ID')
+    cmd.add_argument('--output', help='展开或导出的绝对目标目录；export 必填，已有不同内容拒绝覆盖')
+    cmd.add_argument('--apply', action='store_true', help='仅 migrate：校验并启用内容存储；默认只返回迁移计划')
     cmd = command('document', '读取完整 PRD 及保存基线')
     cmd.add_argument('id')
     cmd.add_argument('--version')
@@ -418,6 +424,30 @@ def main(argv=None):
             from pf_delivery import export_module
             result = export_module(store, args.id, args.output, args.version,
                                    resource_manifest=read_json(args.resource_manifest) if args.resource_manifest else None)
+        elif command == 'storage':
+            if args.apply and args.action != 'migrate':
+                raise FlowError('--apply 只能与 storage --action migrate 一起使用')
+            if args.group is not None and args.action != 'materialize':
+                raise FlowError('--group 只能与 storage --action materialize 一起使用')
+            if args.artifact is not None and args.action != 'export':
+                raise FlowError('--artifact 只能与 storage --action export 一起使用')
+            if args.output is not None:
+                if args.action not in ('materialize', 'export'):
+                    raise FlowError('--output 只能与 storage --action materialize|export 一起使用')
+                if not Path(args.output).expanduser().is_absolute():
+                    raise FlowError('--output 需要绝对目标目录')
+            if args.action == 'status':
+                result = store.storage_status()
+            elif args.action == 'migrate':
+                result = store.migrate_storage(execute=args.apply)
+            elif args.action == 'materialize':
+                if not args.group:
+                    raise FlowError('storage --action materialize 需要 --group，编号从 status 结果读取')
+                result = store.materialize_storage(args.group, output=args.output)
+            else:
+                if not args.artifact or not args.output:
+                    raise FlowError('storage --action export 需要 --artifact 和 --output')
+                result = store.export_demo(args.artifact, args.output)
         elif command == 'state':
             if args.id is not None and not args.section:
                 raise FlowError('state --id requires --section runs, artifacts or bindings')
@@ -518,7 +548,7 @@ def main(argv=None):
         if isinstance(result, dict) and command in ('run-start', 'demo-prepare', 'artifact', 'relations',
                                                    'run-finish', 'demo-finalize', 'demo-edit', 'demo-save',
                                                    'demo-freeze', 'demo-restore', 'review-state', 'preview', 'demo-entry',
-                                                   'requirement-map', 'demo-assemble', 'service'):
+                                                   'requirement-map', 'demo-assemble', 'service', 'storage'):
             result['commandMetrics'] = dict(store.metrics, elapsedMs=round((time.perf_counter() - started) * 1000, 3))
         output(result)
         return 0

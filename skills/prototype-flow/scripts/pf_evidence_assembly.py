@@ -40,7 +40,7 @@ def _strings(value, label, empty=True):
 def _file(store, relative, base=None):
     _text(relative, 'Evidence path')
     path = store._safe(relative, base=base, must_exist=True)
-    if not path.is_file():
+    if not store._is_file(path):
         raise FlowError('Evidence must name a file', 400, relative)
     return path
 

@@ -232,9 +232,9 @@ def build_manifest(store, directory, supplied=None, previous=None, entries=(), r
     for key, directory_key in zip(_FIELDS, _DIRECTORY_FIELDS):
         for relative in _paths(declaration.get(directory_key, []), directory_key):
             path = store._safe(relative, base=directory, must_exist=key != 'excludedFiles')
-            if key == 'excludedFiles' and not path.exists():
+            if key == 'excludedFiles' and not store._exists(path):
                 continue
-            if not path.is_dir():
+            if not store._is_dir(path):
                 raise FlowError('资源目录声明不是目录：' + relative)
             explicit[key].update(name for name in files if name.startswith(relative + '/'))
     missing = (explicit['runtimeFiles'] | explicit['archiveFiles']) - files
@@ -342,7 +342,7 @@ def build_manifest(store, directory, supplied=None, previous=None, entries=(), r
             for url, base_kind in references:
                 # Bare module specifiers need an import map/bundler declaration.
                 if base_kind == 'module' and not url.startswith(('.', '/')) and not urlsplit(url).scheme:
-                    if url not in files and not (directory / posixpath.dirname(relative) / url).is_file():
+                    if url not in files and not store._is_file(directory / posixpath.dirname(relative) / url):
                         if not complete:
                             unresolved.add(relative + '：无法解析模块 ' + url)
                         continue

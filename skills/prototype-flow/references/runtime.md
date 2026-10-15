@@ -17,8 +17,8 @@ python3 -B <skill-dir>/scripts/flow.py init <project-dir> --name "项目名称" 
 ```text
 project/
 ├── prd-library/               当前 PRD、来源资料与 DOC_MAP 导航
-├── .prototype-flow/          当前项目清单、索引、关系、任务及同步账本
-├── demos/<artifact-id>/      可连续编辑的工作稿，以及完整冻结 Demo 和资源
+├── .prototype-flow/          当前项目清单、索引、关系、任务、内容库及同步账本
+├── demos/<artifact-id>/      可连续编辑的工作稿，以及按需展开的冻结 Demo 缓存
 ├── demo-framework/<id>/     不可变共享框架版本，含 DESIGN.md 与可运行代码
 └── versions/<version-id>/    不可变项目快照
 ```
@@ -38,6 +38,7 @@ project/
 - `sources.json`：来源登记和已提取内容；文档依据引用来源 ID，不把登记当作已完成分析。
 - `runs/`：固定一次任务输入、修改范围和实际进度；工作稿用 `demo-edit` / `demo-save` 管理，首次制作兼容 `run-start` / `demo-finalize`，中断用 `run-finish` 记录，`run-resume` 创建独立续作。原始完整文档与决定产物有效性的 `documentHashes` 分开保存。
 - `draft-revisions/<draft-id>/<n>.json` 与 `draft-blobs/<sha>`：工作稿各修订的恢复清单及按内容去重的文件字节；不为每次小改保存完整目录。由运行时维护，不能手改或自行删除仍被引用的数据。
+- `storage.json`：新项目的内容存储模式和存储组清单，文件内容复用 `draft-blobs/<sha>`；每组保存逻辑路径与哈希。没有此文件的旧项目继续使用原目录布局，不因只读查询或重复初始化自动迁移。`storage-local.json` 只记录本机已展开路径，受 Git 忽略且不进入历史快照，不是恢复依据。
 - `feishu.json` 和 `feishu-plans/`：实时同步账本和固定计划，恢复历史时保留。
 
 schema 是集成格式说明，Python 运行时还有路径、引用、哈希及版本一致性校验；只验证 JSON schema 不代表项目可用。
@@ -54,6 +55,34 @@ schema 是集成格式说明，Python 运行时还有路径、引用、哈希及
 ```
 
 此处 `verified:false` 是正确的未验证状态；不能为了卡片显示完成改成 true。可在 bindings 扩展 `contractRefs`、证据和专业判断说明，产品契约自身 schema 保持不动。
+
+## 内容存储与兼容迁移
+
+新项目默认使用 `content` 模式。当前工作稿源码保持展开以供编辑；冻结 Demo、存档证据和任务固定输入以完整清单引用按 SHA-256 去重的内容库。相同字节只需一份，产物身份、每次观察的修订、范围、结论及证据引用仍分别保留。工作稿修订和冻结版保留完整逻辑内容及可验证的恢复能力，不要求每个身份各复制一个物理目录。项目快照沿用完整版本格式，从内容库补齐未展开文件并保全引用对象，不改写既有历史版本。
+
+`state`、校验、历史读取和快照从清单读取内容，不为只读查询先展开全部文件。预览、继续编辑和导出按实际需要读取或展开资源；已保存的证据缓存未展开时，不应被下一次保存当作删除。逻辑资源完整而物理缓存不存在是正常状态；清单引用的内容缺失或字节损坏仍明确报错，不能从当前 PRD 或另一版 Demo 补造旧输入。由运行时管理内容库、清单及缓存，勿手改哈希或自行清理仍被引用的对象。
+
+先检查模式、组编号及完整性；旧项目的迁移默认只返回计划：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py storage <project-dir> --action status
+python3 -B <skill-dir>/scripts/flow.py storage <project-dir> --action migrate
+python3 -B <skill-dir>/scripts/flow.py storage <project-dir> --action migrate --apply
+```
+
+`status` 只读汇总，`migrate --apply` 才校验既有文件、捕获内容并启用存储；失败不会用不完整内容替代原布局。旧项目首次迁移先把现有 `local_tasks/` 全量保全到 `archive:legacy-local-tasks` 组及内容库，再启用忽略规则，避免遗漏唯一资料。迁移不重写旧快照、修订、冻结记录及原哈希，不删除物理文件，也不执行 Git 取消追踪。运行时在 `.gitignore` 的受管理区维护可再生缓存与 `local_tasks/` 临时文件的规则，保留用户已有规则；已被 Git 追踪的重复文件不会因此自动退出索引。如需取消追踪，必须在保全内容、核对计划并取得该操作授权后另行处理。
+
+需要完整物理目录时，从 `status` 结果选择准确组编号；省略 `--output` 按清单恢复到原逻辑位置，也可展开到绝对路径：
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py storage <project-dir> --action materialize --group <group-key>
+python3 -B <skill-dir>/scripts/flow.py storage <project-dir> --action materialize --group <group-key> --output <absolute-directory>
+python3 -B <skill-dir>/scripts/flow.py storage <project-dir> --action export --artifact <artifact-id> --output <absolute-directory>
+```
+
+展开与导出先验证所需内容，目标有未知或不同字节时拒绝覆盖。`export` 导出所选 Demo 的完整运行文件及存档资料为独立文件夹，可脱离仓库使用，不依赖内容库或绝对本机路径；外部在线资源仍需联网。模块交付继续使用 `export-module`，按资源清单提供运行资源 ZIP，PRD 明确引用的存档资料也随包保留。
+
+`local_tasks/` 放临时输入、日志、组装结果和辅助工具，默认不新增到 Git。若其中含唯一的用户确认、有效验证报告/截图或后续需要的可复跑脚本，先保存到项目正式来源、Demo 存档或其他已维护位置，并修正引用，再清理对应临时文件；不能按目录名一概删除。迁移和忽略规则不会代替这项内容判断，也不回收旧历史或备份。
 
 ## 模块工作阶段
 
@@ -108,7 +137,7 @@ python3 -B <skill-dir>/scripts/flow.py save <project-dir> <document-id> --file <
 
 ## Demo 资源边界
 
-新产物以 `resourceManifest` 区分运行文件、存档资料和排除项；`fileHashes` 只覆盖 `runtimeFiles` 与 `archiveFiles` 的并集。工作稿修订和冻结版保留这两类文件，Demo 导出只读取运行清单。排除临时文件不删除当前工作目录中的原文件。辅助编辑、截图和调试脚本优先放在项目 `local_tasks/`，不要混进 Demo 交付目录。
+新产物以 `resourceManifest` 区分运行文件、存档资料和排除项；`fileHashes` 只覆盖 `runtimeFiles` 与 `archiveFiles` 的并集。工作稿修订和冻结版保留这两类文件，模块交付只读取运行清单及 PRD 引用资料，`storage --action export` 则导出完整存档副本。排除临时文件不删除当前工作目录中的原文件。辅助编辑、截图和调试脚本优先放在项目 `local_tasks/`，不要混进 Demo 交付目录。
 
 | 类别 | 保留范围 |
 | --- | --- |
@@ -222,7 +251,7 @@ python3 -B <skill-dir>/scripts/flow.py demo-freeze <project-dir> --artifact <dra
 python3 -B <skill-dir>/scripts/flow.py demo-restore <project-dir> <draft-id> --revision <n>
 ```
 
-首次可用、提交评审、确认里程碑或明确保存 Demo 版本时冻结。`demo-freeze` 按已保存资源清单复制运行文件和存档资料，并保留绑定截图，形成不可变完整产物，记录 `frozenFrom:{artifactId,revision}`；旧格式沿用原完整清单。同一修订已经冻结时复用并返回 `reused:true`，分类变化也必须保存为新修订。工作稿及当前指针保持原样，最近冻结版由 `lastFrozenArtifactId` 记录。冻结保留 candidate 或真实验证状态，不证明用户确认，不自动发布或保存项目快照。
+首次可用、提交评审、确认里程碑或明确保存 Demo 版本时冻结。`demo-freeze` 按已保存资源清单保全运行文件、存档资料和绑定截图，形成不可变完整产物，记录 `frozenFrom:{artifactId,revision}`。`content` 模式保存完整存储组清单并复用内容库，不再为每次冻结复制完整目录；旧项目沿用原复制布局。同一修订已经冻结时复用并返回 `reused:true`，分类变化也必须保存为新修订。工作稿及当前指针保持原样，最近冻结版由 `lastFrozenArtifactId` 记录。冻结保留 candidate 或真实验证状态，不证明用户确认，不自动发布或保存项目快照。
 
 `demo-restore` 找回指定工作稿修订并形成新修订，旧修订不被覆盖，恢复后的 PRD 有效性仍需核对。修订号递增，包含恢复检查点时可以跳号。有活动编辑任务时，冻结、恢复和另起编辑均会拒绝；先完成保存，或用 `run-finish --status partial|failed` 结束当前任务再恢复。恢复前有未保存文件时，运行时先保存其去重恢复数据，并返回 `recoveryCheckpoint` 路径和可恢复的 `recoveryRevision`。此原始恢复检查点也保全未登记和已排除文件，不按正式资源策略过滤，避免替换目录时丢失工作字节。
 
@@ -261,7 +290,7 @@ Demo 命令及检查返回 `commandMetrics`：`elapsedMs` 是命令内部耗时�
 
 ## 版本与恢复
 
-`snapshot --name` 固定当前 PRD、关系、Demo 运行文件和存档资料、图片及验证状态，也保存任务记录、所有任务的固定输入和 `outputs.paths` 声明的部分成果。资源策略适用于已登记 Demo/框架；旧记录沿用原全量文件。输出副本放在历史的 `.prototype-flow/run-outputs/`，缺失输出保留警告。保留修订引用的恢复对象必须随快照保全，不因新策略删除历史对象。版本允许未完成项，但如实记录缺失/未验证；保留实际存档文件清单及校验值。`compare --from <version-id> --to working` 比较需求、正文与截图；工作台可读历史版本。
+`snapshot --name` 固定当前 PRD、关系、Demo 运行文件和存档资料、图片及验证状态，也保存任务记录、所有任务的固定输入和 `outputs.paths` 声明的部分成果。资源策略适用于已登记 Demo/框架；旧记录沿用原全量文件。输出副本放在历史的 `.prototype-flow/run-outputs/`，缺失输出保留警告。内容存储模式的快照保全清单及其引用的对象，不保存本机缓存展开状态；内容未展开也能校验和恢复。保留修订引用的恢复对象必须随快照保全，不因新策略删除历史对象。版本允许未完成项，但如实记录缺失/未验证；保留实际存档文件清单及校验值。`compare --from <version-id> --to working` 比较需求、正文与截图；工作台可读历史版本。
 
 `restore <root> <version-id>` 先严格校验目标历史，再保存恢复前备份并形成新工作修订。恢复前备份允许当前 Demo 或固定输入损坏/缺失，保存实际可读字节、原登记记录及损坏说明，也原样保全即将被替换目录中未登记和已排除的文件，不要求先修好当前 Demo；普通快照仍拒绝篡改。备份标记 `recoveryBackup`，含损坏产物的备份仅供找回文件，不能作为完整恢复目标。历史自身不可编辑；当前飞书绑定、同步基线和实时任务保持不变。
 

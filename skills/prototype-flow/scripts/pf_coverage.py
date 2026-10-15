@@ -101,7 +101,7 @@ def _entry(store, base, artifact, binding, inventory):
             return False
         path = store._safe(relative, base=store._safe(artifact['path'], base=base))
         expected = artifact.get('fileHashes', {}).get(relative)
-        return bool(expected and path.is_file() and inventory.get(relative) == expected)
+        return bool(expected and store._is_file(path) and inventory.get(relative) == expected)
     except (FlowError, OSError, ValueError):
         return False
 
@@ -194,11 +194,11 @@ def requirement_coverage(store, requirements, documents, version=None, artifact_
                                                    if doc_hashes.get(did) != expected)
             directory = store._safe(artifact['path'], base=base)
             inventory = store._resource_inventory(directory, artifact)
-            intact = directory.is_dir() and inventory == artifact.get('fileHashes')
+            intact = store._is_dir(directory) and inventory == artifact.get('fileHashes')
             draft = artifact.get('kind') == 'working-draft'
             editing = draft and (not intact or artifact.get('activeRunId') or artifact.get('editStatus') != 'ready')
             input_stale = bool(artifact['staleRequirementIds'] or artifact['staleDocumentIds'])
-            artifact.update(integrityStatus='intact' if intact else 'editing' if draft and directory.is_dir() else 'changed',
+            artifact.update(integrityStatus='intact' if intact else 'editing' if draft and store._is_dir(directory) else 'changed',
                             syncStatus='editing' if editing else 'invalid' if not intact else 'stale' if input_stale else 'current')
             live = store._read('relations.json', {'bindings': []}, base=base)['bindings']
             frozen = not draft and 'frozenRelations' in artifact

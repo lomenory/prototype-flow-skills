@@ -126,7 +126,7 @@ def _page_content(store, binding, artifact, base=None):
         if relative in visited:
             continue
         path = store._safe(relative, base=directory, must_exist=True)
-        if relative not in manifest or not path.is_file():
+        if relative not in manifest or not store._is_file(path):
             raise FlowError('Verification dependency is not in the immutable Demo', details=relative)
         visited.add(relative)
         suffix = path.suffix.lower()

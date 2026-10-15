@@ -141,9 +141,9 @@ def module_package(store, module_id, version=None, resource_manifest=None, recei
         def add(relative, expected=None):
             path = _package_path(relative)
             file = store._safe(relative, base=root, must_exist=True)
-            if not file.is_file():
+            if not store._is_file(file):
                 raise FlowError('打包资源不是文件：' + relative, 409)
-            data = file.read_bytes()
+            data = store._file_bytes(file)
             if expected and hashlib.sha256(data).hexdigest() != expected:
                 raise FlowError('打包期间文件发生变化，请刷新后重试。', 409)
             # Finder metadata may already be in an immutable artifact manifest.

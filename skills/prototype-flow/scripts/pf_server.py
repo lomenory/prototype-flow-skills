@@ -220,7 +220,7 @@ class ServiceRegistry:
             self.path.unlink(missing_ok=True)
 
 
-def safe_file(root: Path, relative: str) -> Path:
+def safe_file(root: Path, relative: str, store=None) -> Path:
     if not relative or '\x00' in relative or '\\' in relative:
         raise FlowError('无效的文件路径', 400)
     p = Path(relative)
@@ -236,7 +236,7 @@ def safe_file(root: Path, relative: str) -> Path:
         candidate.relative_to(root.resolve())
     except ValueError:
         raise FlowError('该文件超出项目范围', 403)
-    if not candidate.is_file():
+    if not (store._is_file(candidate) if store else candidate.is_file()):
         raise FlowError('文件不存在', 404)
     return candidate
 
@@ -297,14 +297,14 @@ class DemoAccess:
 
     def _checked_artifact(self, artifact_id, version=None):
         """Check only this artifact; cache successful byte checks behind metadata."""
-        with self.store._transaction(read_only=True):
+        with self.store._transaction(read_only=True), self.store._read_session():
             root = self._checked_history(version)
             artifact = next((a for a in self.store._read('artifacts.json', {'items': []}, base=root)['items']
                              if a['id'] == artifact_id), None)
             if not artifact:
                 raise FlowError('该版本没有这个 Demo', 404)
             artifact_root = self.store._safe(artifact['path'], base=root)
-            if not artifact_root.is_dir():
+            if not self.store._is_dir(artifact_root):
                 raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
             expected = artifact.get('fileHashes', {})
             with self._integrity_lock:
@@ -314,7 +314,7 @@ class DemoAccess:
                     signature = metadata_signature(artifact_root)
                     key = ('live-draft', artifact_id, str(artifact_root))
                     cached = self._integrity_cache.get(key)
-                    if not cached or cached[0] != signature:
+                    if self.store._has_virtual_files(artifact_root) or not cached or cached[0] != signature:
                         hashes = self.store._inventory(artifact_root)
                         if signature != metadata_signature(artifact_root):
                             raise FlowError('工作稿在读取期间发生变化，请重试', 409)
@@ -323,7 +323,7 @@ class DemoAccess:
                     return dict(artifact, fileHashes=cached[1]), artifact_root
                 signature = (metadata_signature(artifact_root), json.dumps(expected, sort_keys=True))
                 key = ('artifact', version, artifact_id, str(artifact_root))
-                if self._integrity_cache.get(key) != signature:
+                if self.store._has_virtual_files(artifact_root) or self._integrity_cache.get(key) != signature:
                     if self.store._resource_inventory(artifact_root, artifact) != expected:
                         raise FlowError('Demo 文件与登记版本不一致，请登记新产物后查看', 409)
                     if signature[0] != metadata_signature(artifact_root):
@@ -509,10 +509,10 @@ class DemoAccess:
             registered = artifact
             if check_files:
                 artifact, artifact_root = self._checked_artifact(artifact_id, version)
-                file = safe_file(artifact_root, relative)
+                file = safe_file(artifact_root, relative, self.store)
                 if relative not in artifact.get('fileHashes', {}):
                     self._entry_error('该入口未登记在 Demo 中', 'entry-invalid', 403)
-                if hashlib.sha256(file.read_bytes()).hexdigest() != artifact['fileHashes'][relative]:
+                if self.store._file_digest(file) != artifact['fileHashes'][relative]:
                     self._entry_error('请求文件与登记版本不一致，请重新验证产物', 'entry-invalid')
             checked = {key: artifact[key] for key in ('id', 'kind', 'draftRevision', 'editStatus') if key in artifact}
             editing = artifact.get('kind') == 'working-draft' and (artifact.get('fileHashes') != registered.get('fileHashes')
@@ -588,8 +588,8 @@ class DemoAccess:
                 if self.headers.get('Host') != expected:
                     raise FlowError('不允许的访问地址', 403)
 
-            def send_file(self, path, csp=None, expected=None):
-                data = path.read_bytes()
+            def send_file(self, path, csp=None, expected=None, store=None):
+                data = store._file_bytes(path) if store else path.read_bytes()
                 if expected is not None and hashlib.sha256(data).hexdigest() != expected:
                     raise FlowError('请求文件与登记版本不一致，请重新验证产物', 409)
                 kind = mimetypes.guess_type(str(path))[0] or 'application/octet-stream'
@@ -635,11 +635,11 @@ class DemoAccess:
                     relative = '/'.join(parts[4:]) or artifact.get('entryHtml', 'index.html')
                     # No workbench token/API is exposed on this origin.
                     policy = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:; object-src 'none'; frame-ancestors 'none'"
-                    file = safe_file(artifact_root, relative)
+                    file = safe_file(artifact_root, relative, owner.store)
                     expected = artifact.get('fileHashes', {}).get(file.relative_to(artifact_root).as_posix())
                     if not expected:
                         raise FlowError('该资源未登记在 Demo 中', 403)
-                    return self.send_file(file, policy, expected)
+                    return self.send_file(file, policy, expected, owner.store)
                 except Exception as exc:
                     self.failure(exc)
 
@@ -1046,10 +1046,10 @@ class WorkbenchServer(DemoAccess):
                             # Validate the immutable manifest before serving any historical bytes.
                             owner._checked_history(version)
                         root = owner.store.content_root(version=version)
-                        file = safe_file(root, query.get('path', [''])[0])
+                        file = safe_file(root, query.get('path', [''])[0], owner.store)
                         if file.suffix.lower() not in CONTENT_EXTENSIONS:
                             raise FlowError('该类型不作为工作台内容提供', 403)
-                        return self.send_file(file, "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+                        return self.send_file(file, "sandbox; default-src 'none'; style-src 'unsafe-inline'", store=owner.store)
                     if path == '/requirement-map':
                         data, policy = owner.requirement_map_html(query.get('module', [None])[0],
                             query.get('requirement', [None])[0], version)

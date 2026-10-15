@@ -351,7 +351,7 @@ class FeishuSync:
                             break
                         try:
                             source = _inside(self.root, asset['sourcePath'])
-                            changed = _hash(source.read_bytes()) != asset['sha256']
+                            changed = _hash(self.store._file_bytes(source)) != asset['sha256']
                         except (FlowError, OSError, KeyError, ValueError):
                             changed = True
                     if changed:
@@ -410,13 +410,13 @@ class FeishuSync:
             if urlparse(target).scheme:
                 raise FlowError('同步图片需先保存为项目内本地资源，以固定版本并验证上传')
             source = _inside(self.root, str(Path(doc['path']).parent / target))
-            if not source.is_file() or source.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'):
+            if not self.store._is_file(source) or source.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'):
                 raise FlowError('图片不存在或格式不支持：' + target)
-            digest = _hash(source.read_bytes())
+            digest = _hash(self.store._file_bytes(source))
             destination = plan_dir / 'images' / (digest + source.suffix.lower())
             destination.parent.mkdir(exist_ok=True)
             if not destination.exists():
-                shutil.copyfile(source, destination)
+                shutil.copyfile(self.store._physical_file(source), destination)
             before = content[cursor:match.start()].strip()
             if before:
                 segments.append({'type': 'text', 'content': before})

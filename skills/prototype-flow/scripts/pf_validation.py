@@ -36,7 +36,7 @@ def _inputs(store, project, artifacts, bindings, index):
             if not module:
                 continue
             path = store._safe(module['documentPath'])
-            if not path.is_file():
+            if not store._is_file(path):
                 continue
             content = store._file_bytes(path).decode('utf-8')
             metadata, _, _ = split_frontmatter(content)
@@ -137,13 +137,13 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
             for fid in sorted(selected_frameworks & set(frameworks)):
                 framework = frameworks[fid]
                 path = store._safe(framework['path'])
-                if not path.is_dir() or store._resource_inventory(path, framework) != framework['fileHashes']:
+                if not store._is_dir(path) or store._resource_inventory(path, framework) != framework['fileHashes']:
                     errors.append({'code': 'framework-mutated', 'id': fid})
             artifact_inventories = {}
             for artifact in artifacts:
                 aid = artifact['id']
                 path = store._safe(artifact['path'])
-                if not path.is_dir():
+                if not store._is_dir(path):
                     artifact_inventories[aid] = {}
                     errors.append({'code': 'artifact-missing', 'id': aid})
                 else:
@@ -171,7 +171,7 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                                                  'message': '框架验证报告未保存在 Demo 包内，历史证据需复核'})
                     else:
                         warnings.append({'code': 'framework-unbound', 'id': aid})
-                if not _entry_path(store, artifact, artifact.get('entryHtml', 'index.html')).is_file():
+                if not store._is_file(_entry_path(store, artifact, artifact.get('entryHtml', 'index.html'))):
                     errors.append({'code': 'artifact-entry-missing', 'id': aid})
                 stale_requirements = sorted(rid for rid, expected in artifact.get('requirementHashes', {}).items()
                                             if requirements.get(rid, {}).get('hash') != expected)
@@ -234,9 +234,9 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
                 artifact = artifacts_by_id.get(binding.get('artifactId'))
                 if artifact is None:
                     errors.append({'code': 'binding-artifact-missing', 'id': binding['id']})
-                elif not _entry_path(store, artifact, binding.get('route', '')).is_file():
+                elif not store._is_file(_entry_path(store, artifact, binding.get('route', ''))):
                     errors.append({'code': 'binding-entry-missing', 'id': binding['id']})
-                if binding.get('screenshot') and not store._safe(binding['screenshot']).is_file():
+                if binding.get('screenshot') and not store._is_file(store._safe(binding['screenshot'])):
                     warnings.append({'code': 'screenshot-missing', 'id': binding['id']})
                 if not binding.get('verified'):
                     warnings.append({'code': 'entry-unverified', 'id': binding['id']})
@@ -244,7 +244,7 @@ def validate_scope(store, artifact_ids=None, binding_ids=None):
             selected_source_records = {'items': [source for source in sources['items'] if source['id'] in selected_sources]}
             for relative in store._referenced_files(list(documents.values()), selected_source_records,
                                                     {'bindings': bindings}):
-                if not store._safe(relative).is_file():
+                if not store._is_file(store._safe(relative)):
                     warnings.append({'code': 'referenced-file-missing', 'path': relative})
         except (FlowError, OSError, ValueError, KeyError, TypeError) as exc:
             errors.append({'code': 'invalid-project', 'message': str(exc)})

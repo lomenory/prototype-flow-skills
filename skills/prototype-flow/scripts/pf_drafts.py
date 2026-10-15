@@ -88,7 +88,7 @@ def _capture(store, artifact, name=None):
     for binding in bindings:
         if binding.get('screenshot'):
             path = store._safe(binding['screenshot'])
-            if path.is_file():
+            if store._is_file(path):
                 external[binding['screenshot']] = _capture_file(store, path)
         if binding.get('verified') and binding.get('verificationScope'):
             try:
@@ -102,6 +102,16 @@ def _capture(store, artifact, name=None):
     if store._read(target_name) is not None:
         raise FlowError('Draft recovery revision already exists', 409)
     store._write(target_name, manifest)
+    if artifact.get('kind') == 'working-draft' and not artifact.get('recoveryOnly'):
+        archive = (artifact.get('resourceManifest') or {}).get('archiveFiles', [])
+        store._register_storage('evidence:' + artifact['id'], 'evidence', artifact['path'],
+                                {path: hashes[path] for path in archive})
+        for relative, hash_ in external.items():
+            if relative.startswith(artifact['path'] + '/'):
+                continue
+            path = Path(relative)
+            store._register_storage('external:' + digest(relative)[:16], 'evidence',
+                                    path.parent.as_posix(), {path.name: hash_})
     return manifest
 
 
@@ -414,7 +424,7 @@ def _demo_edit_basis(store, requirement_ids, shared_document_ids, binding_ids, e
         'bindings': [{'id': binding['id'], 'artifactId': binding['artifactId'],
                       'hash': digest(canonical(binding)),
                       'screenshotHash': (store._file_digest(store._safe(binding['screenshot']))
-                          if binding.get('screenshot') and store._safe(binding['screenshot']).is_file() else None)}
+                          if binding.get('screenshot') and store._is_file(store._safe(binding['screenshot'])) else None)}
                      for binding in related_bindings],
         'relationsHash': digest(canonical({'bindings': related_bindings, 'flows': related_flows,
             'supersessions': [item for item in relations.get('supersessions', [])
@@ -649,7 +659,7 @@ def _save_bindings(store, draft, previous, payload, run):
                     old_fields = {k: prior.get(k) for k in ('screenId', 'stateId', 'route', 'fixtureId', 'screenshot', 'requirementIds')}
                     screenshot = store._safe(binding.get('screenshot', 'missing-screenshot'))
                     inherited = (old_fields == {k: binding.get(k) for k in old_fields}
-                        and screenshot.is_file() and store._file_digest(screenshot) ==
+                        and store._is_file(screenshot) and store._file_digest(screenshot) ==
                             previous.get('externalFiles', {}).get(prior.get('screenshot')))
             except (FlowError, OSError, UnicodeError):
                 inherited = False
@@ -816,7 +826,7 @@ def finish_edit(store, run, status):
 def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
     if title is not None and (not isinstance(title, str) or not title.strip()):
         raise FlowError('Frozen Demo title must be nonempty')
-    with store._transaction(), store._rollback_writes():
+    with store._transaction(), store._rollback_writes(), store._read_session():
         registry, draft = _draft(store, artifact_id)
         _assert_idle(store, draft)
         validate_manifest(draft, require_complete=not _checkpoint)
@@ -843,7 +853,9 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
         relative = 'demos/' + aid
         target = store._safe(relative)
         try:
-            store._copy_resources(store._safe(draft['path']), target, draft)
+            content_backed = store._storage_enabled()
+            if not content_backed:
+                store._copy_resources(store._safe(draft['path']), target, draft)
             artifact = _remap(copy.deepcopy(draft), draft['path'], relative)
             for key in ('draftRevision', 'activeRunId', 'editStatus', 'lastFrozenArtifactId', 'lastFrozenRevision'):
                 artifact.pop(key, None)
@@ -862,15 +874,20 @@ def freeze_demo(store, artifact_id=None, title=None, _checkpoint=False):
                 if binding['artifactId'] != draft['id'] or not binding.get('screenshot'):
                     continue
                 source = store._safe(binding['screenshot'])
-                if source.is_file() and not binding['screenshot'].startswith(draft['path'] + '/'):
+                if store._is_file(source) and not binding['screenshot'].startswith(draft['path'] + '/'):
                     relative_shot = '_evidence/' + store._file_digest(source) + source.suffix.lower()
-                    store._copy_file(source, target / relative_shot)
+                    if content_backed:
+                        artifact['fileHashes'][relative_shot] = _capture_file(store, source)
+                    else:
+                        store._copy_file(source, target / relative_shot)
                     screenshot_paths[binding['screenshot']] = relative + '/' + relative_shot
                     if artifact.get('resourceManifest'):
                         artifact['resourceManifest']['archiveFiles'] = sorted(set(
                             artifact['resourceManifest']['archiveFiles']) | {relative_shot})
-            artifact['fileHashes'] = store._inventory(target)
+            if not content_backed:
+                artifact['fileHashes'] = store._inventory(target)
             validate_manifest(artifact, require_complete=not _checkpoint)
+            store._register_storage('artifact:' + aid, 'frozen', relative, artifact['fileHashes'])
             registry['items'].append(artifact)
             draft.update(lastFrozenArtifactId=aid, lastFrozenRevision=draft['draftRevision'])
             registry['lastFrozenArtifactId'] = aid
@@ -916,6 +933,9 @@ def restore_demo_revision(store, artifact_id, revision):
         try:
             for relative, hash_ in manifest['fileHashes'].items():
                 store._copy_file(store._safe('.prototype-flow/draft-blobs/' + hash_), staging / relative)
+            # The next revision replaces this draft's logical archive. Keeping
+            # the newer index during the swap would resurrect later-only files.
+            store._register_storage('evidence:' + draft['id'], 'evidence', draft['path'], {})
             directory.rename(previous_path)
             staging.rename(directory)
             swapped = True
@@ -924,7 +944,7 @@ def restore_demo_revision(store, artifact_id, revision):
             screenshot_map = {}
             for path_, hash_ in manifest.get('externalFiles', {}).items():
                 source = store._safe(path_)
-                if path_.startswith(draft['path'] + '/') or (source.is_file() and store._file_digest(source) == hash_):
+                if path_.startswith(draft['path'] + '/') or (store._is_file(source) and store._file_digest(source) == hash_):
                     continue
                 blob = store._safe('.prototype-flow/draft-blobs/' + hash_)
                 if not blob.is_file() or store._file_digest(blob) != hash_:

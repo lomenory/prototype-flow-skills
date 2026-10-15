@@ -41,7 +41,7 @@ def _artifact_inputs(store, base, project, artifacts):
         if module['documentId'] not in wanted_documents:
             continue
         path = store._safe(module['documentPath'], base=base)
-        if not path.is_file():
+        if not store._is_file(path):
             continue
         content = store._file_bytes(path).decode('utf-8')
         metadata, _, _ = split_frontmatter(content)
@@ -68,10 +68,10 @@ def _artifact_record(store, base, artifact, documents, requirements, full):
                                         if documents.get(did) != expected)
     result['syncStatus'] = 'stale' if result['staleRequirementIds'] or result['staleDocumentIds'] else 'current'
     path = store._safe(artifact['path'], base=base)
-    result['integrityStatus'] = ('intact' if path.is_dir() and store._resource_inventory(path, artifact) == artifact.get('fileHashes')
+    result['integrityStatus'] = ('intact' if store._is_dir(path) and store._resource_inventory(path, artifact) == artifact.get('fileHashes')
                                   else 'changed')
     if result['integrityStatus'] != 'intact':
-        if artifact.get('kind') == 'working-draft' and base == store.root and path.is_dir():
+        if artifact.get('kind') == 'working-draft' and base == store.root and store._is_dir(path):
             result['integrityStatus'] = 'editing'
             result['syncStatus'] = 'editing'
         else:
