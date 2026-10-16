@@ -340,6 +340,10 @@ binding 可选 `primaryRequirementIds` 是去重需求 ID 数组，须为 `requi
 
 `export-module <project-dir> <module-id> --output <absolute-zip-path> [--version <id>]` 是 module_package 的薄包装，组装完成后原子落盘，已有文件拒绝覆盖；不保存业务、不自动确认/冻结。包内保留模块 PRD、本地引用资源、打开说明，以及关联 Demo 全部入口所需的运行文件。PRD 显式引用关联 Demo 的存档文件时也保留，避免文档断链；其他设计、验证资料留在版本存档。路径和跨模块业务流程保持完整。
 
+工作台另有“导出演示版”，CLI 对应 `export-module <project-dir> <module-id> --format single_html --output <absolute-html-path> [--version <id>]`。这是同一冻结版本的只读单 HTML 派生交付，保持现有工程 ZIP；只序列化完整清单中的运行文件，不附带 PRD 或存档材料。脚本、样式、图像、本地数据及多 HTML 入口内嵌到同一文件；入口在文件内切换，动态图标与头像路径也通过内嵌资源表解析。第三方许可随运行资源内嵌保留。导出不包含当前浏览器的 localStorage、登录态或本机上传文件。
+
+单 HTML 要求完整资源清单，旧记录可以通过明确的只读派生声明满足；模块脚本、Worker、服务器连接、外部运行资源等尚不支持的依赖拒绝导出并指明路径，不能把残缺页面当作成功。普通外部跳转链接保留。导出完成后按范围检查页面切换、主题与选中图标、主要交互及演示内下载；HTTP 浏览器观察与实际双击人工结果分别记录，未实际双击不能声明通过。
+
 新格式导出报告 `runtime-only`；没有资源清单的旧产物默认 `legacy-full`，保留原全量兼容行为（仍忽略 `.DS_Store`），不会重写旧记录或原包。需要只读精简旧版时追加 `--resource-manifest <file.json>`，内容按实际冻结产物 ID 提供声明：
 
 ```json

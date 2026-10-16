@@ -1028,8 +1028,11 @@ class WorkbenchServer(DemoAccess):
                             parts = path.split('/')
                             if len(parts) != 5:
                                 raise FlowError('接口不存在', 404)
-                            data, filename = module_package(owner.store, parts[3], version)
-                            self.respond_headers(200, 'application/zip', len(data), filename=filename)
+                            delivery_format = query.get('format', ['project_bundle'])[0]
+                            data, filename = module_package(owner.store, parts[3], version,
+                                                            delivery_format=delivery_format)
+                            content_type = 'text/html; charset=utf-8' if delivery_format == 'single_html' else 'application/zip'
+                            self.respond_headers(200, content_type, len(data), filename=filename)
                             return self.wfile.write(data)
                         if path.startswith('/api/documents/'):
                             return self.json(owner.store.document(path.split('/')[-1], version=version))

@@ -217,6 +217,8 @@ def parser():
     cmd.add_argument('--output', required=True)
     cmd.add_argument('--version')
     cmd.add_argument('--resource-manifest', help='旧 Demo 的只读运行资源声明 JSON，按最终冻结 Demo ID 放入 artifacts 映射')
+    cmd.add_argument('--format', choices=['project_bundle', 'single_html'], default='project_bundle',
+                     help='project_bundle 为原工程 ZIP；single_html 为不含 PRD 的单 HTML 演示版')
     cmd = command('storage', '检查内容存储、显式迁移旧项目、展开资源或导出独立 Demo 文件夹')
     cmd.add_argument('--action', required=True, choices=['status', 'migrate', 'materialize', 'export'])
     cmd.add_argument('--group', help='materialize 使用的存储组编号，从 status 结果读取')
@@ -423,7 +425,8 @@ def main(argv=None):
         elif command == 'export-module':
             from pf_delivery import export_module
             result = export_module(store, args.id, args.output, args.version,
-                                   resource_manifest=read_json(args.resource_manifest) if args.resource_manifest else None)
+                                   resource_manifest=read_json(args.resource_manifest) if args.resource_manifest else None,
+                                   delivery_format=args.format)
         elif command == 'storage':
             if args.apply and args.action != 'migrate':
                 raise FlowError('--apply 只能与 storage --action migrate 一起使用')

@@ -7,7 +7,8 @@ from pf_core import FlowError, valid_id
 from pf_export import module_package
 
 
-def export_module(store, module_id, output, version=None, resource_manifest=None):
+def export_module(store, module_id, output, version=None, resource_manifest=None,
+                  delivery_format='project_bundle'):
     valid_id(module_id)
     target = Path(output)
     if not target.is_absolute():
@@ -17,7 +18,8 @@ def export_module(store, module_id, output, version=None, resource_manifest=None
     if not target.parent.is_dir():
         raise FlowError('导出目录不存在', 404)
     receipt = {}
-    data, filename = module_package(store, module_id, version, resource_manifest=resource_manifest, receipt=receipt)
+    data, filename = module_package(store, module_id, version, resource_manifest=resource_manifest,
+                                    receipt=receipt, delivery_format=delivery_format)
     fd, temporary = tempfile.mkstemp(prefix='.pf-export-', dir=str(target.parent))
     try:
         with os.fdopen(fd, 'wb') as stream:

@@ -8,6 +8,8 @@
 
 ## 能做什么
 
+2026-10-16 单 HTML 演示版导出：保留原工程 ZIP（Demo 与 PRD），新增“导出演示版”，将运行脚本、样式、图像、本地数据及多个 HTML 入口收进一个文件，不附带 PRD 或归档材料。动态头像、文件图标、主题与激活状态继续可用，管理台可在文件内切换；仅转换完整且依据有效的已确认冻结版本。CLI 使用 `export-module <project-dir> <module-id> --format single_html --output <absolute-html-path>`，默认仍为工程 ZIP。尚不支持的运行依赖会明确报错；静态、HTTP 与实际双击结果分别记录。
+
 2026-10-15 工作台打包下载修复：内容读取与存储缓存覆盖整个 ZIP 收集过程；前端对响应与文件读取设置统一 60 秒期限，超时会恢复按钮并反馈，迟到的响应不再触发下载。下载包保留完整 Demo 资源并默认解压后双击入口，实际双击验收与静态检查分别记录。主包同时更新配套交付说明，依赖锁继续固定已发布的新版 demo-design。
 
 2026-10-15 Demo 交付与分级更新：默认保留完整资源目录，解压后双击入口 HTML（通常为 `index.html`）即可演示。demo-design 的静态检查新增本地 CSS mask 和本地模块加载风险识别，静态、HTTP 预览与人工双击确认分别记录。现有业务模型内的有界规则、状态及需求映射修改可按 Tier 2 定向验证；显式严格回归使用 `--contract-change-scope bounded`，模型与权限边界变化仍要求 Tier 3。当前 Core 契约哈希为 `4bbf2a253c88`。
@@ -78,7 +80,7 @@
 | 新资料整理入库 | 来源记录、PRD Markdown、稳定需求 ID 和 PRD 检查 | prototype-flow |
 | 持续整理需求 | Agent 通过 CLI 编辑正文、拆分或合并需求、维护显式依赖和模块阶段 | prototype-flow |
 | 核对需求与进度 | 按需打开需求图或完整工作台，查看需求详情、页面状态覆盖和真实任务进度 | prototype-flow |
-| 下载已确认需求 | 按模块打包关联 Demo 的完整运行资源、PRD 和本地引用；支持历史版本和旧版兼容 | prototype-flow |
+| 下载已确认需求 | 工程 ZIP 保留 Demo、PRD 和本地引用；单 HTML 演示版内嵌完整运行资源，不含 PRD；支持历史版本 | prototype-flow |
 | 保存和恢复版本 | 冻结当前 PRD、关系、Demo 与证据，查看历史或恢复工作副本 | prototype-flow |
 | 制作高保真 Demo | 设计、交互实现、浏览器验证及页面状态与截图交付 | prototype-flow + [demo-design](skills/demo-design/SKILL.md) |
 | 复用项目 Demo 框架 | 固定共享框架与完整业务 Demo，准备新目录并保留历史版本 | prototype-flow + demo-design |

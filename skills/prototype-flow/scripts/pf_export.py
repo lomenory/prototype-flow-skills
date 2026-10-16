@@ -61,7 +61,10 @@ def _derived_resource_record(store, root, artifact, state, declaration):
                 fileHashes={path: artifact['fileHashes'][path] for path in sorted(managed)})
 
 
-def module_package(store, module_id, version=None, resource_manifest=None, receipt=None):
+def module_package(store, module_id, version=None, resource_manifest=None, receipt=None,
+                   delivery_format='project_bundle'):
+    if delivery_format not in ('project_bundle', 'single_html'):
+        raise FlowError('不支持的导出格式', 400)
     # Keep reads and storage metadata cached through ZIP collection, not just
     # state inspection. The session also checks for external edits before return.
     with store._transaction(read_only=True), store._read_session():
@@ -165,6 +168,17 @@ def module_package(store, module_id, version=None, resource_manifest=None, recei
             if entry not in files:
                 raise FlowError('Demo 入口缺失，请重新登记完整 Demo。', 409)
             entries.append(entry)
+
+        if delivery_format == 'single_html':
+            if any(record.get('resourceManifest') is None for record in records):
+                raise FlowError('单 HTML 演示版需要完整的运行资源清单，请先为旧 Demo 分类资源。', 409)
+            from pf_single_html import single_html
+            data, page_entries = single_html(files, records, entries, module['title'])
+            title = re.sub(r'[^\w\-\u4e00-\u9fff]+', '-', module['title']).strip('-') or module_id
+            if receipt is not None:
+                receipt.update(deliveryFormat='single_html', resourceMode='runtime-only',
+                               artifacts=resource_modes, entries=page_entries, includesPrd=False)
+            return data, title + '-演示版-' + (version or 'R' + str(state['project']['revision'])) + '.html'
 
         # Retain project-relative paths, including Markdown images and linked PRDs.
         pending = [(document['path'], document['fullHash'])]
