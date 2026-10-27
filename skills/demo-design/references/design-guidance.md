@@ -25,6 +25,7 @@ Tier 3 生成 HTML 前，在产物目录创建旁路 `design-guidance.json`。Ti
 - 只有用户或权威设计范围明确要求多个 Viewport、设备、平台、方向或断点时，`responsiveStrategy` 才描述对应适配规则；验证也只覆盖这些明确目标。
 - `states` 只声明适用状态，不为了凑数量制造 Loading、Empty 或 Error；`required: true` 的状态必须说明可观察实现。
 - `constraints.must`、`avoid` 与 `accessibility` 使用具体、可检查的语言。文字/密度相关任务在已有字段里记录正文、关键辅助内容和非关键元数据的角色、Token 与代表 selector，按 `references/quality.md` 落实；不新增一套旁路文件。
+- 具体颜色、圆角、描边与动效 Token 写入 `DESIGN.md`；在已有 `constraints` 与 `decisionSummary` 中记录影响本次任务的文案、选择安排和关键视觉决定，以及偏离质量默认值的必要理由。Radix、0.5px、250ms 与 3–4 种字号属于有条件的参考，不转成新增 Hard Rule、Schema 字段或逐项声明清单；保留品牌、平台、可读性与现有组件的例外。
 - `density` 调整布局、间距和信息组织，不代表可以缩小必要说明或把它们变淡；一屏放不下时保留可读内容并允许纵向阅读。
 - `visualAnchors` 只标记主要任务区、主要动作和关键状态等少量高价值区域。每个锚点使用稳定 selector、职责、优先级与检查项；`visible`、`unique`、`no_clipping` 可由浏览器测量，`hierarchy`、`rhythm`、`state_distinct` 仍需要截图审视。
 
@@ -53,7 +54,7 @@ Tier 3 生成 HTML 前，在产物目录创建旁路 `design-guidance.json`。Ti
 Tier 3 在交付前执行一次有界闭环：
 
 1. 截取初始、关键结果及适用的错误/恢复状态。
-2. 对照 visual anchors 检查层级、构图、排版节奏、组件一致性、内容真实性与状态可辨识度；表单帮助/反馈、图表轴/单位和详情正文也在可读性检查范围内。
+2. 对照 visual anchors 检查层级、构图、排版节奏、组件一致性、内容真实性与状态可辨识度，并按 `references/quality.md` 检查适用的文案、对齐、组件几何与动效；表单帮助/反馈、图表轴/单位和详情正文也在可读性检查范围内。
 3. 只对阻塞或重要问题做一次集中修正。
 4. 重跑受影响路径和截图；不形成默认无限 review-modify-review 循环。
 

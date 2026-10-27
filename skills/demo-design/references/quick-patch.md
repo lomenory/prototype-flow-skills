@@ -13,6 +13,12 @@
 | `tier_0_text_copy_only` | `inspectable_artifact`、`exact_target`、`requested_change`、`semantic_impact` | `static_only` |
 | `tier_1_local_ui_patch` | `inspectable_artifact`、`exact_target`、`target_selectors`、`requested_change`、`expected_result`、`protected_scope` | `interactive_demo` |
 
+## 本次改动的质量要求
+
+- 文案适合受众、名称稳定，删除重复解释与装饰性中点分隔；保留专名、引用、必要帮助、操作后果和错误恢复信息，不做全局字符替换。
+- 视觉修改继承现有 Token 与组件规范，只检查本次涉及的文字角色、语义色、光学对齐、嵌套圆角、描边和动效。Radix、0.5px、250ms 与 3–4 种字号是有条件的参考，不覆盖品牌、平台、可读性和状态辨识需求。
+- 不为精简界面删除必要选择或确认，不因通用偏好重新选设计系统、重排全页或新增辅助文件。
+
 ## 执行
 
 1. Tier 0 只改不影响产品语义的文案。Tier 1 只改一个父容器内可定位的颜色、字号、间距、尺寸、排列或局部布局。

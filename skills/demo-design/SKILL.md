@@ -26,7 +26,7 @@ Tier 0/1 直接使用快路径的 Required Fields，不重新提取设计语言�
 
 1. 只选一个 Delivery Route，叠加命中的 Mode 与 Facet；它们不抢占 Route。只读匹配的 Reference。
 2. Tier 3 Web/App 读 `references/design-guidance.md`，生成或完整刷新 `design-guidance.json`。Tier 0/1 不创建 Guidance；Tier 2 只更新已有文件的受影响字段。完整 JSON 示例按需读取。
-3. 外部设计或现有 Token 优先。只有 Tier 3 缺少权威设计上下文时，从 `design-systems/index.json` 选择一套；Tier 0/1/2 继承现有设计。组件库不自动成为视觉皮肤。把文本角色 Token 落实到 CSS；正文、表单说明、状态反馈和图表单位不靠缩小变淡制造层级，按 `references/quality.md` 检查可读性。
+3. 外部设计或现有 Token 优先。只有 Tier 3 缺少权威设计上下文时，从 `design-systems/index.json` 选择一套；Tier 0/1/2 继承现有设计。组件库不自动成为视觉皮肤。把文本角色 Token 落实到 CSS；正文、表单说明、状态反馈和图表单位不靠缩小变淡制造层级，按 `references/quality.md` 检查可读性及适用的文案、配色、对齐、几何与动效规则，保留其条件和例外。
 4. 页面与资源放入同一个独立 Demo 文件夹。Tier 2 多步交互或 Tier 3 有交互时读 `references/experience-checks.md`；命中 Product Contract 时复用其 Interaction/Acceptance，不创建第二套交互模型。
 5. 按 `references/verification.md` 验证最终文件夹入口，观察初始、主要结果及适用的错误/取消/恢复状态并保留截图。Tier 3 对实际渲染中的 blocking/important 问题集中修正一次，重验受影响路径，不自动调用额外 Review 工作流。
 

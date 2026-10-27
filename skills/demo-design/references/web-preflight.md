@@ -35,6 +35,7 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - 表单 label 在输入框上方，不用 placeholder 代替 label。
 - 表单至少考虑 default、focus、disabled、error、loading 或提交中状态中与任务相关的状态。
 - 错误信息直接、清楚，不用 `Oops!` 之类空泛语气。
+- 主要路径不被无关选择或重复确认打断，必要选项出现在决策位置；错误与重试不清空输入或仍有效的内容，必要确认保留。
 
 ## Layout Repetition Checks
 
@@ -57,6 +58,7 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - 小 uppercase eyebrow 不要每个 section 都用；最多约每 3 个 section 出现 1 次。
 - 不用 `SECTION 01`、`QUESTION 05`、`PHASE 01` 这类装饰编号当 section 标签。
 - 页面可见文案避免 AI 常见空话，如 “Elevate”、“Unleash”、“Next-Gen”、“Seamless”。
+- 检查文案是否适合受众、名称是否稳定，删除重复解释和装饰性中点分隔；保留专名、引用、必要帮助及操作后果。字号角色按 `references/quality.md` 收敛，不机械限制营销标题、长文、代码或图表。
 
 ## Color And Theme Checks
 
@@ -66,6 +68,7 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - Premium consumer 任务不默认使用米色 + 黄铜 + espresso 黑，除非设计上下文支持。
 - 纯黑 `#000000` 不作为大面积默认背景；用有控制的 near-black 或品牌色。
 - 渐变、纹理、噪点要服务层级或品牌，不当作万能高级感。
+- 检查实际颜色是否消费语义 Token、前景与背景是否可读；Radix 只在缺少权威配色依据时按用途选取，不覆盖品牌和现有设计。
 
 ## Component And Container Checks
 
@@ -73,6 +76,8 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - 卡片只在表达层级或分组时使用；能用留白和分割线解决时不要滥用卡片。
 - 圆角系统一致。按钮、卡片、输入框的 radius 有明确规则。
 - 阴影方向和色调一致，不用默认纯黑大阴影。
+- 检查基线、图标视觉重心、内容边缘及嵌套间距；适用的嵌套圆角、描边与阴影按 `references/quality.md` 检查，不重复描边或默认添加彩色侧线。
+- 使用 0.5 CSS px 轻描边时看目标环境的实际可见性；焦点、错误和选中状态不因统一线宽变得难辨。
 - 图标来自同一套 icon vocabulary，不混用多套风格。
 - 不用 emoji 做图标、feature bullet、CTA 或装饰，除非按 `SKILL.md` 明确允许。
 
@@ -91,6 +96,7 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - 使用 scroll、pinned、marquee 或持续动效时，必须有 reduced-motion fallback。
 - 同页 marquee 不超过一个，除非 brief 明确要求 motion-heavy。
 - Hover 和 active 反馈存在，但不要导致布局跳动。
+- 动效继承组件规范；`ease-out`、250ms 仅作无规范时的参考，不统一覆盖全页，不用 `transition: all` 扩大过渡范围。
 
 ## Conditional Responsive Checks
 

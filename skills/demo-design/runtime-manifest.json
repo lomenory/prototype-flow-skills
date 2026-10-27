@@ -2,7 +2,7 @@
   "runtime_version": 9,
   "contract_version": 9,
   "contract_hash": "4bbf2a253c88",
-  "source_commit": "92c6dbbef2d2e70d78ebb351ab535d5ae14b0011",
+  "source_commit": "986262eb91778a3a49f99b1ffa33da25eb1a22cc",
   "capabilities": {
     "request_intents": [
       "inspect_only",
@@ -49,8 +49,8 @@
   "max_bytes": 2097152,
   "files": {
     "SKILL.md": {
-      "sha256": "44874755b848cd8ad365e995784019f197b58adfbd4999237b3885de9cf7446d",
-      "bytes": 7476
+      "sha256": "9d1b43047b1fd28bea341e5caf182d94eabec06089f05a4813cee273fd548149",
+      "bytes": 7563
     },
     "assets/android_frame.jsx": {
       "sha256": "8c1c951518e5f0d39c07212d0bb9e8f1b5363b4ad4d1f903dca26d6a485e08bf",
@@ -129,8 +129,8 @@
       "bytes": 8517
     },
     "references/app-preflight.md": {
-      "sha256": "e14260c6db04ebb7466e1c5085e4bf91eca7f56497b5f5f22d1e175c2c253df7",
-      "bytes": 3134
+      "sha256": "c80e2edb2bc378f96d6ec4caed1712b6f6036b8aeb905d962633ddc56f4d58fa",
+      "bytes": 4034
     },
     "references/data-viz-preflight.md": {
       "sha256": "ba6c7e1d857cc7e87924c9238a28ca4bf53ec26f5b438b698e9fee177dadb575",
@@ -145,8 +145,8 @@
       "bytes": 6771
     },
     "references/design-guidance.md": {
-      "sha256": "9d2ca0894a2cf6cd404572257ebbbf97636d2e83029bc2ba8f536b30732de198",
-      "bytes": 6239
+      "sha256": "c61765db943d6cff9034ac776ecbcd6127f19fbdfe036a3dd2bbb97a0a92f8bc",
+      "bytes": 6756
     },
     "references/experience-checks.md": {
       "sha256": "54ac13cb6fd118b154fef1e458a34f45271b2f54b9ef2baef8506f13945c1a04",
@@ -165,12 +165,12 @@
       "bytes": 6443
     },
     "references/quality.md": {
-      "sha256": "5572e1210fb95bc662d6cad59894b3ad0b78d2c84d34673b3a12302c80f61a24",
-      "bytes": 4953
+      "sha256": "02b7f2715c0ebb3a04d9a89ba38db71ed959e568d46d44676d0787c3c3e6d110",
+      "bytes": 9128
     },
     "references/quick-patch.md": {
-      "sha256": "cffd7ec7d57854d7d667e377133165156225d8d07cdd500cf0c0b05d6ed63e33",
-      "bytes": 2636
+      "sha256": "ffd38e221948aeb1d53b0664b7b2c5670822d7e5ff968759dd5227b1915e361b",
+      "bytes": 3260
     },
     "references/routes/app.md": {
       "sha256": "4b7bbbe33c9718a7e9eb5dc573ae7f771c2b4a9257393acf6b0b362653cf44ae",
@@ -197,8 +197,8 @@
       "bytes": 11039
     },
     "references/web-preflight.md": {
-      "sha256": "ac9d70940166b3b6f0086cd166bee9f5bae0c4e203cd2f556fc9d9f22d13327b",
-      "bytes": 7272
+      "sha256": "45f95cb6d484ffd74f075591dc771e24bb7d144db804d93441d058a82a0fdb26",
+      "bytes": 8341
     },
     "scripts/browser-session.py": {
       "sha256": "b04295defc571bcf690f92d14344d2f045dfdb80415f0e0145dd89b76595caa4",
@@ -241,5 +241,5 @@
       "bytes": 10954
     }
   },
-  "total_bytes": 478476
+  "total_bytes": 485848
 }
