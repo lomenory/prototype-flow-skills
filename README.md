@@ -8,6 +8,8 @@
 
 ## 能做什么
 
+2026-10-27 demo-design 设计指导与显式依赖升级：补充文案、语义配色、光学对齐、组件几何及动效规则，保留品牌、平台和可读性例外。更新主 Skill 后，可运行 `python3 -B <skill-dir>/scripts/flow.py dependencies --stage demo --upgrade --dest <skills-root>`，按固定依赖锁获取新版；追加 `--check` 先离线查看差异。升级前完整备份旧依赖，回执返回 `backupPath`，重复升级不重复下载或备份；日常依赖检查不自动覆盖已有版本。详见[依赖升级](skills/prototype-flow/references/dependencies.md#显式升级已有依赖)。
+
 2026-10-16 单 HTML 演示版导出：保留原工程 ZIP（Demo 与 PRD），新增“导出演示版”，将运行脚本、样式、图像、本地数据及多个 HTML 入口收进一个文件，不附带 PRD 或归档材料。动态头像、文件图标、主题与激活状态继续可用，管理台可在文件内切换；仅转换完整且依据有效的已确认冻结版本。CLI 使用 `export-module <project-dir> <module-id> --format single_html --output <absolute-html-path>`，默认仍为工程 ZIP。尚不支持的运行依赖会明确报错；静态、HTTP 与实际双击结果分别记录。
 
 2026-10-15 工作台打包下载修复：内容读取与存储缓存覆盖整个 ZIP 收集过程；前端对响应与文件读取设置统一 60 秒期限，超时会恢复按钮并反馈，迟到的响应不再触发下载。下载包保留完整 Demo 资源并默认解压后双击入口，实际双击验收与静态检查分别记录。主包同时更新配套交付说明，依赖锁继续固定已发布的新版 demo-design。

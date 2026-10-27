@@ -18,17 +18,30 @@ python3 -B <skill-dir>/scripts/flow.py dependencies --stage feishu --project <pr
 python3 -B <skill-dir>/scripts/flow.py dependencies --stage all --check
 ```
 
-`--check` 只读取本地文件，不联网、不创建目录；有缺失或不完整的依赖时退出码为 1。安装命令全部满足时退出码为 0，JSON 的 `dependencies` 给出 `available`（复用）、`installed`（本次安装）、`missing` 或 `invalid`，以及实际路径。`available` 表示入口名称与必备文件检查通过，不表示用户版本与发布快照逐字相同。
+`--check` 只读取本地文件，不联网、不创建目录；有缺失或不完整的依赖时退出码为 1。普通安装命令全部满足时退出码为 0，JSON 的 `dependencies` 给出 `available`（复用）、`installed`（本次安装）、`missing` 或 `invalid`，以及实际路径。普通模式的 `available` 表示入口名称与必备文件检查通过，不表示用户版本与发布快照逐字相同。
+
+## 显式升级已有依赖
+
+更新主 Skill 后，只有用户明确要求升级依赖时才使用 `--upgrade`。必须用 `--dest` 或 `PROTOTYPE_FLOW_SKILLS_DIR` 指定唯一的 skills 根目录；不根据多目录查找结果猜测要替换哪个版本。
+
+```bash
+python3 -B <skill-dir>/scripts/flow.py dependencies --stage demo --upgrade --check --dest <skills-root>
+python3 -B <skill-dir>/scripts/flow.py dependencies --stage demo --upgrade --dest <skills-root>
+```
+
+`--upgrade --check` 离线核对锁定文件内容，返回 `available`、`outdated`、`missing` 或 `invalid`；有需升级或缺失项时退出码为 1。实际升级从锁定提交下载并校验新文件，先完整备份已有依赖（包括定制或额外文件），再替换目标；回执包含 `backupPath`。备份位于 skills 根目录同级的 `skill-backups/`，保留到用户明确要求清理。重复升级已匹配的版本不下载、不重复备份。
+
+升级会用发布快照替换所选依赖，定制内容保留在备份中，不自动合并。符号链接或不完整的同名目录会报错保留，先由用户决定如何处理；不加 `--upgrade` 的日常安装继续复用已有完整依赖，不触发升级。主 Skill 更新与依赖升级是两步，更新主 Skill 本身不会静默覆盖依赖。
 
 ## 来源和安装目录
 
 - 来源：[lomenory/prototype-flow-skills](https://github.com/lomenory/prototype-flow-skills)。公开仓库包含可独立安装的主 Skill 和依赖 Skill，与开发仓库分开维护；不包含前端开发工程、开发测试或业务项目数据。
-- `dependencies.lock.json` 固定完整 Git commit SHA、仓库子目录和每个文件的 SHA-256；不追踪 `main` 或自动升级依赖。
+- `dependencies.lock.json` 固定分发仓库的完整 Git commit SHA、仓库子目录和每个文件的 SHA-256；不追踪 `main`。显式升级也只使用当前主 Skill 的锁定版本，不自动追逐最新提交。
 - 支持 `.agents/skills`、`.claude/skills`、`.cursor/skills`、`.codex/skills`。默认从项目向上查到 Git 根，优先当前主 Skill 所在宿主的目录，再查其余目录；之后查主 Skill 同级、默认安装目录、`$CODEX_HOME/skills`（若设置）、用户目录及历史 `/etc/codex/skills`。已有 Skill 目录可为符号链接。此顺序是本 CLI 的依赖解析规则，不替代各宿主自身的发现规则。
 - 缺失项的安装目录优先级：`--dest` → `PROTOTYPE_FLOW_SKILLS_DIR` → 位于上述标准目录内的主 Skill 同级目录 → `$CODEX_HOME/skills`（历史兼容）→ `~/.agents/skills`。主 Skill 在 `.claude/skills` 或 `.cursor/skills` 时，不会被残留的 `CODEX_HOME` 改变安装位置。从开发仓库或其他非标准位置运行时，可显式指定目标。
 - `--dest <skills-root>` 或环境变量 `PROTOTYPE_FLOW_SKILLS_DIR` 指定唯一查找与安装目录，不再混用其他位置；后续依赖命令保持相同目录。CLI 参数优先于环境变量。
 
-拉取需要 Python 3.9+、Git 和可访问 GitHub 的网络，运行环境沿用主项目的 macOS/Linux 支持范围。公开仓库下载无需 GitHub 登录；Git 仍遵守使用者现有的代理和凭据配置。下载的脚本不会在安装中执行，子模块和 Git hooks 不会运行。所有缺失项先在临时目录校验，再安装到目标目录；已有同名目录不会被覆盖或自动修复。
+拉取需要 Python 3.9+、Git 和可访问 GitHub 的网络，运行环境沿用主项目的 macOS/Linux 支持范围。公开仓库下载无需 GitHub 登录；Git 仍遵守使用者现有的代理和凭据配置。下载的脚本不会在安装中执行，子模块和 Git hooks 不会运行。所有缺失或待升级项先在临时目录校验，再安装到目标目录；已有同名目录只在显式升级且完成备份后替换，不自动修复无效目录。
 
 ## 在当前任务中使用
 

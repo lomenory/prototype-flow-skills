@@ -70,7 +70,7 @@ python3 -B <skill-dir>/scripts/flow.py state <project-dir>
 - 业务重新对齐时，按[业务对齐与旧成果保留](references/demo-and-change.md#业务对齐与旧成果保留)区分原文要求、用户决定和设计推导，并核对本轮修改、保留与删除项；局部批注按实际影响更新设计依据、PRD 或产品契约，不为纯呈现细节重复改写业务规则。
 - **use-feishu-cli**：实际读取或写入飞书时才准备，按操作读取相应 CLI 指导。复用配置、身份和按需权限；适配器不自动登录或申请权限。
 
-自动安装来源、目录、失败恢复和手动命令见 [依赖安装](references/dependencies.md)。安装失败或同名 Skill 不完整时保留现有目录，继续不依赖它的已授权工作，并报告返回的错误；不能将自写占位实现冒充该 Skill 的交付。这里只安装 Skill 文件；浏览器、Node、`lark-cli`、账号登录与云端权限仍按相关任务处理。
+自动安装来源、目录、失败恢复和手动命令见 [依赖安装](references/dependencies.md)。用户明确要求升级已有依赖时，用 `dependencies --upgrade --dest <skills-root>` 按当前锁定版本完整备份后替换；可先追加 `--check` 离线查看版本差异。普通进入流程不自动升级。安装失败或同名 Skill 不完整时保留现有目录，继续不依赖它的已授权工作，并报告返回的错误；不能将自写占位实现冒充该 Skill 的交付。这里只安装 Skill 文件；浏览器、Node、`lark-cli`、账号登录与云端权限仍按相关任务处理。
 
 ## 持续遵守的项目关系
 

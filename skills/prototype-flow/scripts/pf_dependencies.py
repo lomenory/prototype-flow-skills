@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -190,12 +192,173 @@ def unpack_verified(archive, entry, target):
         raise DependencyError('远端 Skill 入口或必备文件无效：' + entry['name'])
 
 
-def ensure_dependencies(stage='core', project=None, dest=None, check=False, lock_path=LOCK_PATH):
+def dependency_snapshot(root):
+    """Hash a complete local tree without following links or running its files."""
+    snapshot = {}
+
+    def visit(path):
+        metadata = path.lstat()
+        relative = path.relative_to(root).as_posix()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if stat.S_ISLNK(metadata.st_mode):
+            raise DependencyError('显式升级不覆盖包含符号链接的 Skill：' + str(path))
+        if stat.S_ISDIR(metadata.st_mode):
+            snapshot[relative] = ('directory', mode)
+            for child in sorted(path.iterdir()):
+                visit(child)
+        elif stat.S_ISREG(metadata.st_mode):
+            snapshot[relative] = ('file', mode, hashlib.sha256(path.read_bytes()).hexdigest())
+        else:
+            raise DependencyError('显式升级不覆盖包含特殊文件的 Skill：' + str(path))
+
+    visit(root)
+    return snapshot
+
+
+def inspect_locked_dependency(entry, destination):
+    """Return an offline, exact locked-version check and a concurrency snapshot."""
+    target = destination / entry['name']
+    try:
+        if target.is_symlink():
+            raise DependencyError('显式升级不覆盖符号链接：' + str(target))
+        snapshot = dependency_snapshot(target) if target.exists() else None
+        state = inspect_dependency(entry, [destination])
+        if state['status'] != 'available':
+            return state, None
+        expected_directories = {'.'}
+        for name in entry['files']:
+            expected_directories.update(parent.as_posix() for parent in Path(name).parents)
+        changed = [name for name, checksum in entry['files'].items()
+                   if name not in snapshot or snapshot[name][0] != 'file'
+                   or snapshot[name][2] != checksum]
+        extra = [name for name, value in snapshot.items()
+                 if (value[0] == 'file' and name not in entry['files'])
+                 or (value[0] == 'directory' and name not in expected_directories)]
+        state.update(status='outdated' if changed or extra else 'available',
+                     changedFiles=sorted(changed), extraFiles=sorted(extra))
+        return state, snapshot
+    except (DependencyError, OSError, UnicodeError) as exc:
+        return {'name': entry['name'], 'status': 'invalid', 'path': str(target),
+                'error': str(exc)}, None
+
+
+def upgrade_dependencies(selected, destination, result, check):
+    inspected = [(entry, *inspect_locked_dependency(entry, destination)) for entry in selected]
+    result['dependencies'] = [state for _, state, _ in inspected]
+    if check or any(state['status'] == 'invalid' for _, state, _ in inspected):
+        result['ok'] = all(state['status'] == 'available' for _, state, _ in inspected)
+        if any(state['status'] == 'invalid' for _, state, _ in inspected):
+            result['error'] = '已有同名 Skill 无效或包含符号链接；已保留原目录。'
+        return result
+    pending = [item for item in inspected if item[1]['status'] in ('missing', 'outdated')]
+    if not pending:
+        result['ok'] = True
+        return result
+    try:
+        archive = fetch_archive(result['repository'], result['ref'],
+                                [entry['path'] for entry, _, _ in pending])
+        destination.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='.prototype-flow-install-', dir=destination) as directory:
+            staging = Path(directory)
+            for entry, _, _ in pending:
+                unpack_verified(archive, entry, staging / entry['name'])
+            import fcntl
+            descriptor = os.open(str(destination), os.O_RDONLY)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                actions = []
+                for entry, state, previous in pending:
+                    current, snapshot = inspect_locked_dependency(entry, destination)
+                    if current['status'] == 'available':
+                        state.update(current)
+                        continue
+                    if current['status'] == 'invalid' or current['status'] != state['status'] or snapshot != previous:
+                        raise DependencyError('准备升级期间 Skill 内容发生变化；已保留：' + entry['name'])
+                    actions.append((entry, state, snapshot))
+
+                # Keep complete backups outside the host's Skill discovery directory.
+                for entry, state, snapshot in actions:
+                    if state['status'] != 'outdated':
+                        continue
+                    backups = destination.parent / 'skill-backups'
+                    if backups == destination or backups.is_symlink():
+                        raise DependencyError('备份目录必须位于 Skill 安装目录之外，且不能是符号链接。')
+                    backups.mkdir(parents=True, exist_ok=True)
+                    backup = Path(tempfile.mkdtemp(prefix='prototype-flow-upgrade-', dir=backups)) / entry['name']
+                    target = destination / entry['name']
+                    shutil.copytree(target, backup, symlinks=True)
+                    if dependency_snapshot(backup) != snapshot or dependency_snapshot(target) != snapshot:
+                        raise DependencyError('备份校验失败或备份期间 Skill 内容发生变化；已保留：' + entry['name'])
+                    state['backupPath'] = str(backup)
+
+                # Recheck every target after all backups and before the first replacement.
+                for entry, state, snapshot in actions:
+                    current, latest = inspect_locked_dependency(entry, destination)
+                    if current['status'] != state['status'] or latest != snapshot:
+                        raise DependencyError('替换前 Skill 内容发生变化；已保留：' + entry['name'])
+
+                applied = []
+                try:
+                    for entry, state, snapshot in actions:
+                        target = destination / entry['name']
+                        previous_status = state['status']
+                        current, latest = inspect_locked_dependency(entry, destination)
+                        if current['status'] != previous_status or latest != snapshot:
+                            raise DependencyError('替换前 Skill 内容发生变化；已保留：' + entry['name'])
+                        old = staging / ('previous-' + entry['name'])
+                        if previous_status == 'outdated':
+                            target.rename(old)
+                        applied.append((target, old, state, previous_status, snapshot))
+                        (staging / entry['name']).rename(target)
+                        state.update(status='upgraded' if previous_status == 'outdated' else 'installed',
+                                     path=str(target))
+                except (DependencyError, OSError) as exc:
+                    # Atomic renames either finish or leave the original staged for rollback.
+                    recovery_errors = []
+                    for target, old, state, previous_status, snapshot in reversed(applied):
+                        try:
+                            if target.exists() or target.is_symlink():
+                                target.rename(staging / ('failed-' + target.name))
+                            if previous_status == 'outdated':
+                                try:
+                                    old.rename(target)
+                                except OSError:
+                                    shutil.copytree(state['backupPath'], target, symlinks=True)
+                                if dependency_snapshot(target) != snapshot:
+                                    raise DependencyError('恢复后的内容与备份不一致')
+                            state.update(status=previous_status,
+                                         path=str(target) if previous_status == 'outdated' else None,
+                                         restored=previous_status == 'outdated')
+                        except (DependencyError, OSError) as recovery:
+                            state['restoreError'] = str(recovery)
+                            recovery_errors.append(target.name + '，备份：' + state.get('backupPath', '无原目录'))
+                    if recovery_errors:
+                        raise DependencyError(str(exc) + '；自动恢复未完成：' + '；'.join(recovery_errors)) from exc
+                    raise
+            finally:
+                os.close(descriptor)
+        result['ok'] = True
+    except (DependencyError, OSError, tarfile.TarError) as exc:
+        result['error'] = str(exc)
+    return result
+
+
+def ensure_dependencies(stage='core', project=None, dest=None, check=False, lock_path=LOCK_PATH, upgrade=False):
     lock = load_lock(lock_path)
     selected = selected_dependencies(lock, stage)
     destination = Path(dest).expanduser().resolve() if dest else default_destination().resolve()
     result = {'ok': False, 'stage': stage, 'destination': str(destination),
               'repository': lock['repository'], 'ref': lock['ref'], 'dependencies': []}
+    if upgrade:
+        result['upgrade'] = True
+        explicit = dest if dest is not None else os.environ.get(SKILLS_DIR_ENV)
+        if explicit is None or not str(explicit):
+            result['error'] = '显式升级必须使用 --dest 或 PROTOTYPE_FLOW_SKILLS_DIR 指定唯一 Skill 目录。'
+            return result
+        if not selected:
+            result['ok'] = True
+            return result
+        return upgrade_dependencies(selected, destination, result, check)
     if not selected:
         result['ok'] = True
         return result

@@ -145,11 +145,12 @@ def parser():
     p = argparse.ArgumentParser(description='Prototype Flow：本地 PRD、Demo 关联、版本和飞书单向同步')
     sub = p.add_subparsers(dest='command', required=True)
 
-    deps = sub.add_parser('dependencies', help='检查依赖并从 GitHub 安装缺失的 Skill')
+    deps = sub.add_parser('dependencies', help='检查依赖、安装缺失 Skill，或显式备份升级')
     deps.add_argument('--stage', choices=['core', 'prd', 'demo', 'feishu', 'all'], default='core')
     deps.add_argument('--project', help='目标项目目录，用于查找项目内已有 Skill')
     deps.add_argument('--dest', help='指定唯一查找和安装目录；也可设置 PROTOTYPE_FLOW_SKILLS_DIR')
     deps.add_argument('--check', action='store_true', help='只检查，不访问网络或写入文件')
+    deps.add_argument('--upgrade', action='store_true', help='按固定依赖锁升级；须明确目标目录，替换前完整备份')
 
     def command(name, description):
         cmd = sub.add_parser(name, help=description, description=description)
@@ -348,7 +349,8 @@ def main(argv=None):
     try:
         if args.command == 'dependencies':
             from pf_dependencies import ensure_dependencies
-            result = ensure_dependencies(args.stage, args.project, args.dest, args.check)
+            result = ensure_dependencies(args.stage, args.project, args.dest, args.check,
+                                         upgrade=args.upgrade)
             output(result)
             return 0 if result['ok'] else 1
         store = ProjectStore(Path(args.root).expanduser().resolve())
