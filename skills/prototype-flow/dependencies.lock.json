@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "lomenory/prototype-flow-skills",
-  "ref": "b33f341b14ffb60097b7342b47da36b01a3b9820",
+  "ref": "2e285ddddb2b2b25fc12b9466dc092bc073f04ff",
   "dependencies": [
     {
       "name": "demo-design",
@@ -17,7 +17,7 @@
         "references/routing-contract.md"
       ],
       "files": {
-        "SKILL.md": "9d1b43047b1fd28bea341e5caf182d94eabec06089f05a4813cee273fd548149",
+        "SKILL.md": "3992a311fb08bbe3ce4281de337ee1922987e67fcf3a8a7f16fab7765e277287",
         "assets/android_frame.jsx": "8c1c951518e5f0d39c07212d0bb9e8f1b5363b4ad4d1f903dca26d6a485e08bf",
         "assets/ios_frame.jsx": "e19b4dd028aed54f8c20cea8b070c349e89f2ebcb9ff6b29fd37a9b2381789bd",
         "contracts/dependencies.yaml": "da46f7a3c34c04d67efdc64d5e3429190932350d50506ee91001292af30e2f49",
@@ -40,8 +40,8 @@
         "references/app-preflight.md": "c80e2edb2bc378f96d6ec4caed1712b6f6036b8aeb905d962633ddc56f4d58fa",
         "references/data-viz-preflight.md": "ba6c7e1d857cc7e87924c9238a28ca4bf53ec26f5b438b698e9fee177dadb575",
         "references/dependencies.md": "09222ae54b4ffac90fabcb16c086d412a01f15aea2d25e6407aef2e8417b3d8a",
-        "references/design-context.md": "d107ab1453b47b00bb0dc537694ce0ddd64091ddf85017041a781181db2ddad9",
-        "references/design-guidance.md": "c61765db943d6cff9034ac776ecbcd6127f19fbdfe036a3dd2bbb97a0a92f8bc",
+        "references/design-context.md": "b78615c39019f4afdc4b38ebb7c77a2543def3efc2189a7910aa7da6fe9674be",
+        "references/design-guidance.md": "1b00353032548cc752ad5621a3d86b07788858d6c2c5faaae5943fab21ef83ef",
         "references/experience-checks.md": "54ac13cb6fd118b154fef1e458a34f45271b2f54b9ef2baef8506f13945c1a04",
         "references/modes.md": "f5a32b4d9bcdc5906267ae855fccd628dc44e4e5b85c07a74c2d18f50741157f",
         "references/product-contract-mode.md": "326f5645d95792deb272da8d5cf8f1e5f254009ff8c1488f3f11334a1f92ce96",
@@ -55,7 +55,7 @@
         "references/strict-regression.md": "d185011d5201577e43184f446ce8ea899e1d4ce84d68cfdd21843cd27041b74f",
         "references/verification.md": "841d249f48095479c4d3dc5968ee1f27004b104daf193328819de89384c2beda",
         "references/web-preflight.md": "45f95cb6d484ffd74f075591dc771e24bb7d144db804d93441d058a82a0fdb26",
-        "runtime-manifest.json": "57c87cb527f16e410960a29d58bb5f24619de02451b2d8a5bf43afed906f9076",
+        "runtime-manifest.json": "69b8c0b112d88c9b454a7b265a4f61c3c3f9773ac595bde38f7c66751a9b1e7c",
         "scripts/browser-session.py": "b04295defc571bcf690f92d14344d2f045dfdb80415f0e0145dd89b76595caa4",
         "scripts/preview-server.py": "a9f83ebc701b49f9a167582eeae4222b2f07b5fd9b8e0a8b390a5d2589cba1ff",
         "scripts/validate-design-guidance.py": "b58c25dd68a74021d16a394d67e50c2f6c54c7ac52fef573eb7638be8c114cf3",
