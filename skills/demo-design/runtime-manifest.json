@@ -2,7 +2,7 @@
   "runtime_version": 9,
   "contract_version": 9,
   "contract_hash": "4bbf2a253c88",
-  "source_commit": "986262eb91778a3a49f99b1ffa33da25eb1a22cc",
+  "source_commit": "f781441f432a791ce6c49f9482314a8394712f3d",
   "capabilities": {
     "request_intents": [
       "inspect_only",
@@ -49,8 +49,8 @@
   "max_bytes": 2097152,
   "files": {
     "SKILL.md": {
-      "sha256": "9d1b43047b1fd28bea341e5caf182d94eabec06089f05a4813cee273fd548149",
-      "bytes": 7563
+      "sha256": "3992a311fb08bbe3ce4281de337ee1922987e67fcf3a8a7f16fab7765e277287",
+      "bytes": 7760
     },
     "assets/android_frame.jsx": {
       "sha256": "8c1c951518e5f0d39c07212d0bb9e8f1b5363b4ad4d1f903dca26d6a485e08bf",
@@ -141,12 +141,12 @@
       "bytes": 1134
     },
     "references/design-context.md": {
-      "sha256": "d107ab1453b47b00bb0dc537694ce0ddd64091ddf85017041a781181db2ddad9",
-      "bytes": 6771
+      "sha256": "b78615c39019f4afdc4b38ebb7c77a2543def3efc2189a7910aa7da6fe9674be",
+      "bytes": 8866
     },
     "references/design-guidance.md": {
-      "sha256": "c61765db943d6cff9034ac776ecbcd6127f19fbdfe036a3dd2bbb97a0a92f8bc",
-      "bytes": 6756
+      "sha256": "1b00353032548cc752ad5621a3d86b07788858d6c2c5faaae5943fab21ef83ef",
+      "bytes": 6935
     },
     "references/experience-checks.md": {
       "sha256": "54ac13cb6fd118b154fef1e458a34f45271b2f54b9ef2baef8506f13945c1a04",
@@ -241,5 +241,5 @@
       "bytes": 10954
     }
   },
-  "total_bytes": 485848
+  "total_bytes": 488319
 }

@@ -19,7 +19,7 @@ Tier 3 生成 HTML 前，在产物目录创建旁路 `design-guidance.json`。Ti
 
 ## Direction and Visual Read
 
-- `designBasis.type` 使用 `core | external | existing`。只有没有权威设计上下文时才使用 `core` 并从 `design-systems/index.json` 选择 `systemId`；外部设计使用 `sourceIds` 引用 `design-reference.json` 的 `DSRC-*`，已有项目使用相对 `designDocument` 指向 `DESIGN.md` 或等价 Token 入口。
+- `designBasis.type` 使用 `core | external | existing`。外部设计及通过 UINice 选中的模板使用 `external`，以 `sourceIds` 引用 `design-reference.json` 的 `DSRC-*`，来源定位到实际采用的模板或原始项目；默认模板选择遵从 `references/design-context.md`。没有权威设计上下文且未选用外部模板时，使用 `core` 并从 `design-systems/index.json` 选择 `systemId`；已有项目使用相对 `designDocument` 指向 `DESIGN.md` 或等价 Token 入口。
 - `visualDials` 明确三个任务级调节值：`variance` 控制视觉表达差异，`density` 控制信息与留白密度，`motion` 控制状态转场强度。它们用于改变实际布局、组件和状态决策，不是风格标签。
 - 分别写明 Layout、Hierarchy、Responsive 与 Component strategy。为兼容 Schema 保留 `responsiveStrategy` 字段；默认写明唯一目标环境和不承诺的额外范围，不得把该字段理解为必须设计移动端。Token 不能替代任务、状态和交互决策。
 - 只有用户或权威设计范围明确要求多个 Viewport、设备、平台、方向或断点时，`responsiveStrategy` 才描述对应适配规则；验证也只覆盖这些明确目标。

@@ -1,18 +1,29 @@
 # Design Context
 
-当截图、URL、Figma、现有代码、现有页面或指定组件库会约束设计时使用本文件。
+当截图、URL、Figma、现有代码、现有页面或指定组件库会约束设计，或 Tier 3 Web/App 需要通过 UINice 选择默认模板时使用本文件。
 
 ## Source Priority
 
 按以下顺序确定权威来源：
 
-1. 用户明确指定的目标截图、URL、Figma 节点或设计稿。
+1. 用户明确指定的风格、目标截图、URL、Figma 节点或设计稿。
 2. 当前代码库的 Token、组件、主题和同类页面。
 3. 用户提供的 Design System、组件库或品牌规范。
 4. 用户明确指定的参考产品。
-5. 无上下文时，从 Core Design Systems 选择一个方向并记录 assumption。
+5. 无明确风格且无须继承既有设计时，从 [UINice](https://uinice.com/search) 选择适合任务的模板作为默认设计来源。
+6. UINice 不可访问或没有匹配模板时，从 Core Design Systems 选择一个方向并记录 assumption。
 
 冲突会改变视觉语言、组件接口或交付范围时停止询问；低影响差异记录为 assumption。
+
+## UINice Default Template
+
+仅在 Tier 3 新建或已授权的完整视觉刷新中使用此默认流程。用户已有明确风格或参考来源时遵从该选择；Tier 0/1/2 继续继承既有设计。
+
+- 根据产品类型、主要任务、信息密度和目标设备，在 `https://uinice.com/search` 搜索，优先查看 `Templates`，按需要补充 `Design Systems` 或 `Components`；`Stack` 仅用于判断实现适配成本。无需用户先命名风格；已有实施授权时，自行选定一套合适模板并简述选择理由后继续。
+- UINice 是导航目录。打开条目详情，再通过原站入口查看具体模板、实际预览和可用代码；以实际看过的模板为依据。套用其布局、信息层级、配色、排版、间距和组件语言，替换业务内容、数据、状态与交互，并为目标设备做必要适配。
+- 优先使用可合法复用且适合当前 HTML Demo 的模板；复用代码、图片和字体前核对原站许可，目录的 `Free` 标签不替代许可。交付仍遵守完整 Demo 文件夹、相对资源和默认双击打开约定，不因模板采用其他技术栈而引入生产后端或登录依赖。
+- 将 UINice 条目链接、实际模板或原始项目 URL、选用理由及适配差异写入 `DESIGN.md` 的 `Sources and Provenance`。选中模板归为外部来源，按下节创建 `design-reference.json`，在 Guidance 中用 `external` 和 `DSRC-*` 引用；组件映射与截图只覆盖实际采用部分。模板套用不自动开启像素 Diff 或 `strict_regression`。
+- 无法访问或没有匹配项时简述原因，回退到 `design-systems/index.json` 继续；如实记录已获取和未验证的来源，不把目录缩略图当作已查看原站。
 
 ## Extraction
 
@@ -22,7 +33,7 @@
 
 ## Structured External Reference
 
-外部复刻或明确要求还原度验证的 Tier 3 任务，在产物目录创建 `design-reference.json`，并按 Runtime 中的 `contracts/design-reference.schema.json` 填写：
+套用外部模板、外部复刻或明确要求还原度验证的 Tier 3 任务，在产物目录创建 `design-reference.json`，并按 Runtime 中的 `contracts/design-reference.schema.json` 填写：
 
 - `sources`：精确的 Figma File/Page/Frame/Node、URL、截图或仓库来源，包含目标 Viewport 与 `deviceScaleFactor`。
 - `componentMappings`：来源组件、Variant、Demo 实现 selector 与 `exact`/`approximate`/`assumption`。新建旁路使用 Schema v2；每个 `implementationSelector` 必须是唯一的稳定 `#id` 或 `[data-*=value]`，带 `sourceVariant` 时还必须提供唯一 `implementationStateId`。
@@ -102,6 +113,6 @@ Figma 父级或 Section 返回稀疏内容时，不把空摘要当成完整设�
 
 ## No-context Work
 
-- 中高风险任务先给简短方向或局部示例；用户明确直接做时记录 assumptions 后继续。
+- Tier 3 Web/App 按 UINice 默认流程选择母版；已有实施授权时记录选型与 assumptions 后继续，不仅因缺少风格名称而停下来要求用户选风格。
 - 不默认使用 Ant、Material、紫色渐变、设备框或浏览器壳。
 - 不编造产品 UI、客户证明或数据。
