@@ -2,7 +2,7 @@
   "runtime_version": 9,
   "contract_version": 9,
   "contract_hash": "4bbf2a253c88",
-  "source_commit": "f781441f432a791ce6c49f9482314a8394712f3d",
+  "source_commit": "217f535285e27e1965a6163b1313b1530d7f13f3",
   "capabilities": {
     "request_intents": [
       "inspect_only",
@@ -145,8 +145,8 @@
       "bytes": 8866
     },
     "references/design-guidance.md": {
-      "sha256": "1b00353032548cc752ad5621a3d86b07788858d6c2c5faaae5943fab21ef83ef",
-      "bytes": 6935
+      "sha256": "a8b60e68e24fffa8821c4fa965831170279d9e547166dd3c6500764dbaed31bc",
+      "bytes": 7010
     },
     "references/experience-checks.md": {
       "sha256": "54ac13cb6fd118b154fef1e458a34f45271b2f54b9ef2baef8506f13945c1a04",
@@ -165,8 +165,8 @@
       "bytes": 6443
     },
     "references/quality.md": {
-      "sha256": "02b7f2715c0ebb3a04d9a89ba38db71ed959e568d46d44676d0787c3c3e6d110",
-      "bytes": 9128
+      "sha256": "8250f2d11fd2816052cfd956748f7d63d6469d7ab5430e5918eec9d3451bda4f",
+      "bytes": 9853
     },
     "references/quick-patch.md": {
       "sha256": "ffd38e221948aeb1d53b0664b7b2c5670822d7e5ff968759dd5227b1915e361b",
@@ -197,8 +197,8 @@
       "bytes": 11039
     },
     "references/web-preflight.md": {
-      "sha256": "45f95cb6d484ffd74f075591dc771e24bb7d144db804d93441d058a82a0fdb26",
-      "bytes": 8341
+      "sha256": "543f567a100d6ad0f056a588ee9d3d42ae348040c2aac722ef2b346db86d8912",
+      "bytes": 8557
     },
     "scripts/browser-session.py": {
       "sha256": "b04295defc571bcf690f92d14344d2f045dfdb80415f0e0145dd89b76595caa4",
@@ -241,5 +241,5 @@
       "bytes": 10954
     }
   },
-  "total_bytes": 488319
+  "total_bytes": 489335
 }

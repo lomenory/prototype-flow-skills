@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Web Pre-flight 是 Web hi-fi 页面交付前的最后一遍机械扫雷。它专门捕捉常见 AI 页面问题：hero 过载、三卡片重复、紫色渐变、CTA 换行、nested cards、假产品 UI（fake product UI）和装饰状态点；只有明确多 Viewport 范围时才检查移动端或断点适配。
+Web Pre-flight 检查 Web hi-fi 页面中常见的 Hero 过载、妨碍比较的卡片排列、紫色渐变、CTA 换行、nested cards、假产品 UI（fake product UI）和装饰状态点。只有明确多 Viewport 范围时才检查移动端或断点适配。
 
 它只适用于 Web hi-fi、landing、homepage、pricing、login、dashboard、docs、settings 等正常浏览器页面。不要把它硬套到 App 设备框或 Review-only 工作。
 
@@ -39,10 +39,9 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 
 ## Layout Repetition Checks
 
-- 不连续出现 3 个以上 image/text zigzag section。
-- 同一页面不要多个 section 使用完全相同的 layout family。
-- 8 个 section 的页面至少有 4 种布局节奏。
-- 三等分 feature card row 不是默认答案；需要它时必须有内容理由。
+- 连续扫读同类条目时，保持字段顺序、对齐和分组一致，让读者能在相同位置找到相同信息。区块承担的任务变化时，再判断是否需要换布局。
+- 比较多家报价可用对齐的行或表格，按先后办理的事项可用步骤，每项都值得单独浏览或打开时可用卡片。
+- 采用图文交错布局时，确认读者能就近找到每幅图对应的说明。
 - Bento grid 的 cell 数量等于真实内容数量，不出现空格子或为了凑版式硬造内容。
 - 长列表不要默认每行上下都加边框；选择 top group border 或 row divider 之一。
 
@@ -55,7 +54,7 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - Display 字体来自 `DESIGN.md`（或旧 `design.md`）、brand 或选定 design system；没有依据时不要默认 Inter/Roboto/Arial 做大标题。
 - 大标题行高不会裁切 italic、中文或 descender。
 - 正文宽度受控，长段落不超过约 65ch。
-- 小 uppercase eyebrow 不要每个 section 都用；最多约每 3 个 section 出现 1 次。
+- 标题上方的小标签（eyebrow）只在补充标题未表达的状态、分类、来源或导航位置时使用。同类区块需要相同提示时可重复使用。
 - 不用 `SECTION 01`、`QUESTION 05`、`PHASE 01` 这类装饰编号当 section 标签。
 - 页面可见文案避免 AI 常见空话，如 “Elevate”、“Unleash”、“Next-Gen”、“Seamless”。
 - 检查文案是否适合受众、名称是否稳定，删除重复解释和装饰性中点分隔；保留专名、引用、必要帮助及操作后果。字号角色按 `references/quality.md` 收敛，不机械限制营销标题、长文、代码或图表。
@@ -117,7 +116,7 @@ Tier 1 默认检查精确目标、可见预期结果、目标截图、未授权 
 - 是否有真实 context 或诚实 placeholder？
 - 是否有未授权 emoji？
 - 是否有 CTA 看不清或换行？
-- 是否有重复 section 节奏？
+- 各区块的排列是否方便用户完成相应的浏览、比较或操作？
 - 是否有 nested cards？
 - 是否有假产品 UI 冒充真实截图？
 - 若明确要求多 Viewport，所有目标是否都可用？
