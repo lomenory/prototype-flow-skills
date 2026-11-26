@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: f215bd10658c; do-not-edit -->
 # 局部修改快路径
 
 只适用于已定位的 Tier 0 文案或 Tier 1 单父容器视觉修改。Review-only 读 `references/routes/review.md` 与 `references/quality.md`。这里只继承已有页面、组件与设计语言，不读取完整 Route、Brief Gate、设计系统或严格回归说明。

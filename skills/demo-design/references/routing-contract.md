@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: f215bd10658c; do-not-edit -->
 # Routing Contract
 
 先判断 Request Intent 与当前授权，再选择 Execution Tier 和 Delivery Route；最后叠加 0 个或多个 Mode 与 Facet。Request Intent 决定只读、提案或执行；Tier 决定读取、辅助产物和验证深度；Route 决定交付形态。

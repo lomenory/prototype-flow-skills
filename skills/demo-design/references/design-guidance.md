@@ -12,6 +12,8 @@ Tier 3 生成 HTML 前，在产物目录创建旁路 `design-guidance.json`。Ti
 
 ## UX Intent Gate
 
+先按[任务与设计依据](page-design/decisions.md)确定页面主次，再把本次决定映射到以下 Demo 字段。
+
 - 必须明确 `primaryUser`、`primaryTask`、`successOutcome` 与有顺序的 `contentPriority`。
 - Web/App Brief 中只把 `primary_user_task` 作为新增必填项。成功结果、内容优先级、关键状态与风险能够从现有需求可靠提取时直接记录；只有会改变设计时才询问。
 - `primaryUser`、`primaryTask`、`successOutcome` 使用 `exact`、`approximate` 或 `assumption` 标记来源精度。
@@ -54,7 +56,7 @@ Tier 3 生成 HTML 前，在产物目录创建旁路 `design-guidance.json`。Ti
 Tier 3 在交付前执行一次有界闭环：
 
 1. 截取初始、关键结果及适用的错误/恢复状态。
-2. 对已有截图做[第一眼检查](quality.md#截图的第一眼检查)，再按原尺寸对照 visual anchors 检查层级、构图、排版节奏、组件一致性、内容真实性与状态可辨识度。按同一质量指引检查适用的文案、对齐、组件几何与动效，并核对表单帮助与反馈、图表轴与单位、详情正文的可读性。
+2. 对已有截图做[第一眼检查](page-design/visual.md#第一眼检查)，再按原尺寸对照 visual anchors 检查层级、构图、排版节奏、组件一致性、内容真实性与状态可辨识度。按同一质量指引检查适用的文案、对齐、组件几何与动效，并核对表单帮助与反馈、图表轴与单位、详情正文的可读性。
 3. 只对阻塞或重要问题做一次集中修正。
 4. 重跑受影响路径和截图；不形成默认无限 review-modify-review 循环。
 

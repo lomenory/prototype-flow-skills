@@ -2,28 +2,11 @@
 
 当截图、URL、Figma、现有代码、现有页面或指定组件库会约束设计，或 Tier 3 Web/App 需要通过 UINice 选择默认模板时使用本文件。
 
-## Source Priority
+## 设计来源与 Demo 记录
 
-按以下顺序确定权威来源：
+按[任务与设计依据](page-design/decisions.md#确定设计来源)选择用户指定来源、项目组件或无既有依据时的 UINice 母版。Tier 0/1/2 继承现有设计；Tier 3 新建或获准整体刷新时才启用默认选型。UINice 不可访问或没有匹配项时，从 `design-systems/index.json` 选择 Core 系统并说明依据。
 
-1. 用户明确指定的风格、目标截图、URL、Figma 节点或设计稿。
-2. 当前代码库的 Token、组件、主题和同类页面。
-3. 用户提供的 Design System、组件库或品牌规范。
-4. 用户明确指定的参考产品。
-5. 无明确风格且无须继承既有设计时，从 [UINice](https://uinice.com/search) 选择适合任务的模板作为默认设计来源。
-6. UINice 不可访问或没有匹配模板时，从 Core Design Systems 选择一个方向并记录 assumption。
-
-冲突会改变视觉语言、组件接口或交付范围时停止询问；低影响差异记录为 assumption。
-
-## UINice Default Template
-
-仅在 Tier 3 新建或已授权的完整视觉刷新中使用此默认流程。用户已有明确风格或参考来源时遵从该选择；Tier 0/1/2 继续继承既有设计。
-
-- 根据产品类型、主要任务、信息密度和目标设备，在 `https://uinice.com/search` 搜索，优先查看 `Templates`，按需要补充 `Design Systems` 或 `Components`；`Stack` 仅用于判断实现适配成本。无需用户先命名风格；已有实施授权时，自行选定一套合适模板并简述选择理由后继续。
-- UINice 是导航目录。打开条目详情，再通过原站入口查看具体模板、实际预览和可用代码；以实际看过的模板为依据。套用其布局、信息层级、配色、排版、间距和组件语言，替换业务内容、数据、状态与交互，并为目标设备做必要适配。
-- 优先使用可合法复用且适合当前 HTML Demo 的模板；复用代码、图片和字体前核对原站许可，目录的 `Free` 标签不替代许可。交付仍遵守完整 Demo 文件夹、相对资源和默认双击打开约定，不因模板采用其他技术栈而引入生产后端或登录依赖。
-- 将 UINice 条目链接、实际模板或原始项目 URL、选用理由及适配差异写入 `DESIGN.md` 的 `Sources and Provenance`。选中模板归为外部来源，按下节创建 `design-reference.json`，在 Guidance 中用 `external` 和 `DSRC-*` 引用；组件映射与截图只覆盖实际采用部分。模板套用不自动开启像素 Diff 或 `strict_regression`。
-- 无法访问或没有匹配项时简述原因，回退到 `design-systems/index.json` 继续；如实记录已获取和未验证的来源，不把目录缩略图当作已查看原站。
+使用外部模板时，在 `DESIGN.md` 的 Sources and Provenance 写明目录条目、实际模板或项目 URL、选择理由和适配差异。按下节生成 `design-reference.json`，在 Guidance 里以 `external` 和 `DSRC-*` 引用实际采用的来源。复用的资源随 Demo 文件夹交付，匹配相对路径和默认双击打开约定。模板选择不会自动启用像素 Diff。
 
 ## Extraction
 

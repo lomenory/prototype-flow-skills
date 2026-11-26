@@ -53,6 +53,18 @@ Tier 0/1 使用 `references/quick-patch.md`；Tier 2/3 读取 `references/routin
 - Design Guidance：对适用规则记录 Browser 实际观察到的可见标签、焦点、目标尺寸、Overflow、图片替代文本和 Reduced Motion 结果；无法从当前 Browser 证明的规则写 `not_run`。
 - 外部设计源：使用相同目标 Viewport 截图并对照 Design Reference 做人工可见比较；声明 `STATE-*` 时必须从 Experience Checks 或 Product Contract 的具体 Step 取得状态截图。只有用户明确要求像素级结论时才运行 Strict Regression，对默认状态与每个声明状态分别 PNG Diff；有界 region/mask 必须记录实际 selector 几何，不能静默忽略。
 
+### 交互与布局场景
+
+制作或调整 Web、HTML App Demo 时，按本轮涉及的用户动作、状态或容器选取对应场景。用项目实际的控件和文案替换下表中的示例。
+
+| 场景 | 可查指南 | 实现选择与验收动作 |
+| --- | --- | --- |
+| 按用户动作选控件 | `dialog`、`ime-safe-enter-submit` | 二次确认可复用项目模态组件或原生 `<dialog>`。打开取消订单确认框，焦点落在“继续支付”。按 Esc 后焦点回到触发按钮，订单仍为待支付。<br>对自定义回车搜索，用中文输入法组词。第一次回车只确认候选词，下一次回车才执行一次搜索。 |
+| 表单报错与恢复 | `validate-input-after-interaction`、`accessible-error-announcement` | 空着退款原因提交，焦点落在原因字段，字段旁显示错误并与字段关联。选好原因，移开焦点再回到字段，确认提示已消失、字段已恢复有效。使用 `aria-describedby` 时只移除旧错误的 ID，保留仍适用的填写说明。再次提交进入约定的成功状态。 |
+| 窄容器与边缘菜单 | `size-aware-styling`、`responsive-table`、`viewport-aware-dropdowns` | 保持视口不变，在窄抽屉中查看表格，每个值都能对应到表头，行操作可达。在边缘打开菜单，所有可用选项都能看到或滚动到并选中。按目标浏览器选择定位方式，可参考 Baseline 判断支持范围。需要备用布局时，用普通面板等可用实现，在对应环境复验同一操作。 |
+
+需要 API 细节时，可按表内指南名查本地固定版本的 Modern Web Guidance（参考修订 `2b4aa13a72dd`）。在本轮已有检查记录中注明实际环境、动作和结果。输入法选词、读屏播报只记录实际观察，HTTP 预览与[交付包双击](#适用的静态校验)分别取证。
+
 ### 可读性证据
 
 新交付或文字/颜色/密度发生变化时，在受影响的关键区域抽取正文、标签、必要帮助/反馈和单位等代表样本，记录 selector、文字角色、实际 computed 字号/字重、前景色与可确定的背景，并与 `DESIGN.md` 和 `references/quality.md` 对照。已有报告可放入 `readabilityObservations`，不引入新的必填 Schema。

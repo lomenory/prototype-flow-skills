@@ -1,4 +1,4 @@
-<!-- generated-from: contracts/*.yaml; contract-hash: 4bbf2a253c88; do-not-edit -->
+<!-- generated-from: contracts/*.yaml; contract-hash: f215bd10658c; do-not-edit -->
 # Prototype Brief Gate
 
 先使用 Request Intent Schema 判断当前请求允许只读、提案、实施或 Git 操作，再使用 Execution Tier 对应的 Brief Policy；`tier_3_full_delivery` 再使用 Route Schema，命中 Mode 时追加 Mode Schema。
